@@ -125,7 +125,7 @@ bool ts::GitHubRelease::CallGitHub(json::ValuePtr& response, json::Type expected
 
     // Build the request.
     WebRequest req(report);
-    req.setURL(github + u"/repos/" + owner + u"/" + repository + request);
+    const UString url(github + u"/repos/" + owner + u"/" + repository + request);
 
     // Look for an optional GitHub authorization token.
     UString token(GetEnvironment(u"TSDUCK_GITHUB_API_TOKEN"));
@@ -147,7 +147,7 @@ bool ts::GitHubRelease::CallGitHub(json::ValuePtr& response, json::Type expected
 
     // Send the request, fetch the response, analyze the JSON.
     UString text;
-    if (!req.downloadTextContent(text) || !json::Parse(response, text, report)) {
+    if (!req.downloadTextContent(url, text) || !json::Parse(response, text, report)) {
         return false;
     }
     assert(!response.isNull());
@@ -181,7 +181,7 @@ bool ts::GitHubRelease::downloadInfo(const UString& owner, const UString& reposi
     _isValid = false;
 
     // Send the request to GitHub. We expect a JSON object.
-    return CallGitHub(_root, json::TypeObject, owner, repository, tag.empty() ? u"/releases/latest" : u"/releases/tags/" + tag, report) && validate(report);
+    return CallGitHub(_root, json::Type::Object, owner, repository, tag.empty() ? u"/releases/latest" : u"/releases/tags/" + tag, report) && validate(report);
 }
 
 
@@ -195,7 +195,7 @@ bool ts::GitHubRelease::GetAllVersions(GitHubReleaseVector& versions, const UStr
 
     // Send the request to GitHub. We expect an array of release objects.
     json::ValuePtr response;
-    if (!CallGitHub(response, json::TypeArray, owner, repository, u"/releases", report)) {
+    if (!CallGitHub(response, json::Type::Array, owner, repository, u"/releases", report)) {
         return false;
     }
 

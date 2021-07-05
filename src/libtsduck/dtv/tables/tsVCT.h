@@ -78,10 +78,10 @@ namespace ts {
             explicit Channel(const AbstractTable* table);
 
             //!
-            //! Set all known values in a Service object.
-            //! @param [in,out] service Service object to update.
+            //! Collect all informations about the service.
+            //! @param [in,out] service A service description to update.
             //!
-            void setService(Service& service) const;
+            void updateService(Service& service) const;
 
         private:
             // Inaccessible operations.
@@ -152,6 +152,15 @@ namespace ts {
         //! @return True if the service is found, false if not found.
         //!
         bool findService(Service& service, bool exact_match = false, bool same_ts = true) const;
+
+        //!
+        //! Collect all informations about all services in the VCT.
+        //! @param [in,out] duck TSDuck execution context.
+        //! @param [in,out] services A list of service descriptions. Existing services
+        //! are updated with the informations from the SDT. New entries are created for
+        //! other services.
+        //!
+        void updateServices(DuckContext& duck, ServiceList& services) const;
 
         // Inherited methods
         virtual uint16_t tableIdExtension() const override;

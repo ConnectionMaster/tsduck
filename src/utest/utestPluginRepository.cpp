@@ -35,7 +35,6 @@
 #include "tsNullReport.h"
 #include "tsCerrReport.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -94,11 +93,11 @@ void PluginRepositoryTest::testRegistrations()
     TSUNIT_ASSERT(!inputs.empty());
     TSUNIT_ASSERT(!outputs.empty());
     TSUNIT_ASSERT(!procs.empty());
-    TSUNIT_ASSERT(ts::UString(u"null").containSimilar(inputs));
-    TSUNIT_ASSERT(ts::UString(u"file").containSimilar(inputs));
-    TSUNIT_ASSERT(ts::UString(u"file").containSimilar(outputs));
-    TSUNIT_ASSERT(ts::UString(u"file").containSimilar(procs));
-    TSUNIT_ASSERT(ts::UString(u"drop").containSimilar(outputs));
+    TSUNIT_ASSERT(ts::UString(u"null").isContainedSimilarIn(inputs));
+    TSUNIT_ASSERT(ts::UString(u"file").isContainedSimilarIn(inputs));
+    TSUNIT_ASSERT(ts::UString(u"file").isContainedSimilarIn(outputs));
+    TSUNIT_ASSERT(ts::UString(u"file").isContainedSimilarIn(procs));
+    TSUNIT_ASSERT(ts::UString(u"drop").isContainedSimilarIn(outputs));
 }
 
 void PluginRepositoryTest::testEmbedded()
@@ -129,7 +128,7 @@ void PluginRepositoryTest::testLoaded()
     ts::Report& report(debugMode() ? *static_cast<ts::Report*>(&CERR) : *static_cast<ts::Report*>(&NULLREP));
     ts::PluginRepository* repo = ts::PluginRepository::Instance();
 
-    TSUNIT_ASSERT(repo->getInput(u"skip", report) == nullptr);
-    TSUNIT_ASSERT(repo->getOutput(u"skip", report) == nullptr);
-    TSUNIT_ASSERT(repo->getProcessor(u"skip", report) != nullptr);
+    TSUNIT_ASSERT(repo->getInput(u"merge", report) == nullptr);
+    TSUNIT_ASSERT(repo->getOutput(u"merge", report) == nullptr);
+    TSUNIT_ASSERT(repo->getProcessor(u"merge", report) != nullptr);
 }

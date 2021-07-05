@@ -29,6 +29,7 @@
 
 #include "tsTime.h"
 #include "tsMemory.h"
+#include "tsTimeConfigurationFile.h"
 TSDUCK_SOURCE;
 
 
@@ -66,7 +67,7 @@ const ts::MilliSecond ts::Time::JulianEpochOffset =
 #endif
 
 // The GPS Epoch.
-const ts::Time ts::Time::GPSEpoch(ts::Time::UnixEpoch + UnixEpochToGPS * ts::MilliSecPerSec);
+const ts::Time ts::Time::GPSEpoch(1980, 1, 6, 0, 0);
 
 
 //----------------------------------------------------------------------------
@@ -162,6 +163,16 @@ bool ts::Time::Fields::isValid() const
 
 
 //----------------------------------------------------------------------------
+// Implementation of StringifyInterface.
+//----------------------------------------------------------------------------
+
+ts::UString ts::Time::toString() const
+{
+    return format(ALL);
+}
+
+
+//----------------------------------------------------------------------------
 // Basic string representation
 //----------------------------------------------------------------------------
 
@@ -228,6 +239,9 @@ bool ts::Time::decode(const ts::UString& str, int fields)
         }
     }
 
+    // Trim spaces to normalize the string.
+    s.trim(true, true, true);
+
     // Decode up to 7 integer fields.
     int f[7];
     size_t count = 0;
@@ -293,6 +307,16 @@ bool ts::Time::decode(const ts::UString& str, int fields)
         return false;
     }
     return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Get the number of leap seconds between two UTC dates.
+//----------------------------------------------------------------------------
+
+ts::Second ts::Time::leapSecondsTo(const Time& end) const
+{
+    return TimeConfigurationFile::Instance()->leapSeconds(*this, end);
 }
 
 
@@ -630,51 +654,51 @@ ts::Time::operator Fields() const
 
 ts::Time ts::Time::thisHour() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.minute = f.second = f.millisecond = 0;
-    return ts::Time (f);
+    return Time(f);
 }
 
 ts::Time ts::Time::thisDay() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.hour = f.minute = f.second = f.millisecond = 0;
-    return ts::Time (f);
+    return Time(f);
 }
 
 ts::Time ts::Time::thisMonth() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.day = 1;
     f.hour = f.minute = f.second = f.millisecond = 0;
-    return ts::Time (f);
+    return Time(f);
 }
 
 ts::Time ts::Time::nextMonth() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.day = 1;
     f.hour = f.minute = f.second = f.millisecond = 0;
     if (f.month++ == 12) {
         f.month = 1;
         f.year++;
     }
-    return ts::Time (f);
+    return Time(f);
 }
 
 ts::Time ts::Time::thisYear() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.month = f.day = 1;
     f.hour = f.minute = f.second = f.millisecond = 0;
-    return ts::Time (f);
+    return Time(f);
 }
 
 ts::Time ts::Time::nextYear() const
 {
-    ts::Time::Fields f (*this);
+    Fields f(*this);
     f.year++;
     f.month = f.day = 1;
     f.hour = f.minute = f.second = f.millisecond = 0;
-    return ts::Time (f);
+    return Time(f);
 }

@@ -51,7 +51,6 @@ ts::InputSwitcherArgs::InputSwitcherArgs() :
     fastSwitch(false),
     delayedSwitch(false),
     terminate(false),
-    monitor(false),
     reusePort(false),
     firstInput(0),
     primaryInput(NPOS),
@@ -59,6 +58,10 @@ ts::InputSwitcherArgs::InputSwitcherArgs() :
     bufferedPackets(0),
     maxInputPackets(0),
     maxOutputPackets(0),
+    eventCommand(),
+    eventUDP(),
+    eventLocalAddress(),
+    eventTTL(0),
     sockBuffer(0),
     remoteServer(),
     allowedRemote(),
@@ -68,25 +71,12 @@ ts::InputSwitcherArgs::InputSwitcherArgs() :
 {
 }
 
-ts::InputSwitcherArgs::InputSwitcherArgs(const InputSwitcherArgs& other) :
-    appName(other.appName),
-    fastSwitch(other.fastSwitch),
-    delayedSwitch(other.delayedSwitch),
-    terminate(other.terminate),
-    monitor(other.monitor),
-    reusePort(other.reusePort),
-    firstInput(std::min(other.firstInput, std::max<size_t>(other.inputs.size(), 1) - 1)),
-    primaryInput(other.primaryInput),
-    cycleCount(other.cycleCount),
-    bufferedPackets(std::max(other.bufferedPackets, MIN_BUFFERED_PACKETS)),
-    maxInputPackets(std::max(other.maxInputPackets, MIN_INPUT_PACKETS)),
-    maxOutputPackets(std::max(other.maxOutputPackets, MIN_OUTPUT_PACKETS)),
-    sockBuffer(other.sockBuffer),
-    remoteServer(other.remoteServer),
-    allowedRemote(other.allowedRemote),
-    receiveTimeout(other.receiveTimeout),
-    inputs(other.inputs),
-    output(other.output)
+
+//----------------------------------------------------------------------------
+// Enforce default or minimum values.
+//----------------------------------------------------------------------------
+
+void ts::InputSwitcherArgs::enforceDefaults()
 {
     if (inputs.empty()) {
         // If no input plugin is used, used only standard input.
@@ -98,6 +88,11 @@ ts::InputSwitcherArgs::InputSwitcherArgs(const InputSwitcherArgs& other) :
     if (receiveTimeout <= 0 && primaryInput != NPOS) {
         receiveTimeout = DEFAULT_RECEIVE_TIMEOUT;
     }
+
+    firstInput = std::min(firstInput, inputs.size() - 1);
+    bufferedPackets = std::max(bufferedPackets, MIN_BUFFERED_PACKETS);
+    maxInputPackets = std::max(maxInputPackets, MIN_INPUT_PACKETS);
+    maxOutputPackets = std::max(maxOutputPackets, MIN_OUTPUT_PACKETS);
 }
 
 
@@ -131,6 +126,36 @@ void ts::InputSwitcherArgs::defineArgs(Args& args) const
               u"receive packets, the switch occurs: packets are now fetched from the second plugin. "
               u"Finally, after the switch, the first plugin is stopped.");
 
+    args.option(u"event-command", 0, Args::STRING);
+    args.help(u"event-command", u"'command'",
+              u"When a switch event occurs, run this external shell command. "
+              u"This can be used to notify some external system of the event. "
+              u"The command receives additional parameters:\n\n"
+              u"1. Event name, currently only \"newinput\" is defined.\n"
+              u"2. The input index before the event.\n"
+              u"3. The input index after the event.");
+
+    args.option(u"event-udp", 0, Args::STRING);
+    args.help(u"event-udp", u"address:port",
+              u"When a switch event occurs, send a short JSON description over UDP/IP to the specified destination. "
+              u"This can be used to notify some external system of the event. "
+              u"The 'address' specifies an IP address which can be either unicast or multicast. "
+              u"It can be also a host name that translates to an IP address. "
+              u"The 'port' specifies the destination UDP port.");
+
+    args.option(u"event-local-address", 0, Args::STRING);
+    args.help(u"event-local-address", u"address",
+              u"With --event-udp, when the destination is a multicast address, specify "
+              u"the IP address of the outgoing local interface. It can be also a host "
+              u"name that translates to a local address.");
+
+    args.option(u"event-ttl", 0, Args::POSITIVE);
+    args.help(u"event-ttl",
+              u"With --event-udp, specifies the TTL (Time-To-Live) socket option. "
+              u"The actual option is either \"Unicast TTL\" or \"Multicast TTL\", "
+              u"depending on the destination address. Remember that the default "
+              u"Multicast TTL is 1 on most systems.");
+
     args.option(u"fast-switch", 'f');
     args.help(u"fast-switch",
               u"Perform fast input switching. All input plugins are started at once and they "
@@ -159,12 +184,6 @@ void ts::InputSwitcherArgs::defineArgs(Args& args) const
     args.help(u"max-output-packets",
               u"Specify the maximum number of TS packets to write at a time. "
               u"The default is " + UString::Decimal(DEFAULT_MAX_OUTPUT_PACKETS) + u" packets.");
-
-    args.option(u"monitor", 'm');
-    args.help(u"monitor",
-              u"Continuously monitor the system resources which are used by tsswitch. "
-              u"This includes CPU load, virtual memory usage. Useful to verify the "
-              u"stability of the application.");
 
     args.option(u"primary-input", 'p', Args::UNSIGNED);
     args.help(u"primary-input",
@@ -214,17 +233,21 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
     fastSwitch = args.present(u"fast-switch");
     delayedSwitch = args.present(u"delayed-switch");
     terminate = args.present(u"terminate");
-    cycleCount = args.intValue<size_t>(u"cycle", args.present(u"infinite") ? 0 : 1);
-    monitor = args.present(u"monitor");
-    bufferedPackets = args.intValue<size_t>(u"buffer-packets", DEFAULT_BUFFERED_PACKETS);
+    args.getIntValue(cycleCount, u"cycle", args.present(u"infinite") ? 0 : 1);
+    args.getIntValue(bufferedPackets, u"buffer-packets", DEFAULT_BUFFERED_PACKETS);
     maxInputPackets = std::min(args.intValue<size_t>(u"max-input-packets", DEFAULT_MAX_INPUT_PACKETS), bufferedPackets / 2);
-    maxOutputPackets = args.intValue<size_t>(u"max-output-packets", DEFAULT_MAX_OUTPUT_PACKETS);
+    args.getIntValue(maxOutputPackets, u"max-output-packets", DEFAULT_MAX_OUTPUT_PACKETS);
     const UString remoteName(args.value(u"remote"));
     reusePort = !args.present(u"no-reuse-port");
-    sockBuffer = args.intValue<size_t>(u"udp-buffer-size");
-    firstInput = args.intValue<size_t>(u"first-input", 0);
-    primaryInput = args.intValue<size_t>(u"primary-input", NPOS);
-    receiveTimeout = args.intValue<MilliSecond>(u"receive-timeout", primaryInput >= inputs.size() ? 0 : DEFAULT_RECEIVE_TIMEOUT);
+    args.getIntValue(sockBuffer, u"udp-buffer-size");
+    args.getIntValue(firstInput, u"first-input", 0);
+    args.getIntValue(primaryInput, u"primary-input", NPOS);
+    args.getIntValue(receiveTimeout, u"receive-timeout", primaryInput >= inputs.size() ? 0 : DEFAULT_RECEIVE_TIMEOUT);
+
+    // Event reporting.
+    args.getValue(eventCommand, u"event-command");
+    setEventUDP(args.value(u"event-udp"), args.value(u"event-local-address"), args);
+    args.getIntValue(eventTTL, u"event-ttl", 0);
 
     // Check conflicting modes.
     if (args.present(u"cycle") + args.present(u"infinite") + args.present(u"terminate") > 1) {
@@ -234,7 +257,7 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
         args.error(u"options --delayed-switch and --fast-switch are mutually exclusive");
     }
 
-    // Resolve remote control name.
+    // Resolve network names. The resolve() method reports error and set the args error state.
     if (!remoteName.empty() && remoteServer.resolve(remoteName, args) && !remoteServer.hasPort()) {
         args.error(u"missing UDP port number in --remote");
     }
@@ -275,4 +298,32 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
     }
 
     return args.valid();
+}
+
+
+//----------------------------------------------------------------------------
+// Set the UDP destination for event reporting using strings.
+//----------------------------------------------------------------------------
+
+bool ts::InputSwitcherArgs::setEventUDP(const UString& destination, const UString& local, Report& report)
+{
+    if (destination.empty()) {
+        eventUDP.clear();
+    }
+    else if (!eventUDP.resolve(destination, report)) {
+        return false;
+    }
+    else if (!eventUDP.hasAddress() || !eventUDP.hasPort()) {
+        report.error(u"event reporting through UDP requires an IP address and a UDP port");
+        return false;
+    }
+
+    if (local.empty()) {
+        eventLocalAddress.clear();
+    }
+    else if (!eventLocalAddress.resolve(local, report)) {
+        return false;
+    }
+
+    return true;
 }

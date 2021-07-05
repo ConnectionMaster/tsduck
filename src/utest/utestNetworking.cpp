@@ -36,6 +36,7 @@
 #include "tsIPv6Address.h"
 #include "tsMACAddress.h"
 #include "tsSocketAddress.h"
+#include "tsIPv6SocketAddress.h"
 #include "tsTCPConnection.h"
 #include "tsTCPServer.h"
 #include "tsUDPSocket.h"
@@ -45,7 +46,6 @@
 #include "tsCerrReport.h"
 #include "utestTSUnitThread.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -67,6 +67,7 @@ public:
     void testGetLocalIPAddresses();
     void testSocketAddressConstructors();
     void testSocketAddress();
+    void testIPv6SocketAddress();
     void testTCPSocket();
     void testUDPSocket();
     void testIPHeader();
@@ -79,6 +80,7 @@ public:
     TSUNIT_TEST(testGetLocalIPAddresses);
     TSUNIT_TEST(testSocketAddressConstructors);
     TSUNIT_TEST(testSocketAddress);
+    TSUNIT_TEST(testIPv6SocketAddress);
     TSUNIT_TEST(testTCPSocket);
     TSUNIT_TEST(testUDPSocket);
     TSUNIT_TEST(testIPHeader);
@@ -158,10 +160,10 @@ void NetworkingTest::testIPAddressConstructors()
     ts::IPAddress a6 (sa6);
     TSUNIT_ASSERT(a6.address() == 0x01020304);
 
-    ts::IPAddress a7(u"2.3.4.5");
+    ts::IPAddress a7(u"2.3.4.5", CERR);
     TSUNIT_ASSERT(a7.address() == 0x02030405);
 
-    ts::IPAddress a8(u"localhost");
+    ts::IPAddress a8(u"localhost", CERR);
     TSUNIT_ASSERT(a8.address() == 0x7F000001); // 127.0.0.1
     TSUNIT_ASSERT(a8 == ts::IPAddress::LocalHost);
 }
@@ -210,10 +212,10 @@ void NetworkingTest::testIPAddress()
     TSUNIT_ASSERT(sai.sin_addr.s_addr == htonl (0x01020304));
     TSUNIT_ASSERT(sai.sin_port == htons (80));
 
-    TSUNIT_ASSERT(a1.resolve(u"2.3.4.5"));
+    TSUNIT_ASSERT(a1.resolve(u"2.3.4.5", CERR));
     TSUNIT_ASSERT(a1.address() == 0x02030405);
 
-    TSUNIT_ASSERT(a1.resolve(u"localhost"));
+    TSUNIT_ASSERT(a1.resolve(u"localhost", CERR));
     TSUNIT_ASSERT(a1.address() == 0x7F000001); // 127.0.0.1
     TSUNIT_ASSERT(a1 == ts::IPAddress::LocalHost);
 
@@ -221,10 +223,10 @@ void NetworkingTest::testIPAddress()
     const ts::UString s1(a1.toString());
     TSUNIT_ASSERT(s1 == u"2.3.4.5");
 
-    debug() << "NetworkingTest: localhost = " << ts::IPAddress(u"localhost") << std::endl;
+    debug() << "NetworkingTest: localhost = " << ts::IPAddress(u"localhost", CERR) << std::endl;
 
     // Note: fail if not connected to a network.
-    debug() << "NetworkingTest: www.google.com = " << ts::IPAddress(u"www.google.com") << std::endl;
+    debug() << "NetworkingTest: www.google.com = " << ts::IPAddress(u"www.google.com", CERR) << std::endl;
 }
 
 void NetworkingTest::testIPv6Address()
@@ -241,11 +243,11 @@ void NetworkingTest::testIPv6Address()
     TSUNIT_ASSERT(!a1.resolve(u":", NULLREP));
     TSUNIT_ASSERT(!a1.hasAddress());
 
-    TSUNIT_ASSERT(a1.resolve(u"::"));
+    TSUNIT_ASSERT(a1.resolve(u"::", CERR));
     TSUNIT_ASSERT(!a1.hasAddress());
     TSUNIT_ASSERT(a1 == ts::IPv6Address::AnyAddress);
 
-    TSUNIT_ASSERT(a1.resolve(u"::1"));
+    TSUNIT_ASSERT(a1.resolve(u"::1", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(a1 == ts::IPv6Address::LocalHost);
 
@@ -266,7 +268,7 @@ void NetworkingTest::testIPv6Address()
     TSUNIT_EQUAL(u"12:345:6789:ffff::beef", a1.toString());
     TSUNIT_EQUAL(u"0012:0345:6789:ffff:0000:0000:0000:beef", a1.toFullString());
 
-    TSUNIT_ASSERT(a1.resolve(u"fe80::93a3:dea0:2108:b81e"));
+    TSUNIT_ASSERT(a1.resolve(u"fe80::93a3:dea0:2108:b81e", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), a1.networkPrefix());
     TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), a1.interfaceIdentifier());
@@ -280,13 +282,13 @@ void NetworkingTest::testMACAddress()
     TSUNIT_ASSERT(!a1.hasAddress());
     TSUNIT_ASSERT(!a1.isMulticast());
 
-    TSUNIT_ASSERT(a1.resolve(u"52:54:00:26:92:b4"));
+    TSUNIT_ASSERT(a1.resolve(u"52:54:00:26:92:b4", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(!a1.isMulticast());
     TSUNIT_EQUAL(TS_UCONST64(0x5254002692B4), a1.address());
     TSUNIT_EQUAL(u"52:54:00:26:92:B4", a1.toString());
 
-    TSUNIT_ASSERT(a1.resolve(u" 23:b3-A6 . bE : 56-4D"));
+    TSUNIT_ASSERT(a1.resolve(u" 23:b3-A6 . bE : 56-4D", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(!a1.isMulticast());
     TSUNIT_EQUAL(TS_UCONST64(0x23B3A6BE564D), a1.address());
@@ -383,20 +385,20 @@ void NetworkingTest::testSocketAddressConstructors()
     TSUNIT_ASSERT(a6.address() == 0x01020304);
     TSUNIT_ASSERT(a6.port() == 80);
 
-    ts::SocketAddress a7(u"2.3.4.5");
+    ts::SocketAddress a7(u"2.3.4.5", CERR);
     TSUNIT_ASSERT(a7.address() == 0x02030405);
     TSUNIT_ASSERT(a7.port() == ts::SocketAddress::AnyPort);
 
-    ts::SocketAddress a8(u"localhost");
+    ts::SocketAddress a8(u"localhost", CERR);
     TSUNIT_ASSERT(a8.address() == 0x7F000001); // 127.0.0.1
     TSUNIT_ASSERT(a8 == ts::IPAddress::LocalHost);
     TSUNIT_ASSERT(a8.port() == ts::SocketAddress::AnyPort);
 
-    ts::SocketAddress a9(u"2.3.4.5:80");
+    ts::SocketAddress a9(u"2.3.4.5:80", CERR);
     TSUNIT_ASSERT(a9.address() == 0x02030405);
     TSUNIT_ASSERT(a9.port() == 80);
 
-    ts::SocketAddress a10(u":80");
+    ts::SocketAddress a10(u":80", CERR);
     TSUNIT_ASSERT(a10.address() == ts::IPAddress::AnyAddress);
     TSUNIT_ASSERT(a10.port() == 80);
 }
@@ -457,6 +459,39 @@ void NetworkingTest::testSocketAddress()
     a1.clearPort();
     const ts::UString s2(a1.toString());
     TSUNIT_ASSERT(s2 == u"2.3.4.5");
+}
+
+void NetworkingTest::testIPv6SocketAddress()
+{
+    TSUNIT_ASSERT(ts::IPInitialize());
+
+    ts::IPv6SocketAddress sa1;
+    TSUNIT_ASSERT(!sa1.hasAddress());
+    TSUNIT_ASSERT(!sa1.hasPort());
+
+    sa1.set(0, 1, 2, 3, 4, 5, 6, 7, 1234);
+    TSUNIT_ASSERT(sa1.hasAddress());
+    TSUNIT_ASSERT(sa1.hasPort());
+    TSUNIT_EQUAL(TS_UCONST64(0x0000000100020003), sa1.networkPrefix());
+    TSUNIT_EQUAL(TS_UCONST64(0x0004000500060007), sa1.interfaceIdentifier());
+    TSUNIT_EQUAL(u"[0:1:2:3:4:5:6:7]:1234", sa1.toString());
+    TSUNIT_EQUAL(u"[0000:0001:0002:0003:0004:0005:0006:0007]:1234", sa1.toFullString());
+
+    TSUNIT_ASSERT(sa1.resolve(u"fe80::93a3:dea0:2108:b81e", CERR));
+    TSUNIT_ASSERT(sa1.hasAddress());
+    TSUNIT_ASSERT(!sa1.hasPort());
+    TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), sa1.networkPrefix());
+    TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), sa1.interfaceIdentifier());
+    TSUNIT_EQUAL(u"fe80::93a3:dea0:2108:b81e", sa1.toString());
+    TSUNIT_EQUAL(u"fe80:0000:0000:0000:93a3:dea0:2108:b81e", sa1.toFullString());
+
+    ts::IPv6SocketAddress sa2(u"[FE80::93A3:DEA0:2108:B81E]:1234", CERR);
+    TSUNIT_ASSERT(sa2.hasAddress());
+    TSUNIT_ASSERT(sa2.hasPort());
+    TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), sa2.networkPrefix());
+    TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), sa2.interfaceIdentifier());
+    TSUNIT_EQUAL(u"[fe80::93a3:dea0:2108:b81e]:1234", sa2.toString());
+    TSUNIT_EQUAL(u"[fe80:0000:0000:0000:93a3:dea0:2108:b81e]:1234", sa2.toFullString());
 }
 
 // A thread class which implements a TCP/IP client.

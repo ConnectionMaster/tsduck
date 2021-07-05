@@ -38,8 +38,7 @@ TSDUCK_SOURCE;
 
 ts::jni::AsyncReport::AsyncReport(JNIEnv* env, jobject obj, jstring log_method, int max_severity, const AsyncReportArgs& args) :
     ts::AsyncReport(max_severity, args),
-    _env_constructor(env),
-    _env_thread(nullptr),
+    _env(env),
     _obj_ref(env == nullptr || obj == nullptr ? nullptr : env->NewGlobalRef(obj)),
     _obj_method(nullptr)
 {
@@ -54,35 +53,9 @@ ts::jni::AsyncReport::AsyncReport(JNIEnv* env, jobject obj, jstring log_method, 
 
 ts::jni::AsyncReport::~AsyncReport()
 {
-    if (_env_constructor != nullptr && _obj_ref != nullptr) {
-        _env_constructor->DeleteGlobalRef(_obj_ref);
+    if (_env != nullptr && _obj_ref != nullptr) {
+        _env->DeleteGlobalRef(_obj_ref);
         _obj_ref = nullptr;
-    }
-}
-
-
-//----------------------------------------------------------------------------
-// Initialization/completion of the asynchronous logging thread.
-//----------------------------------------------------------------------------
-
-void ts::jni::AsyncReport::asyncThreadStarted()
-{
-    // Attach the logging thread to the Java VM.
-    if (ts::jni::javaVM != nullptr) {
-        void* penv = nullptr;
-        const jint status = ts::jni::javaVM->AttachCurrentThread(&penv, nullptr);
-        if (status == JNI_OK && penv != nullptr) {
-            _env_thread = reinterpret_cast<JNIEnv*>(penv);
-        }
-    }
-}
-
-void ts::jni::AsyncReport::asyncThreadCompleted()
-{
-    // Detach the logging thread from the Java VM.
-    if (ts::jni::javaVM != nullptr) {
-        _env_thread = nullptr;
-        ts::jni::javaVM->DetachCurrentThread();
     }
 }
 
@@ -93,12 +66,55 @@ void ts::jni::AsyncReport::asyncThreadCompleted()
 
 void ts::jni::AsyncReport::asyncThreadLog(int severity, const UString& message)
 {
-    if (_env_thread != nullptr && _obj_ref != nullptr && _obj_method != nullptr) {
-        const jstring jmessage = ToJString(_env_thread, message);
+    JNIEnv* env = JNIEnvForCurrentThead();
+    if (env != nullptr && _obj_ref != nullptr && _obj_method != nullptr) {
+        const jstring jmessage = ToJString(env, message);
         if (jmessage != nullptr) {
-            _env_thread->CallVoidMethod(_obj_ref, _obj_method, jint(severity), jmessage);
-            _env_thread->DeleteLocalRef(jmessage);
+            env->CallVoidMethod(_obj_ref, _obj_method, jint(severity), jmessage);
+            env->DeleteLocalRef(jmessage);
         }
+    }
+}
+
+//----------------------------------------------------------------------------
+// Implementation of native methods of Java class io.tsduck.AbstractAsyncReport
+//----------------------------------------------------------------------------
+
+//
+// private native void initNativeObject(String logMethodName, int severity, boolean syncLog, int logMsgCount);
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_AbstractAsyncReport_initNativeObject(JNIEnv* env, jobject obj, jstring method, jint severity, jboolean syncLog, jint logMsgCount)
+{
+    // Make sure we do not allocate twice (and lose previous instance).
+    ts::jni::AsyncReport* report = ts::jni::GetPointerField<ts::jni::AsyncReport>(env, obj, "nativeObject");
+    if (env != nullptr && report == nullptr) {
+        ts::AsyncReportArgs args;
+        args.sync_log = bool(syncLog);
+        args.log_msg_count = size_t(std::max<jint>(1, logMsgCount));
+        ts::jni::SetPointerField(env, obj, "nativeObject", new ts::jni::AsyncReport(env, obj, method, int(severity), args));
+    }
+}
+
+//
+// public native void terminate();
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_AbstractAsyncReport_terminate(JNIEnv* env, jobject obj)
+{
+    ts::jni::AsyncReport* report = ts::jni::GetPointerField<ts::jni::AsyncReport>(env, obj, "nativeObject");
+    if (report != nullptr) {
+        report->terminate();
+    }
+}
+
+//
+// public native void delete();
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_AbstractAsyncReport_delete(JNIEnv* env, jobject obj)
+{
+    ts::jni::AsyncReport* report = ts::jni::GetPointerField<ts::jni::AsyncReport>(env, obj, "nativeObject");
+    if (report != nullptr) {
+        delete report;
+        ts::jni::SetLongField(env, obj, "nativeObject", 0);
     }
 }
 

@@ -95,11 +95,10 @@ dtapi:
 	@$(MAKE) -C dektec
 
 # Install files, using SYSROOT as target system root if necessary.
-.PHONY: install install-devel install-all
-install-all: install install-devel
-install install-devel:
-	$(MAKE) -C src $@
-	$(MAKE) -C build $@
+.PHONY: install install-tools install-devel
+install install-tools install-devel:
+	$(MAKE) NOTEST=true -C src $@
+	$(MAKE) NOTEST=true -C build $@
 
 # Various build targets are redirected to build subdirectory.
 .PHONY: tarball rpm rpm32 deb

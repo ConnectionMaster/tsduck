@@ -36,9 +36,19 @@
 
 #pragma once
 #include "tsUString.h"
+#include "tsPluginOptions.h"
 
 #if !defined(TS_NO_JAVA)
 #include <jni.h>
+
+//!
+//! @hideinitializer
+//! Attribute to export a JNI native function to Java.
+//!
+#define TSDUCKJNI \
+    TS_GCC_NOWARNING(missing-prototypes) \
+    TS_LLVM_NOWARNING(missing-prototypes) \
+    extern "C" JNIEXPORT
 
 //
 // Java Class Names (JCN) in JNI notation.
@@ -46,24 +56,26 @@
 #define JCN_CLASS  "java/lang/Class"
 #define JCN_OBJECT "java/lang/Object"
 #define JCN_STRING "java/lang/String"
+#define JCN_PLUGIN_EVENT_CONTEXT "io/tsduck/PluginEventContext"
 
 //
 // Java Class Signatures (JCS) in JNI notation.
 //
-#define JCS(name)      "L" name ";"
-#define JCS_ARRAY(jcs) "[" jcs
-#define JCS_BOOLEAN    "Z"
-#define JCS_BYTE       "B"
-#define JCS_CHAR       "C"
-#define JCS_SHORT      "S"
-#define JCS_INT        "I"
-#define JCS_LONG       "J"
-#define JCS_FLOAT      "F"
-#define JCS_DOUBLE     "D"
-#define JCS_VOID       "V"
-#define JCS_CLASS      JCS(JCN_CLASS)
-#define JCS_OBJECT     JCS(JCN_OBJECT)
-#define JCS_STRING     JCS(JCN_STRING)
+#define JCS(name)       "L" name ";"
+#define JCS_ARRAY(jcs)  "[" jcs
+#define JCS_BOOLEAN     "Z"
+#define JCS_BYTE        "B"
+#define JCS_CHAR        "C"
+#define JCS_SHORT       "S"
+#define JCS_INT         "I"
+#define JCS_LONG        "J"
+#define JCS_FLOAT       "F"
+#define JCS_DOUBLE      "D"
+#define JCS_VOID        "V"
+#define JCS_CLASS       JCS(JCN_CLASS)
+#define JCS_OBJECT      JCS(JCN_OBJECT)
+#define JCS_STRING      JCS(JCN_STRING)
+#define JCS_CONSTRUCTOR "<init>"
 
 namespace ts {
     //!
@@ -75,6 +87,14 @@ namespace ts {
         //! Null pointer if JNI is not properly initialized.
         //!
         extern JavaVM* javaVM;
+
+        //!
+        //! Get the JNIEnv pointer for the current thread.
+        //! If the thread is a native one and is not yet attached to the JVM, attachment is done first.
+        //! Non-native threads are automatically detached from the JVM.
+        //! @return The JNIEnv pointer for the current thread.
+        //!
+        JNIEnv* JNIEnvForCurrentThead();
 
         //!
         //! Get the address of the first character in a string as a Java character.
@@ -239,6 +259,24 @@ namespace ts {
         //! @return True on success, false on error.
         //!
         bool SetStringField(JNIEnv* env, jobject obj, const char* fieldName, const ts::UString& value);
+
+        //!
+        //! Get a plugin description from a Java array of string.
+        //! @param [in,out] env JNI callback environment.
+        //! @param [in,out] strings Java array of strings.
+        //! @param [out] plugin Decoded plugin description.
+        //! @return True on success, false on error.
+        //!
+        bool GetPluginOptions(JNIEnv* env, jobjectArray strings, PluginOptions& plugin);
+
+        //!
+        //! Get a vector of plugin descriptions from a Java array of string.
+        //! @param [in,out] env JNI callback environment.
+        //! @param [in,out] strings Java array of arrays of strings.
+        //! @param [out] plugins Decoded plugins descriptions.
+        //! @return True on success, false on error.
+        //!
+        bool GetPluginOptionsVector(JNIEnv* env, jobjectArray strings, PluginOptionsVector& plugins);
     }
 }
 

@@ -72,7 +72,7 @@ default: headers libs configs
 	+@$(RECURSE)
 
 # The GEN_HEADERS headers are automatically generated from SRC_HEADERS using BUILD_PROJ_FILES.
-GEN_HEADERS = tsduck.h dtv/tsTables.h dtv/private/tsRefType.h
+GEN_HEADERS = tsduck.h dtv/private/tsRefType.h
 SRC_HEADERS = $(filter-out $(GEN_HEADERS),$(wildcard *.h */*.h */*/*.h))
 BUILD_PROJ_FILES = $(ROOTDIR)/build/build-project-files.sh
 .PHONY: headers
@@ -85,8 +85,8 @@ $(GEN_HEADERS): $(BUILD_PROJ_FILES) $(SRCROOT)/HEADER.txt $(SRC_HEADERS)
 # finished before building tsVersionInfo.o. However, the .dep file contains full paths
 # of dependencies and make cannot realize it is the same header files.
 
-$(OBJDIR)/tsduck.o: tsduck.h dtv/tsTables.h
-$(OBJDIR)/tsStaticReferencesDVB.o: dtv/private/tsRefType.h
+$(OBJDIR)/tsduck.o: tsduck.h
+$(OBJDIR)/tsStaticReferencesDVB.o: dtv/private/tsRefType.h tsduck.h
 
 # Specific (per-module) compilation options:
 
@@ -96,7 +96,6 @@ $(OBJDIR)/tsTDES.o:    CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
 $(OBJDIR)/tsSHA1.o:    CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
 $(OBJDIR)/tsSHA256.o:  CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
 $(OBJDIR)/tsSHA512.o:  CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
-$(OBJDIR)/tsMD5.o:     CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
 $(OBJDIR)/tsDVBCSA2.o: CFLAGS_OPTIMIZE = $(CFLAGS_FULLSPEED)
 
 # Dektec code is encapsulated into the TSDuck library.
@@ -147,8 +146,9 @@ $(SHARED_LIBTSDUCK): $(filter-out $(OBJDIR)/tsStaticReferencesDVB.o,$(OBJS))
 
 # Installation targets.
 
-.PHONY: install install-devel
-install: $(SHARED_LIBTSDUCK)
+.PHONY: install install-tools install-devel
+install: install-tools install-devel
+install-tools: $(SHARED_LIBTSDUCK)
 	install -d -m 755 $(SYSROOT)$(USRLIBDIR)/tsduck $(SYSROOT)$(SYSPREFIX)/share/tsduck/python/ts
 	install -m 644 $(SHARED_LIBTSDUCK) $(SYSROOT)$(USRLIBDIR)
 ifdef MACOS
@@ -156,14 +156,14 @@ ifdef MACOS
 endif
 	install -m 644 $(CONFIG_FILES) $(SYSROOT)$(SYSPREFIX)/share/tsduck
 	$(MAKE) -C python install
-	$(MAKE) -C java/tsduck install
+	$(MAKE) -C java install
 install-devel: $(STATIC_LIBTSDUCK) tsduck.h
 	install -d -m 755 $(SYSROOT)$(USRLIBDIR) $(SYSROOT)$(SYSPREFIX)/include/tsduck
 	install -m 644 $(STATIC_LIBTSDUCK) $(SYSROOT)$(USRLIBDIR)
 	rm -f $(SYSROOT)$(SYSPREFIX)/include/tsduck/tsMPEG.h
 	install -m 644 tsduck.mk \
-	    $(filter-out $(if $(NOTELETEXT),%/tsTeletextCharset.h %/tsTeletextDemux.h,),$(shell find . -name 'ts*.h' ! -path '*/private/*' ! -path '*/windows/*' ! -path '*/$(SKIPDIR)/*')) \
+	    $(shell find . -name 'ts*.h' ! -path '*/private/*' ! -path '*/windows/*' ! -path '*/$(SKIPDIR)/*' $(if $(NOTELETEXT),! -name tsTeletextDemux.h,)) \
 	    $(SYSROOT)$(SYSPREFIX)/include/tsduck
 ifdef NOTELETEXT
-	sed tsduck.h -e '/tsTeletextCharset.h/d' -e '/tsTeletextDemux.h/d' >$(SYSROOT)$(SYSPREFIX)/include/tsduck/tsduck.h
+	sed tsduck.h -e '/tsTeletextDemux.h/d' >$(SYSROOT)$(SYSPREFIX)/include/tsduck/tsduck.h
 endif

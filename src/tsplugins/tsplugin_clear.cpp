@@ -338,7 +338,7 @@ ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket(TSPacket& pkt, TSPack
 
     if (_drop_after == 0) {
         // Number of packets in 1 second at current bitrate
-        _drop_after = tsp->bitrate() / (PKT_SIZE * 8);
+        _drop_after = (tsp->bitrate() / PKT_SIZE_BITS).toInt();
         if (_drop_after == 0) {
             tsp->error(u"bitrate unknown or too low, use option --drop-after-packets");
             return TSP_END;
@@ -357,7 +357,7 @@ ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket(TSPacket& pkt, TSPack
     if (_pass_packets != previous_pass && tsp->verbose()) {
         // State has changed
         const UString curtime(_last_tot.isValid() && !_last_tot.regions.empty() ?
-                              _last_tot.localTime(_last_tot.regions[0]).format(Time::DATE | Time::TIME) :
+                              _last_tot.localTime(_last_tot.regions[0]).format(Time::DATETIME) :
                               u"unknown");
         tsp->verbose(u"now %s all packets, last TOT local time: %s, current packet: %'d", {_pass_packets ? u"passing" : u"dropping", curtime, _current_pkt});
     }

@@ -33,9 +33,10 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
+#include "tsVersionInfo.h"
 #include "tsGitHubRelease.h"
 #include "tsWebRequest.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
 #include "tsSysInfo.h"
 #include "tsForkPipe.h"
 #include "tsDuckExtensionRepository.h"
@@ -346,9 +347,8 @@ namespace {
 
         // Download the file.
         ts::WebRequest web(opt);
-        web.setURL(url);
         std::cout << "Downloading " << file << " ..." << std::endl;
-        return web.downloadFile(file);
+        return web.downloadFile(url, file);
     }
 }
 

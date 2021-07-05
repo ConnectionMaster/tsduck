@@ -33,25 +33,28 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPushInputPlugin.h"
-#include "tsWebRequestHandlerInterface.h"
+#include "tsInputPlugin.h"
 #include "tsTSFile.h"
+#include "tsWebRequest.h"
+#include "tsWebRequestArgs.h"
 
 namespace ts {
     //!
     //! Abstract base class for HTTP-based input plugins.
     //! @ingroup plugin
     //!
-    class TSDUCKDLL AbstractHTTPInputPlugin: public PushInputPlugin, protected WebRequestHandlerInterface
+    class TSDUCKDLL AbstractHTTPInputPlugin: public InputPlugin
     {
         TS_NOBUILD_NOCOPY(AbstractHTTPInputPlugin);
     public:
         // Implementation of Plugin interface.
         // If overridden by subclass, superclass must be explicitly invoked.
+        virtual bool getOptions() override;
         virtual bool start() override;
-
-        // Inherited from PushInputPlugin.
-        virtual bool pushPackets(const TSPacket* buffer, size_t count) override;
+        virtual bool abortInput() override;
+        virtual bool stop() override;
+        virtual size_t receive(TSPacket*, TSPacketMetadata*, size_t) override;
+        virtual bool setReceiveTimeout(MilliSecond timeout) override;
 
         //!
         //! Set a directory name where all loaded files are automatically saved.
@@ -68,15 +71,30 @@ namespace ts {
         //!
         AbstractHTTPInputPlugin(TSP* tsp, const UString& description, const UString& syntax);
 
-        // Implementation of WebRequestHandlerInterface
-        virtual bool handleWebStart(const WebRequest& request, size_t size) override;
-        virtual bool handleWebData(const WebRequest& request, const void* data, size_t size) override;
-        virtual bool handleWebStop(const WebRequest& request) override;
+        //!
+        //! Open an URL.
+        //! This abstract method must be implemented by subclasses.
+        //! It is invoked repeatedly by the superclass at the end of each download.
+        //! @param [in,out] request The request object to open.
+        //! @return True on success, false on error or when no more download shall be performed.
+        //!
+        virtual bool openURL(WebRequest& request) = 0;
+
+        //!
+        //! Web command line options can be accessed by subclasses for additional web operations.
+        //!
+        WebRequestArgs webArgs;
 
     private:
-        TSPacket     _partial;       // Buffer for incomplete packets.
-        size_t       _partial_size;  // Number of bytes in partial.
-        UString      _autoSaveDir;   // If not empty, automatically save loaded files to this directory.
-        TSFile       _outSave;       // TS file where to store the loaded file.
+        WebRequest _request;      // Current Web transfer in progress.
+        TSPacket   _partial;      // Buffer for incomplete packets.
+        size_t     _partialSize;  // Number of bytes in partial.
+        UString    _autoSaveDir;  // If not empty, automatically save loaded files to this directory.
+        TSFile     _outSave;      // TS file where to store the loaded file.
+
+        // Start/receive/stop on one single transfer.
+        bool startTransfer();
+        size_t receiveTransfer(TSPacket*, size_t);
+        bool stopTransfer();
     };
 }

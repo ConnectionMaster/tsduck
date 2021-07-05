@@ -138,6 +138,11 @@ ts::json::Value& ts::json::Value::value(const UString& name, bool create, Type t
     return NullValue;
 }
 
+ts::json::ValuePtr ts::json::Value::valuePtr(const UString& name)
+{
+    return ValuePtr();
+}
+
 const ts::json::Value& ts::json::Value::query(const UString& path) const
 {
     return path.empty() ? *this : NullValue;
@@ -162,4 +167,29 @@ ts::UString ts::json::Value::printed(size_t indent, Report& report) const
     UString str;
     out.getString(str);
     return str;
+}
+
+
+//----------------------------------------------------------------------------
+// Save the value as a JSON file.
+//----------------------------------------------------------------------------
+
+bool ts::json::Value::save(const UString& fileName, size_t indent, bool stdOutputIfEmpty, Report& report)
+{
+    TextFormatter out(report);
+    out.setIndentSize(indent);
+
+    if (stdOutputIfEmpty && (fileName.empty() || fileName == u"-")) {
+        out.setStream(std::cout);
+    }
+    else if (!out.setFile(fileName)) {
+        return false;
+    }
+
+    print(out);
+
+    // All JSON objects print their value without end-of-line.
+    out << std::endl;
+    out.close();
+    return true;
 }

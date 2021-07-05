@@ -37,9 +37,8 @@
 #include "tsTextFormatter.h"
 #include "tsCerrReport.h"
 #include "tsReportBuffer.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -100,13 +99,13 @@ void XMLTest::beforeTest()
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 // Test suite cleanup method.
 void XMLTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 ts::Report& XMLTest::report()
@@ -247,13 +246,13 @@ void XMLTest::testFileBOM()
     TSUNIT_EQUAL(childText1, elem->text(false));
     TSUNIT_EQUAL(childText2, elem->text(true));
 
-    TSUNIT_EQUAL(ts::SYS_SUCCESS, ts::DeleteFile(_tempFileName));
+    TSUNIT_ASSERT(ts::DeleteFile(_tempFileName));
 }
 
 void XMLTest::testValidation()
 {
     ts::xml::ModelDocument model(report());
-    TSUNIT_ASSERT(model.load(TS_XML_TABLES_MODEL));
+    TSUNIT_ASSERT(model.load(ts::SectionFile::XML_TABLES_MODEL));
 
     const ts::UString xmlContent(
         u"<?xml version='1.0' encoding='UTF-8'?>\n"
@@ -487,5 +486,5 @@ void XMLTest::testTweaks()
 void XMLTest::testChannels()
 {
     ts::xml::Document model(report());
-    TSUNIT_ASSERT(model.load(TS_XML_TABLES_MODEL));
+    TSUNIT_ASSERT(model.load(ts::SectionFile::XML_TABLES_MODEL));
 }

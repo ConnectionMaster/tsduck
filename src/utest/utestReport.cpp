@@ -33,9 +33,9 @@
 
 #include "tsReportBuffer.h"
 #include "tsReportFile.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
+#include "tsNullReport.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -85,6 +85,7 @@ ReportTest::ReportTest() :
 void ReportTest::beforeTest()
 {
     _fileName = ts::TempFile();
+    ts::DeleteFile(_fileName, NULLREP);
 }
 
 // Test suite cleanup method.
@@ -92,7 +93,7 @@ void ReportTest::afterTest()
 {
     // Returned value ignored on purpose, end of test, temporary file may not even exists.
     // coverity[CHECKED_RETURN]
-    ts::DeleteFile(_fileName);
+    ts::DeleteFile(_fileName, NULLREP);
 }
 
 

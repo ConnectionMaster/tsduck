@@ -30,6 +30,7 @@
 #include "tsDektecInputPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsDektecUtils.h"
+#include "tsDektecArgsUtils.h"
 #include "tsDektecDevice.h"
 #include "tsDektecVPD.h"
 #include "tsModulation.h"
@@ -40,6 +41,14 @@
 TSDUCK_SOURCE;
 
 TS_REGISTER_INPUT_PLUGIN(u"dektec", ts::DektecInputPlugin);
+
+// Depending on TS_NO_DTAPI, some code may be unused.
+TS_LLVM_NOWARNING(unused-macros)
+TS_LLVM_NOWARNING(unused-function)
+
+// Consider that the first 5 receive() are "initialization". If a full input FIFO is
+// observed here, ignore it. Later, a full FIFO indicates a potential packet loss.
+#define INIT_RECEIVE_COUNT 5
 
 // A dummy storage value to force inclusion of this module when using the static library.
 const int ts::DektecInputPlugin::REFERENCE = 0;
@@ -61,23 +70,30 @@ class ts::DektecInputPlugin::Guts
 {
     TS_NOCOPY(Guts);
 public:
-    Guts();                           // Constructor.
-    bool                is_started;   // Device started
-    int                 dev_index;    // Dektec device index
-    int                 chan_index;   // Device input channel index
-    int                 timeout_ms;   // Receive timeout in milliseconds.
-    DektecDevice        device;       // Device characteristics
-    Dtapi::DtDevice     dtdev;        // Device descriptor
-    Dtapi::DtInpChannel chan;         // Input channel
-    int                 init_cnt;     // Count the first inputs
-    BitRate             cur_bitrate;  // Current input bitrate
-    bool                got_bitrate;  // Got bitrate at least once.
-    uint64_t            demod_freq;   // Demodulation frequency in Hz
-    Dtapi::DtDemodPars  demod_pars;   // Demodulation parameters
-    int                 sat_number;   // Satellite number
-    Polarization        polarity;     // Polarity.
-    bool                high_band;    // Use LNB high frequency band.
-    bool                lnb_setup;    // Need LNB setup.
+    Guts();                              // Constructor.
+    bool                is_started;      // Device started
+    int                 dev_index;       // Dektec device index
+    int                 chan_index;      // Device input channel index
+    int                 timeout_ms;      // Receive timeout in milliseconds.
+    int                 iostd_value;     // Value parameter for SetIoConfig on I/O standard.
+    int                 iostd_subvalue;  // SubValue parameter for SetIoConfig on I/O standard.
+    int                 max_fifo_size;   // Maximum FIFO size
+    int                 opt_fifo_size;   // Requested FIFO size option
+    int                 cur_fifo_size;   // Actual current FIFO size
+    bool                preload_fifo;    // Preload FIFO before starting reception
+    DektecDevice        device;          // Device characteristics
+    Dtapi::DtDevice     dtdev;           // Device descriptor
+    Dtapi::DtInpChannel chan;            // Input channel
+    int                 init_cnt;        // Count the first inputs
+    BitRate             cur_bitrate;     // Current input bitrate
+    bool                got_bitrate;     // Got bitrate at least once.
+    uint64_t            demod_freq;      // Demodulation frequency in Hz
+    Dtapi::DtDemodPars  demod_pars;      // Demodulation parameters
+    Dtapi::DtIpPars2    ip_pars;         // TS-over-IP parameters
+    int                 sat_number;      // Satellite number
+    Polarization        polarity;        // Polarity.
+    bool                high_band;       // Use LNB high frequency band.
+    bool                lnb_setup;       // Need LNB setup.
 };
 
 ts::DektecInputPlugin::Guts::Guts() :
@@ -85,6 +101,12 @@ ts::DektecInputPlugin::Guts::Guts() :
     dev_index(-1),
     chan_index(-1),
     timeout_ms(-1),
+    iostd_value(-1),
+    iostd_subvalue(-1),
+    max_fifo_size(DTA_FIFO_SIZE),
+    opt_fifo_size(0),
+    cur_fifo_size(0),
+    preload_fifo(false),
     device(),
     dtdev(),
     chan(),
@@ -93,6 +115,7 @@ ts::DektecInputPlugin::Guts::Guts() :
     got_bitrate(false),
     demod_freq(0),
     demod_pars(),
+    ip_pars(),
     sat_number(0),
     polarity(POL_VERTICAL),
     high_band(false),
@@ -132,6 +155,10 @@ ts::DektecInputPlugin::DektecInputPlugin(TSP* tsp_) :
     assert(DTAPI_DVBT2_6MHZ == DTAPI_MOD_DVBT_6MHZ);
     assert(DTAPI_DVBT2_7MHZ == DTAPI_MOD_DVBT_7MHZ);
     assert(DTAPI_DVBT2_8MHZ == DTAPI_MOD_DVBT_8MHZ);
+
+    // Declaration of command-line options
+    DefineDektecIOStandardArgs(*this);
+    DefineDektecIPArgs(*this, true); // true = receive
 
     option(u"atsc3-bandwidth", 0, Enumeration({
         {u"6-MHz",  DTAPI_ATSC3_6MHZ},
@@ -204,6 +231,15 @@ ts::DektecInputPlugin::DektecInputPlugin(TSP* tsp_) :
     help(u"dvbt-bandwidth",
          u"DVB-T/T2 demodulators: indicate the bandwidth in MHz. The default is 8 MHz. "
          u"The bandwidth values 1.7, 5 and 10 MHz are valid for DVB-T2 only.");
+
+    option(u"fifo-size", 0, INTEGER, 0, 1, 1024, UNLIMITED_VALUE);
+    help(u"fifo-size",
+         u"Set the FIFO size in bytes of the input channel in the Dektec device. "
+         u"The default value depends on the device type.");
+
+    option(u"preload-fifo");
+    help(u"preload-fifo",
+         u"Wait for the reception FIFO (hardware buffer) to be half-full before starting reception.");
 
     option(u"frequency", 'f', POSITIVE);
     help(u"frequency",
@@ -374,7 +410,7 @@ ts::DektecInputPlugin::DektecInputPlugin(TSP* tsp_) :
 ts::DektecInputPlugin::~DektecInputPlugin()
 {
     if (_guts != nullptr) {
-        stop();
+        DektecInputPlugin::stop();
         delete _guts;
         _guts = nullptr;
     }
@@ -400,11 +436,6 @@ bool ts::DektecInputPlugin::setReceiveTimeout(MilliSecond timeout)
 bool ts::DektecInputPlugin::start()
 {
     tsp->error(TS_NO_DTAPI_MESSAGE);
-    return false;
-}
-
-bool ts::DektecInputPlugin::configureLNB()
-{
     return false;
 }
 
@@ -437,13 +468,18 @@ bool ts::DektecInputPlugin::getOptions()
     getIntValue(_guts->timeout_ms, u"receive-timeout", _guts->timeout_ms); // preserve previous value
     getIntValue(_guts->sat_number, u"satellite-number", 0);
     getIntValue(_guts->polarity, u"polarity", POL_VERTICAL);
+    getIntValue(_guts->opt_fifo_size, u"fifo-size", 0);
+    _guts->preload_fifo = present(u"preload-fifo");
     _guts->high_band = false;
     _guts->lnb_setup = false;
+
+    bool success = GetDektecIOStandardArgs(*this, _guts->iostd_value, _guts->iostd_subvalue) &&
+                   GetDektecIPArgs(*this, true, _guts->ip_pars);
 
     // Compute carrier frequency
     if (present(u"frequency") && present(u"satellite-frequency")) {
         tsp->error(u"options --frequency and --satellite-frequency are mutually exclusive");
-        return false;
+        success = false;
     }
     uint64_t sat_frequency = intValue<uint64_t>(u"satellite-frequency", 0);
     if (sat_frequency > 0) {
@@ -452,7 +488,7 @@ bool ts::DektecInputPlugin::getOptions()
         LNB::Transposition transposition;
         if (!lnb.isValid() || !lnb.transpose(transposition, sat_frequency, _guts->polarity, *tsp)) {
             tsp->error(u"invalid LNB / satellite frequency");
-            return false;
+            success = false;
         }
         _guts->demod_freq = transposition.intermediate_frequency;
         _guts->high_band = transposition.band_index > 0;
@@ -467,23 +503,23 @@ bool ts::DektecInputPlugin::getOptions()
         Dtapi::DTAPI_RESULT status = _guts->demod_pars.SetModType(intValue<int>(u"modulation", DTAPI_MOD_DVBS_QPSK));
         if (status != DTAPI_OK) {
             tsp->error(u"error setting modulation type: %s", {DektecStrError(status)});
-            return false;
+            success = false;
         }
 
-        bool ok = true;
+        bool mod_ok = true;
         switch (_guts->demod_pars.GetModType()) {
             case DTAPI_MOD_ATSC: {
                 Dtapi::DtDemodParsAtsc* atsc = _guts->demod_pars.Atsc();
-                ok = atsc != nullptr;
-                if (ok) {
+                mod_ok = atsc != nullptr;
+                if (mod_ok) {
                     atsc->m_Constellation = intValue<int>(u"vsb", DTAPI_MOD_ATSC_VSB8);
                 }
                 break;
             }
             case DTAPI_MOD_ATSC3: {
                 Dtapi::DtDemodParsAtsc3* atsc3 = _guts->demod_pars.Atsc3();
-                ok = atsc3 != nullptr;
-                if (ok) {
+                mod_ok = atsc3 != nullptr;
+                if (mod_ok) {
                     atsc3->m_Bandwidth = intValue<int>(u"atsc3-bandwidth", DTAPI_ATSC3_8MHZ);
                     atsc3->m_AlpLenIncludesAhSi = false;
                 }
@@ -492,13 +528,13 @@ bool ts::DektecInputPlugin::getOptions()
             case DTAPI_MOD_DAB: {
                 // There is no parameter for DAB in Dektec demodulators (empty structure).
                 Dtapi::DtDemodParsDab* dab = _guts->demod_pars.Dab();
-                ok = dab != nullptr;
+                mod_ok = dab != nullptr;
                 break;
             }
             case DTAPI_MOD_DVBC2: {
                 Dtapi::DtDemodParsDvbC2* dvbc2 = _guts->demod_pars.DvbC2();
-                ok = dvbc2 != nullptr;
-                if (ok) {
+                mod_ok = dvbc2 != nullptr;
+                if (mod_ok) {
                     dvbc2->m_Bandwidth = intValue<int>(u"c2-bandwidth", DTAPI_DVBC2_8MHZ);
                     dvbc2->m_ScanL1Part2Data = false;
                 }
@@ -506,8 +542,8 @@ bool ts::DektecInputPlugin::getOptions()
             }
             case DTAPI_MOD_DVBS_QPSK: {
                 Dtapi::DtDemodParsDvbS* dvbs = _guts->demod_pars.DvbS();
-                ok = dvbs != nullptr;
-                if (ok) {
+                mod_ok = dvbs != nullptr;
+                if (mod_ok) {
                     dvbs->m_CodeRate = intValue<int>(u"code-rate", DTAPI_MOD_CR_AUTO);
                     dvbs->m_SymRate = intValue<int>(u"symbol-rate", DTAPI_MOD_SYMRATE_AUTO);
                     dvbs->m_SpecInv = DTAPI_MOD_S_S2_SPECINV_AUTO;
@@ -520,8 +556,8 @@ bool ts::DektecInputPlugin::getOptions()
             case DTAPI_MOD_DVBS2_32APSK:
             case DTAPI_MOD_DVBS2_QPSK: {
                 Dtapi::DtDemodParsDvbS2* dvbs2 = _guts->demod_pars.DvbS2();
-                ok = dvbs2 != nullptr;
-                if (ok) {
+                mod_ok = dvbs2 != nullptr;
+                if (mod_ok) {
                     dvbs2->m_CodeRate = intValue<int>(u"code-rate", DTAPI_MOD_CR_AUTO);
                     dvbs2->m_SymRate = intValue<int>(u"symbol-rate", DTAPI_MOD_SYMRATE_AUTO);
                     dvbs2->m_FecFrame = DTAPI_MOD_S2_FRM_AUTO;
@@ -533,8 +569,8 @@ bool ts::DektecInputPlugin::getOptions()
             }
             case DTAPI_MOD_DVBT: {
                 Dtapi::DtDemodParsDvbT* dvbt = _guts->demod_pars.DvbT();
-                ok = dvbt != nullptr;
-                if (ok) {
+                mod_ok = dvbt != nullptr;
+                if (mod_ok) {
                     dvbt->m_Bandwidth = intValue<int>(u"dvbt-bandwidth", DTAPI_MOD_DVBT_8MHZ);
                     dvbt->m_CodeRate = intValue<int>(u"code-rate", DTAPI_MOD_CR_AUTO);
                     dvbt->m_Constellation = intValue<int>(u"constellation", DTAPI_MOD_DVBT_CO_AUTO);
@@ -546,8 +582,8 @@ bool ts::DektecInputPlugin::getOptions()
             }
             case DTAPI_MOD_DVBT2: {
                 Dtapi::DtDemodParsDvbT2* dvbt2 = _guts->demod_pars.DvbT2();
-                ok = dvbt2 != nullptr;
-                if (ok) {
+                mod_ok = dvbt2 != nullptr;
+                if (mod_ok) {
                     dvbt2->m_Bandwidth = intValue<int>(u"dvbt-bandwidth", DTAPI_DVBT2_8MHZ);
                     dvbt2->m_T2Profile = intValue<int>(u"t2-profile", DTAPI_DVBT2_PROFILE_BASE);
                 }
@@ -555,8 +591,8 @@ bool ts::DektecInputPlugin::getOptions()
             }
             case DTAPI_MOD_ISDBT: {
                 Dtapi::DtDemodParsIsdbt* isdbt = _guts->demod_pars.Isdbt();
-                ok = isdbt != nullptr;
-                if (ok) {
+                mod_ok = isdbt != nullptr;
+                if (mod_ok) {
                     isdbt->m_Bandwidth = intValue<int>(u"isdbt-bandwidth", DTAPI_ISDBT_BW_8MHZ);
                     isdbt->m_SubChannel = intValue<int>(u"isdbt-subchannel", 22); // 0..41, channel 22 is the default
                     isdbt->m_NumberOfSegments = intValue<int>(u"isdbt-segments", DTAPI_ISDBT_SEGM_1);
@@ -570,8 +606,8 @@ bool ts::DektecInputPlugin::getOptions()
             case DTAPI_MOD_QAM256:
             case DTAPI_MOD_QAM_AUTO: {
                 Dtapi::DtDemodParsQam* qam = _guts->demod_pars.Qam();
-                ok = qam != nullptr;
-                if (ok) {
+                mod_ok = qam != nullptr;
+                if (mod_ok) {
                     qam->m_SymRate = intValue<int>(u"symbol-rate", DTAPI_MOD_SYMRATE_AUTO);
                     qam->m_Annex = intValue<int>(u"j83", DTAPI_MOD_J83_A);
                     qam->m_Interleaving = intValue<int>(u"qam-b", DTAPI_MOD_QAMB_IL_AUTO);
@@ -580,25 +616,26 @@ bool ts::DektecInputPlugin::getOptions()
             }
             default: {
                 tsp->error(u"invalid Dektec demodulation type");
-                return false;
+                success = false;
+                break;
             }
         }
 
         // Check if any parameter structure was inaccessible.
-        if (!ok) {
+        if (!mod_ok) {
             tsp->error(u"internal Dektec library error, no parameter for modulation type");
-            return false;
+            success = false;
         }
 
         // Check consistency of demodulation parameters.
         status = _guts->demod_pars.CheckValidity();
         if (status != DTAPI_OK) {
             tsp->error(u"invalid Dektec demodulation parameters: %s", {DektecStrError(status)});
-            return false;
+            success = false;
         }
     }
 
-    return true;
+    return success;
 }
 
 
@@ -632,14 +669,20 @@ bool ts::DektecInputPlugin::start()
     }
 
     // Open the device
+    tsp->debug(u"attaching to device %s serial 0x%X", {_guts->device.model, _guts->device.desc.m_Serial});
     Dtapi::DTAPI_RESULT status = _guts->dtdev.AttachToSerial(_guts->device.desc.m_Serial);
     if (status != DTAPI_OK) {
         tsp->error(u"error attaching input Dektec device %d: %s", {_guts->dev_index, DektecStrError(status)});
         return false;
     }
 
-    // Open the input channel
-    status = _guts->chan.AttachToPort(&_guts->dtdev, _guts->device.input[_guts->chan_index].m_Port);
+    // Determine port number and channel capabilities.
+    const int port = _guts->device.input[_guts->chan_index].m_Port;
+    Dtapi::DtCaps dt_flags = _guts->device.input[_guts->chan_index].m_Flags;
+
+    // Open the input channel.
+    tsp->debug(u"attaching to port %d", {port});
+    status = _guts->chan.AttachToPort(&_guts->dtdev, port);
     if (status != DTAPI_OK) {
         tsp->error(u"error attaching input channel %d of Dektec device %d: %s", {_guts->chan_index, _guts->dev_index, DektecStrError(status)});
         _guts->dtdev.Detach();
@@ -647,24 +690,55 @@ bool ts::DektecInputPlugin::start()
     }
 
     // Reset input channel
+    tsp->debug(u"resetting channel, mode: %d", {DTAPI_FULL_RESET});
     status = _guts->chan.Reset(DTAPI_FULL_RESET);
     if (status != DTAPI_OK) {
-        tsp->error(u"input device reset error: %s", {DektecStrError(status)});
-        _guts->chan.Detach(0);
-        _guts->dtdev.Detach();
-        return false;
+        return startError(u"input device reset error", status);
     }
 
+    tsp->debug(u"setting RxControl, mode: %d", {DTAPI_RXCTRL_IDLE});
     status = _guts->chan.SetRxControl(DTAPI_RXCTRL_IDLE);
     if (status != DTAPI_OK) {
-        tsp->error(u"device SetRxControl error: %s", {DektecStrError(status)});
-        _guts->chan.Detach(0);
-        _guts->dtdev.Detach();
-        return false;
+        return startError(u"device SetRxControl error", status);
     }
 
-    status = _guts->chan.ClearFifo();            // Clear FIFO (i.e. start with zero load)
-    status = _guts->chan.ClearFlags(0xFFFFFFFF); // Clear all flags
+    tsp->debug(u"clearing FIFO and flags");
+    _guts->chan.ClearFifo();            // Clear FIFO (i.e. start with zero load)
+    _guts->chan.ClearFlags(0xFFFFFFFF); // Clear all flags
+
+    // Get max FIFO size.
+    _guts->max_fifo_size = 0;
+    tsp->debug(u"getting FIFO max size");
+    status = _guts->chan.GetMaxFifoSize(_guts->max_fifo_size);
+    if (status != DTAPI_OK || _guts->max_fifo_size == 0) {
+        // Not supported on this device, use hard-coded value.
+        _guts->max_fifo_size = int(DTA_FIFO_SIZE);
+        tsp->debug(u"retrieving max FIFO size is not supported");
+    }
+    tsp->debug(u"max FIFO size: %'d bytes", {_guts->max_fifo_size});
+
+    // Get/set actual FIFO size.
+    _guts->cur_fifo_size = _guts->max_fifo_size;
+    if (_guts->opt_fifo_size > 0) {
+        tsp->debug(u"setting FIFO size to %'d", {_guts->opt_fifo_size});
+        status = _guts->chan.SetFifoSize(_guts->opt_fifo_size);
+        if (status == DTAPI_OK) {
+            _guts->cur_fifo_size = _guts->opt_fifo_size;
+        }
+        else {
+            tsp->error(u"error setting FIFO size: %s", {DektecStrError(status)});
+        }
+    }
+    tsp->debug(u"using FIFO size: %'d bytes", {_guts->cur_fifo_size});
+
+    // Configure I/O standard if necessary.
+    if (_guts->iostd_value >= 0) {
+        tsp->debug(u"setting IO config of port %d, group: %d, value: %d, subvalue: %d", {port, DTAPI_IOCONFIG_IOSTD, _guts->iostd_value, _guts->iostd_subvalue});
+        status = _guts->chan.SetIoConfig(DTAPI_IOCONFIG_IOSTD, _guts->iostd_value, _guts->iostd_subvalue);
+        if (status != DTAPI_OK) {
+            return startError(u"error setting I/O standard", status);
+        }
+    }
 
     // Apply demodulation settings
     if (_guts->demod_freq > 0) {
@@ -675,41 +749,68 @@ bool ts::DektecInputPlugin::start()
         }
 
         // Tune to the frequency and demodulation parameters.
+        tsp->debug(u"tuning to frequency %'d", {_guts->demod_freq});
         status = _guts->chan.Tune(int64_t(_guts->demod_freq), &_guts->demod_pars);
         if (status != DTAPI_OK) {
-            tsp->error(u"error tuning Dektec demodulator: %s", {DektecStrError(status)});
-            _guts->chan.Detach(0);
-            _guts->dtdev.Detach();
-            return false;
+            return startError(u"error tuning Dektec demodulator", status);
+        }
+    }
+
+    // Set IP parameters for TS-over-IP.
+    if ((dt_flags & DTAPI_CAP_IP) != 0) {
+        if (!CheckDektecIPArgs(true, _guts->ip_pars, *tsp)) {
+            return startError(u"invalid TS-over-IP parameters", DTAPI_OK);
+        }
+
+        // Report actual parameters in debug mode
+        tsp->debug(u"setting IP parameters: DtIpPars2 = {");
+        DektecDevice::ReportIpPars(_guts->ip_pars, *tsp, Severity::Debug, u"  ");
+        tsp->debug(u"}");
+
+        status = _guts->chan.SetIpPars(&_guts->ip_pars);
+        if (status != DTAPI_OK) {
+            return startError(u"output device SetIpPars error", status);
         }
     }
 
     // Set the receiving packet size to 188 bytes (the size of the packets
     // which are returned by the board to the application, dropping extra 16
     // bytes if the transmitted packets are 204-byte).
+    tsp->debug(u"setting RxMode, mode: %d", {DTAPI_RXMODE_ST188});
     status = _guts->chan.SetRxMode(DTAPI_RXMODE_ST188);
     if (status != DTAPI_OK) {
-        tsp->error(u"device SetRxMode error: %s", {DektecStrError(status)});
-        _guts->chan.Detach(0);
-        _guts->dtdev.Detach();
-        return false;
+        return startError(u"device SetRxMode error", status);
     }
 
     // Start the capture on the input device (set receive control to "receive")
+    tsp->debug(u"setting RxControl, mode: %d", {DTAPI_RXCTRL_RCV});
     status = _guts->chan.SetRxControl(DTAPI_RXCTRL_RCV);
     if (status != DTAPI_OK) {
-        tsp->error(u"device SetRxControl error: %s", {DektecStrError(status)});
-        _guts->chan.Detach(0);
-        _guts->dtdev.Detach();
-        return false;
+        return startError(u"device SetRxControl error", status);
     }
 
-    // Consider that the first 5 inputs are "initialization". If a full input
-    // fifo is observed here, ignore it. Later, a full fifo indicates potential
-    // packet loss.
-    _guts->init_cnt = 5;
+    // Count number of receive() operations in "initialization" phase.
+    _guts->init_cnt = INIT_RECEIVE_COUNT;
     _guts->is_started = true;
     return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Output start error method
+//----------------------------------------------------------------------------
+
+bool ts::DektecInputPlugin::startError(const UString& message, unsigned int status)
+{
+    if (status == DTAPI_OK) {
+        tsp->error(message);
+    }
+    else {
+        tsp->error(u"%s: %s", {message, DektecStrError(status)});
+    }
+    _guts->chan.Detach(0);
+    _guts->dtdev.Detach();
+    return false;
 }
 
 
@@ -742,22 +843,19 @@ bool ts::DektecInputPlugin::configureLNB()
     // Enable the LNB controller.
     Dtapi::DTAPI_RESULT status = _guts->chan.LnbEnable(true);
     if (status != DTAPI_OK) {
-        tsp->error(u"error enabling Dektec LNB controller: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error enabling Dektec LNB controller", status);
     }
 
     // Stop 22 kHz continuous tone (was on if previously tuned on high band).
     status = _guts->chan.LnbEnableTone(false);
     if (status != DTAPI_OK) {
-        tsp->error(u"error stopping LNB tone: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error stopping LNB tone", status);
     }
 
     // Setup polarisation voltage: 13V for vertical polarisation, 18V for horizontal
     status = _guts->chan.LnbSetVoltage(_guts->polarity == POL_VERTICAL ? DTAPI_LNB_13V : DTAPI_LNB_18V);
     if (status != DTAPI_OK) {
-        tsp->error(u"error setting LNB voltage: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error setting LNB voltage", status);
     }
 
     // Wait at least 15ms. Not sure it is necessary with Dektec. It is necessary with LinuxTV.
@@ -771,8 +869,7 @@ bool ts::DektecInputPlugin::configureLNB()
     // the "send tone burst" command is binary (A or B).
     status = _guts->chan.LnbSendBurst(_guts->sat_number == 0 ? DTAPI_LNB_BURST_A : DTAPI_LNB_BURST_B);
     if (status != DTAPI_OK) {
-        tsp->error(u"error sending LNB burst: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error sending LNB burst", status);
     }
 
     // Wait 15ms again.
@@ -792,8 +889,7 @@ bool ts::DektecInputPlugin::configureLNB()
 
     status = _guts->chan.LnbSendDiseqcMessage(cmd, int(sizeof(cmd)));
     if (status != DTAPI_OK) {
-        tsp->error(u"error sending DiSeqC command: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error sending DiSeqC command", status);
     }
 
     // Wait 15ms again.
@@ -802,8 +898,7 @@ bool ts::DektecInputPlugin::configureLNB()
     // Start the 22kHz continuous tone when tuning to a transponder in the high band
     status = _guts->chan.LnbEnableTone(_guts->high_band);
     if (status != DTAPI_OK) {
-        tsp->error(u"error set LNB tone: %s", {DektecStrError(status)});
-        return false;
+        return startError(u"error set LNB tone", status);
     }
 
     return true;
@@ -835,14 +930,14 @@ ts::BitRate ts::DektecInputPlugin::getBitrate()
         return 0;
     }
 
-    int bitrate;
+    int bitrate = 0;
     Dtapi::DTAPI_RESULT status = _guts->chan.GetTsRateBps(bitrate);
 
     if (status != DTAPI_OK) {
         tsp->error(u"error getting Dektec device input bitrate: %s", {DektecStrError(status)});
         return 0;
     }
-    if (_guts->got_bitrate && bitrate != int(_guts->cur_bitrate)) {
+    if (_guts->got_bitrate && bitrate != _guts->cur_bitrate) {
         tsp->verbose(u"new input bitrate: %'d b/s", {bitrate});
     }
 
@@ -863,24 +958,38 @@ size_t ts::DektecInputPlugin::receive(TSPacket* buffer, TSPacketMetadata* pkt_da
 
     Dtapi::DTAPI_RESULT status = DTAPI_OK;
 
-    // After initialization, we check the receive FIFO load before reading it.
-    // If the FIFO is full, we have lost packets.
-    if (_guts->init_cnt > 0) {
-        _guts->init_cnt--;
-    }
-    if (_guts->init_cnt == 0) {
-        int fifo_load;
-        status = _guts->chan.GetFifoLoad(fifo_load);
-        if (status != DTAPI_OK) {
-            tsp->error(u"error getting input fifo load: %s", {DektecStrError(status)});
+    // If --preload-fifo is specified, wait for a half-full FIFO at the first receive().
+    if (_guts->init_cnt == INIT_RECEIVE_COUNT && _guts->preload_fifo) {
+        int fifo_load = 0;
+        while ((status = _guts->chan.GetFifoLoad(fifo_load)) == DTAPI_OK && fifo_load < _guts->cur_fifo_size / 2) {
+            SleepThread(10);
         }
-        if (fifo_load >= int(DTA_FIFO_SIZE)) {
-            // Input overflow.
-            tsp->warning(u"input fifo full, possible packet loss");
+        if (status != DTAPI_OK) {
+            tsp->error(u"error getting input initial FIFO load: %s", {DektecStrError(status)});
+        }
+        else {
+            tsp->debug(u"initial FIFO load: %'d bytes", {fifo_load});
         }
     }
 
-    // Do not read more than what a DTA device accepts
+    // Count "initial" receive operations.
+    if (_guts->init_cnt > 0) {
+        _guts->init_cnt--;
+    }
+
+    // After initialization, we check the receive FIFO load before reading it.
+    if (_guts->init_cnt == 0) {
+        int fifo_load = 0;
+        status = _guts->chan.GetFifoLoad(fifo_load);
+        if (status != DTAPI_OK) {
+            tsp->error(u"error getting input FIFO load: %s", {DektecStrError(status)});
+        }
+        else if (fifo_load >= _guts->cur_fifo_size) {
+            tsp->warning(u"input FIFO full, possible packet loss");
+        }
+    }
+
+    // Do not read more than what a DTA device accepts (is this still useful?)
     size_t size = RoundDown(std::min(max_packets * PKT_SIZE, DTA_MAX_IO_SIZE), PKT_SIZE);
 
     // Receive packets.

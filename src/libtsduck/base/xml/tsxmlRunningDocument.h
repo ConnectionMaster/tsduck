@@ -28,7 +28,7 @@
 //----------------------------------------------------------------------------
 //!
 //!  @file
-//!  Representation of a "running" XML document which displayed on the fly.
+//!  Representation of a "running" XML document which is displayed on the fly.
 //!
 //----------------------------------------------------------------------------
 
@@ -38,7 +38,7 @@
 namespace ts {
     namespace xml {
         //!
-        //! Representation of a "running" XML document which displayed on the fly.
+        //! Representation of a "running" XML document which is displayed on the fly.
         //! @ingroup xml
         //!
         //! The idea is to display or save an XML document which is built element
@@ -92,8 +92,8 @@ namespace ts {
             void close();
 
         private:
-            TextFormatter _text;      // The text formatter.
-            bool          _openRoot;  // Document root has been printed and is left open.
+            TextFormatter _text;       // The text formatter.
+            bool          _open_root;  // Document root has been printed and is left open.
         };
     }
 }

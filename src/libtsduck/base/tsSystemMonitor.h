@@ -38,6 +38,7 @@
 #include "tsCondition.h"
 #include "tsTime.h"
 #include "tsReport.h"
+#include "tsxml.h"
 
 namespace ts {
     //!
@@ -59,6 +60,10 @@ namespace ts {
     //! - Up to start + 1 hour, log every 5 minutes
     //! - After start + 1 hour, log every 30 minutes
     //!
+    //! This class derives from Thread. The methods start() and waitForTermination() are
+    //! inherited. The destructor stops the thread and synchronously waits for its termination.
+    //! The method stop() can be used to stop the thread.
+    //!
     class TSDUCKDLL SystemMonitor: public Thread
     {
         TS_NOBUILD_NOCOPY(SystemMonitor);
@@ -66,25 +71,61 @@ namespace ts {
         //!
         //! Constructor.
         //! @param [in] report Where to report log data.
+        //! @param [in] config Name of the monitoring configuration file, if different from the default.
         //!
-        SystemMonitor(Report* report);
+        SystemMonitor(Report& report, const UString& config = UString());
 
         //!
         //! Destructor.
+        //! The monitor thread is stopped.
         //!
         virtual ~SystemMonitor() override;
 
+        //!
+        //! Stop the monitor thread.
+        //! The monitor thread is requested to stop. This method returns immediately,
+        //! use waitForTermination() to synchronously wait for its termination.
+        //!
+        void stop();
+
     private:
+        // Description of a monitoring configuration, during one period.
+        class Config
+        {
+        public:
+            Config();               // Constructor.
+            bool    log_messages;   // Log monitoring messages.
+            bool    stable_memory;  // If true, raise an alarm when the virtual memory increases.
+            int     max_cpu;        // Maximum allowed CPU percentage.
+            UString alarm_command;  // Shell command to run on alarm.
+        };
+
+        // Description of a monitoring period.
+        class Period: public Config
+        {
+        public:
+            Period();               // Constructor.
+            MilliSecond duration;   // Period duration in milliseconds.
+            MilliSecond interval;   // Monitoring interval in that period.
+        };
+        typedef std::list<Period> PeriodList;
+
         // Private members
-        Report*   _report;
-        Mutex     _mutex;
-        Condition _wake_up;    // accessed under mutex
-        bool      _terminate;  // accessed under mutex
+        Report&    _report;
+        UString    _config_file;  // XML configuration file name.
+        PeriodList _periods;      // List of monitoring periods.
+        Mutex      _mutex;
+        Condition  _wake_up;      // Accessed under mutex.
+        bool       _terminate;    // Accessed under mutex.
 
         // Inherited from Thread
         virtual void main() override;
 
         // Prefix strings for all monitor messages
         static UString MonPrefix(const ts::Time& date);
+
+        // Laad the monitoring configuration file.
+        bool loadConfigurationFile(const UString& config);
+        bool loadConfig(Config&, const xml::Element*, const Config*);
     };
 }

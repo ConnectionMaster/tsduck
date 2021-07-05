@@ -33,7 +33,7 @@
 //-----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPlatform.h"
+#include "tsFixedPoint.h"
 
 #if defined(DOXYGEN)
 
@@ -226,6 +226,72 @@
     #define DTAPI_MOD_QAMB_I64_J2        0
     #define DTAPI_MOD_QAMB_I8_J16        0
     #define DTAPI_MOD_QAMB_IL_AUTO       0
+    #define DTAPI_IOCONFIG_12GSDI        0
+    #define DTAPI_IOCONFIG_3GSDI         0
+    #define DTAPI_IOCONFIG_6GSDI         0
+    #define DTAPI_IOCONFIG_ASI           0
+    #define DTAPI_IOCONFIG_AVENC         0
+    #define DTAPI_IOCONFIG_DEKTECST      0
+    #define DTAPI_IOCONFIG_DEMOD         0
+    #define DTAPI_IOCONFIG_GPSTIME       0
+    #define DTAPI_IOCONFIG_HDMI          0
+    #define DTAPI_IOCONFIG_HDSDI         0
+    #define DTAPI_IOCONFIG_IFADC         0
+    #define DTAPI_IOCONFIG_IP            0
+    #define DTAPI_IOCONFIG_MOD           0
+    #define DTAPI_IOCONFIG_PHASENOISE    0
+    #define DTAPI_IOCONFIG_RS422         0
+    #define DTAPI_IOCONFIG_SDIRX         0
+    #define DTAPI_IOCONFIG_SDI           0
+    #define DTAPI_IOCONFIG_SPI           0
+    #define DTAPI_IOCONFIG_SPISDI        0
+    #define DTAPI_IOCONFIG_2160P50       0
+    #define DTAPI_IOCONFIG_2160P50B      0
+    #define DTAPI_IOCONFIG_2160P59_94    0
+    #define DTAPI_IOCONFIG_2160P59_94B   0
+    #define DTAPI_IOCONFIG_2160P60       0
+    #define DTAPI_IOCONFIG_2160P60B      0
+    #define DTAPI_IOCONFIG_1080P50       0
+    #define DTAPI_IOCONFIG_1080P50B      0
+    #define DTAPI_IOCONFIG_1080P59_94    0
+    #define DTAPI_IOCONFIG_1080P59_94B   0
+    #define DTAPI_IOCONFIG_1080P60       0
+    #define DTAPI_IOCONFIG_1080P60B      0
+    #define DTAPI_IOCONFIG_2160P23_98    0
+    #define DTAPI_IOCONFIG_2160P24       0
+    #define DTAPI_IOCONFIG_2160P25       0
+    #define DTAPI_IOCONFIG_2160P29_97    0
+    #define DTAPI_IOCONFIG_2160P30       0
+    #define DTAPI_IOCONFIG_1080I50       0
+    #define DTAPI_IOCONFIG_1080I59_94    0
+    #define DTAPI_IOCONFIG_1080I60       0
+    #define DTAPI_IOCONFIG_1080P23_98    0
+    #define DTAPI_IOCONFIG_1080P24       0
+    #define DTAPI_IOCONFIG_1080P25       0
+    #define DTAPI_IOCONFIG_1080P29_97    0
+    #define DTAPI_IOCONFIG_1080P30       0
+    #define DTAPI_IOCONFIG_1080PSF23_98  0
+    #define DTAPI_IOCONFIG_1080PSF24     0
+    #define DTAPI_IOCONFIG_1080PSF25     0
+    #define DTAPI_IOCONFIG_1080PSF29_97  0
+    #define DTAPI_IOCONFIG_1080PSF30     0
+    #define DTAPI_IOCONFIG_720P23_98     0
+    #define DTAPI_IOCONFIG_720P24        0
+    #define DTAPI_IOCONFIG_720P25        0
+    #define DTAPI_IOCONFIG_720P29_97     0
+    #define DTAPI_IOCONFIG_720P30        0
+    #define DTAPI_IOCONFIG_720P50        0
+    #define DTAPI_IOCONFIG_720P59_94     0
+    #define DTAPI_IOCONFIG_720P60        0
+    #define DTAPI_IOCONFIG_525I59_94     0
+    #define DTAPI_IOCONFIG_625I50        0
+    #define DTAPI_IOCONFIG_SPI525I59_94  0
+    #define DTAPI_IOCONFIG_SPI625I50     0
+    #define DTAPI_FEC_DISABLE            0
+    #define DTAPI_FEC_2D_M1              0
+    #define DTAPI_FEC_2D_M1_B            0
+    #define DTAPI_FEC_2D_M2              0
+    #define DTAPI_FEC_2D_M2_B            0
 
 #else
 
@@ -243,6 +309,33 @@
     #define _NO_USING_NAMESPACE_DTAPI
     #include "DTAPI.h"
     TS_POP_WARNING()
+
+    namespace ts {
+        //!
+        //! Convert a FixedPoint value into a Dektec-defined fractional int.
+        //! @param [in] value A FixedPoint value.
+        //! @return Corresponding Dektec-defined fractional int.
+        //!
+        template <typename INT, const size_t PREC>
+        Dtapi::DtFractionInt ToDektecFractionInt(FixedPoint<INT, PREC> value)
+        {
+            return Dtapi::DtFractionInt(int(value.raw()), int(FixedPoint<INT, PREC>::FACTOR));
+        }
+
+        //!
+        //! Convert a Dektec-defined fractional int into a FixedPoint value.
+        //! @tparam INT The underlying signed integer type.
+        //! @tparam PREC The decimal precision in digits.
+        //! @param [out] result The converted FixedPoint value.
+        //! @param [in] value A Dektec-defined fractional int.
+        //!
+        template <typename INT, const size_t PREC>
+        void FromDektecFractionInt(FixedPoint<INT, PREC>& result, Dtapi::DtFractionInt value)
+        {
+            result = value.m_Num;
+            result /= value.m_Den;
+        }
+    }
 
 #endif
 

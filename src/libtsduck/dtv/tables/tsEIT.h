@@ -84,20 +84,60 @@ namespace ts {
         //!
         static constexpr size_t SEGMENTS_PER_TABLE = 32;
         //!
+        //! Number of logical segments per day.
+        //! Each segment covers 3 hours.
+        //!
+        static constexpr size_t SEGMENTS_PER_DAY = 8;
+        //!
         //! Number of sections per logical segment in EIT schedule.
         //! EIT schedule are logically divided into 32 segments of up to 8 sections each.
         //!
         static constexpr size_t SECTIONS_PER_SEGMENT = 8;
         //!
+        //! Number of EIT schedule tables of one type (actual or other).
+        //! There are 16 different table ids for EIT schedule (0x50-0x5F for actual, 0x60-0x6F for other).
+        //!
+        static constexpr size_t TOTAL_TABLES_COUNT = 16;
+        //!
         //! Number of logical segments over all EIT schedule of one type (actual or other).
+        //! There are 16 different table ids for EIT schedule (0x50-0x5F for actual, 0x60-0x6F for other).
+        //! Each table id can have up to 256 sections, i.e. 32 segments.
         //!
-        static constexpr size_t SEGMENTS_COUNT = 512;
+        static constexpr size_t TOTAL_SEGMENTS_COUNT = 512;
         //!
-        //! Number of millisecond per logical segments in EIT schedule.
+        //! Number of days for all EIT schedule of one type (actual or other).
+        //! All EIT schedule cover events for 64 complete days max.
+        //!
+        static constexpr size_t TOTAL_DAYS = 64;
+        //!
+        //! Number of milliseconds per logical segments in EIT schedule.
         //! EIT schedule are logically divided into 32 segments.
-        //! Each segment contains the events for a given duration.
+        //! Each segment contains the events for a duration of 3 hours.
         //!
         static constexpr MilliSecond SEGMENT_DURATION = 3 * MilliSecPerHour;
+        //!
+        //! Number of milliseconds per EIT schedule table id.
+        //! EIT schedule are logically divided into 32 segments of 3 hours each.
+        //! One table id consequently covers events for 4 complete days.
+        //!
+        static constexpr MilliSecond TABLE_DURATION = SEGMENTS_PER_TABLE * SEGMENT_DURATION;
+        //!
+        //! Number of milliseconds for all EIT schedule of one type (actual or other).
+        //! All EIT schedule cover events for 64 complete days max.
+        //!
+        static constexpr MilliSecond TOTAL_DURATION = TOTAL_SEGMENTS_COUNT * SEGMENT_DURATION;
+        //!
+        //! Section header size of an EIT section.
+        //!
+        static constexpr size_t EIT_HEADER_SIZE = LONG_SECTION_HEADER_SIZE;
+        //!
+        //! Minimum payload size of an EIT section before event loop.
+        //!
+        static constexpr size_t EIT_PAYLOAD_FIXED_SIZE = 6;
+        //!
+        //! Minimum size of an event structure in an EIT section before descriptor loop.
+        //!
+        static constexpr size_t EIT_EVENT_FIXED_SIZE = 12;
 
         //!
         //! Description of an event.
@@ -198,6 +238,21 @@ namespace ts {
         static size_t TimeToSegment(const Time& last_midnight, const Time& event_start_time);
 
         //!
+        //! Compute the segment start time of an event in an EIT schedule.
+        //! @param [in] event_start_time UTC start time of event.
+        //! @return The starting time of the corresponding segment.
+        //!
+        static Time SegmentStartTime(const Time& event_start_time);
+
+        //!
+        //! Compute the start time of EIT schedule table id for an event.
+        //! @param [in] last_midnight Reference time of "last midnight".
+        //! @param [in] event_start_time UTC start time of event.
+        //! @return The starting time of the first segment in the table id of the event.
+        //!
+        static Time TableStartTime(const Time& last_midnight, const Time& event_start_time);
+
+        //!
         //! Toggle an EIT table id between Actual and Other.
         //! @param [in] tid Initial table id.
         //! @param [in] is_actual True for EIT Actual TS, false for EIT Other TS.
@@ -239,6 +294,15 @@ namespace ts {
         //! @return True for EIT schedule, false otherwise.
         //!
         static bool IsSchedule(TID tid) { return tid >= TID_EIT_S_ACT_MIN && tid <= TID_EIT_S_OTH_MAX; }
+
+        //!
+        //! Extract the service id triplet from an EIT section.
+        //! @param [in] section An EIT section.
+        //! @param [in] include_version If true, include the version of the EIT section in the
+        //! ServiceIdTriplet. If false, set the version field of the ServiceIdTriplet to zero.
+        //! @return The service id triplet.
+        //!
+        static ServiceIdTriplet GetService(const Section& section, bool include_version = false);
 
         //!
         //! Default constructor.
@@ -324,11 +388,15 @@ namespace ts {
         //! @param [in,out] table The table to fix. Ignored if it is not valid or not an EIT.
         //! @param [in] mode The type of fix to apply.
         //! @see ReorganizeSections()
+        //! @see EITGenerator
         //!
         static void Fix(BinaryTable& table, FixMode mode);
 
         //!
         //! Static method to reorganize a set of EIT sections according to ETSI TS 101 211.
+        //!
+        //! Warning: This method is no longer the preferred way to generate clean and
+        //! organized EIT's. It is recommended to use the more generic class EITGenerator.
         //!
         //! Only one EITp/f subtable is kept per service. It is split in two sections if two
         //! events (present and following) are specified.
@@ -338,15 +406,17 @@ namespace ts {
         //!
         //! Non-EIT sections are left unmodified.
         //!
+        //! @param [in,out] duck TSDuck execution context.
         //! @param [in,out] sections A vector of safe pointers to sections. Only valid EIT
         //! sections are used. On output, a completely new list of sections is built.
-        //! @param [in] reftime Reference time for EIT schedule. Only the date part is used.
+        //! @param [in] reftime Reference UTC time for EIT schedule. Only the date part is used.
         //! This is the "last midnight" according to which EIT segments are assigned. By
         //! default, the oldest event start time is used.
         //!
         //! @see ETSI TS 101 211, 4.1.4
+        //! @see EITGenerator
         //!
-        static void ReorganizeSections(SectionPtrVector& sections, const Time& reftime = Time());
+        static void ReorganizeSections(DuckContext& duck, SectionPtrVector& sections, const Time& reftime = Time());
 
         //!
         //! Modify an EIT-schedule section to make it "standalone", outside any other table.
@@ -370,9 +440,6 @@ namespace ts {
         virtual bool analyzeXML(DuckContext&, const xml::Element*) override;
 
     private:
-        constexpr static size_t EIT_HEADER_SIZE        = LONG_SECTION_HEADER_SIZE;
-        constexpr static size_t EIT_PAYLOAD_FIXED_SIZE = 6;   // Payload size before event loop.
-        constexpr static size_t EIT_EVENT_FIXED_SIZE   = 12;  // Event size before descriptor loop.
 
         // Get the table id from XML element.
         bool getTableId(const xml::Element*);
@@ -380,9 +447,6 @@ namespace ts {
         // Build an empty EIT section for a given service. Return null pointer on error.
         // Do not compute the CRC32 of the section. Also insert the section in a vector of sections.
         static SectionPtr BuildEmptySection(TID tid, uint8_t section_number, const ServiceIdTriplet& serv, SectionPtrVector& sections);
-
-        // Extract the service id triplet from an EIT section.
-        static ServiceIdTriplet GetService(const SectionPtr&);
 
         // An internal structure to store binary events from sections.
         struct BinaryEvent

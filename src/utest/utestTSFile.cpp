@@ -35,9 +35,9 @@
 #include "tsTSPacket.h"
 #include "tsTSPacketMetadata.h"
 #include "tsCerrReport.h"
-#include "tsSysUtils.h"
+#include "tsNullReport.h"
+#include "tsFileUtils.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -89,13 +89,13 @@ void TSFileTest::beforeTest()
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".ts");
     }
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 // Test suite cleanup method.
 void TSFileTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 

@@ -37,13 +37,12 @@
 #include "tsCAT.h"
 #include "tsTDT.h"
 #include "tsCAIdentifierDescriptor.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
 #include "tsBinaryTable.h"
 #include "tsDuckContext.h"
 #include "tsTSPacket.h"
 #include "tsCerrReport.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 #include "tables/psi_pat1_xml.h"
 #include "tables/psi_pat1_sections.h"
@@ -69,6 +68,7 @@ public:
     void testGenericLongTable();
     void testPAT1();
     void testSCTE35();
+    void testMemory();
     void testBuildSections();
     void testMultiSectionsCAT();
     void testMultiSectionsAtProgramLevelPMT();
@@ -81,6 +81,7 @@ public:
     TSUNIT_TEST(testGenericLongTable);
     TSUNIT_TEST(testPAT1);
     TSUNIT_TEST(testSCTE35);
+    TSUNIT_TEST(testMemory);
     TSUNIT_TEST(testBuildSections);
     TSUNIT_TEST(testMultiSectionsCAT);
     TSUNIT_TEST(testMultiSectionsAtProgramLevelPMT);
@@ -116,15 +117,15 @@ void SectionFileTest::beforeTest()
         _tempFileNameBin = ts::TempFile(u".tmp.bin");
         _tempFileNameXML = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileNameBin);
-    ts::DeleteFile(_tempFileNameXML);
+    ts::DeleteFile(_tempFileNameBin, NULLREP);
+    ts::DeleteFile(_tempFileNameXML, NULLREP);
 }
 
 // Test suite cleanup method.
 void SectionFileTest::afterTest()
 {
-    ts::DeleteFile(_tempFileNameBin);
-    ts::DeleteFile(_tempFileNameXML);
+    ts::DeleteFile(_tempFileNameBin, NULLREP);
+    ts::DeleteFile(_tempFileNameXML, NULLREP);
 }
 
 ts::Report& SectionFileTest::report()
@@ -158,11 +159,11 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
     // Convert XML reference content to binary tables.
     ts::DuckContext duck;
     ts::SectionFile xml(duck);
-    TSUNIT_ASSERT(xml.parseXML(ref_xml, CERR));
+    TSUNIT_ASSERT(xml.parseXML(ref_xml));
 
     // Serialize binary tables to section data.
     std::ostringstream strm;
-    TSUNIT_ASSERT(xml.saveBinary(strm, CERR));
+    TSUNIT_ASSERT(xml.saveBinary(strm));
     const std::string sections(strm.str());
 
     // In debug mode, analyze data before failing.
@@ -195,7 +196,7 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
     TSUNIT_EQUAL(0, ::memcmp(ref_sections, sections.data(), ref_sections_size));
 
     // Convert binary tables to XML.
-    TSUNIT_EQUAL(ref_xml, xml.toXML(CERR));
+    TSUNIT_EQUAL(ref_xml, xml.toXML());
 }
 
 
@@ -205,7 +206,7 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
 
 void SectionFileTest::testConfigurationFile()
 {
-    const ts::UString conf(ts::SearchConfigurationFile(TS_XML_TABLES_MODEL));
+    const ts::UString conf(ts::SearchConfigurationFile(ts::SectionFile::XML_TABLES_MODEL));
     debug() << "SectionFileTest::testConfigurationFile: " << conf << std::endl;
     TSUNIT_ASSERT(ts::FileExists(conf));
 }
@@ -457,24 +458,24 @@ void SectionFileTest::testBuildSections()
     // Save files.
     debug() << "SectionFileTest::testBuildSections: saving " << _tempFileNameBin << std::endl;
     TSUNIT_ASSERT(!ts::FileExists(_tempFileNameBin));
-    TSUNIT_ASSERT(file.saveBinary(_tempFileNameBin, report()));
+    TSUNIT_ASSERT(file.saveBinary(_tempFileNameBin));
     TSUNIT_ASSERT(ts::FileExists(_tempFileNameBin));
 
     debug() << "SectionFileTest::testBuildSections: saving " << _tempFileNameXML << std::endl;
     TSUNIT_ASSERT(!ts::FileExists(_tempFileNameXML));
-    TSUNIT_ASSERT(file.saveXML(_tempFileNameXML, report()));
+    TSUNIT_ASSERT(file.saveXML(_tempFileNameXML));
     TSUNIT_ASSERT(ts::FileExists(_tempFileNameXML));
 
     // Reload files.
     ts::SectionFile binFile(duck);
     binFile.setCRCValidation(ts::CRC32::CHECK);
-    TSUNIT_ASSERT(binFile.loadBinary(_tempFileNameBin, report()));
+    TSUNIT_ASSERT(binFile.loadBinary(_tempFileNameBin));
     TSUNIT_EQUAL(3, binFile.tables().size());
     TSUNIT_EQUAL(5, binFile.sections().size());
     TSUNIT_EQUAL(0, binFile.orphanSections().size());
 
     ts::SectionFile xmlFile(duck);
-    TSUNIT_ASSERT(xmlFile.loadXML(_tempFileNameXML, report()));
+    TSUNIT_ASSERT(xmlFile.loadXML(_tempFileNameXML));
     TSUNIT_EQUAL(3, xmlFile.tables().size());
     TSUNIT_EQUAL(5, xmlFile.sections().size());
     TSUNIT_EQUAL(0, xmlFile.orphanSections().size());
@@ -734,4 +735,37 @@ void SectionFileTest::testMultiSectionsAtStreamLevelPMT()
             }
         }
     }
+}
+
+void SectionFileTest::testMemory()
+{
+    ts::ByteBlock input(5);
+    input.append(psi_pat1_sections, sizeof(psi_pat1_sections));
+    input.append(psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections));
+    input.appendInt24(0);
+    TSUNIT_EQUAL(5 + 32 + 55 + 3, input.size());
+
+    ts::DuckContext duck;
+    ts::SectionFile sf1(duck);
+    TSUNIT_ASSERT(sf1.loadBuffer(input, 5, 87));
+    TSUNIT_EQUAL(87, sf1.binarySize());
+    TSUNIT_EQUAL(2, sf1.sectionsCount());
+    TSUNIT_EQUAL(2, sf1.tablesCount());
+    TSUNIT_EQUAL(ts::TID_PAT, sf1.tables()[0]->tableId());
+    TSUNIT_EQUAL(ts::TID_PMT, sf1.tables()[1]->tableId());
+
+    ts::ByteBlock output(3);
+    TSUNIT_EQUAL(87, sf1.saveBuffer(output));
+    TSUNIT_EQUAL(90, output.size());
+    TSUNIT_EQUAL(0, ::memcmp(&output[3], psi_pat1_sections, sizeof(psi_pat1_sections)));
+    TSUNIT_EQUAL(0, ::memcmp(&output[3 + 32], psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
+
+    uint8_t out1[40];
+    TSUNIT_EQUAL(32, sf1.saveBuffer(out1, sizeof(out1)));
+    TSUNIT_EQUAL(0, ::memcmp(out1, psi_pat1_sections, sizeof(psi_pat1_sections)));
+
+    uint8_t out2[100];
+    TSUNIT_EQUAL(87, sf1.saveBuffer(out2, sizeof(out2)));
+    TSUNIT_EQUAL(0, ::memcmp(out2, psi_pat1_sections, sizeof(psi_pat1_sections)));
+    TSUNIT_EQUAL(0, ::memcmp(out2 + 32, psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
 }

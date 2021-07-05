@@ -36,6 +36,7 @@
 #include "tsInputSwitcherArgs.h"
 #include "tstsswitchInputExecutor.h"
 #include "tstsswitchOutputExecutor.h"
+#include "tstsswitchEventDispatcher.h"
 #include "tsMutex.h"
 #include "tsCondition.h"
 #include "tsWatchDog.h"
@@ -56,7 +57,7 @@ namespace ts {
             //!
             //! Constructor.
             //! @param [in] opt Command line options.
-            //! @param [in] handlers Registry of event handlers.
+            //! @param [in] handlers Registry of plugin event handlers.
             //! @param [in,out] log Log report.
             //!
             Core(const InputSwitcherArgs& opt, const PluginEventHandlerRegistry& handlers, Report& log);
@@ -98,6 +99,12 @@ namespace ts {
             //! Switch to the previous input plugin.
             //!
             void previousInput();
+
+            //!
+            //! Get the index of the current input plugin.
+            //! @return The index of the current input plugin.
+            //!
+            size_t currentInput();
 
             //!
             //! Called by an input plugin when it started an input session.
@@ -184,18 +191,19 @@ namespace ts {
             typedef std::set<Action> ActionSet;
             typedef std::deque<Action> ActionQueue;
 
-            Report&             _log;             // Asynchronous log report.
-            InputSwitcherArgs   _opt;             // Command line options.
-            InputExecutorVector _inputs;          // Input plugins threads.
-            OutputExecutor      _output;          // Output plugin thread.
-            WatchDog            _receiveWatchDog; // Handle reception timeout.
-            Mutex               _mutex;           // Global mutex, protect access to all subsequent fields.
-            Condition           _gotInput;        // Signaled each time an input plugin reports new packets.
-            size_t              _curPlugin;       // Index of current input plugin.
-            size_t              _curCycle;        // Current input cycle number.
-            volatile bool       _terminate;       // Terminate complete processing.
-            ActionQueue         _actions;         // Sequential queue list of actions to execute.
-            ActionSet           _events;          // Pending events, waiting to be cleared.
+            Report&                  _log;             // Asynchronous log report.
+            const InputSwitcherArgs& _opt;             // Command line options.
+            InputExecutorVector      _inputs;          // Input plugins threads.
+            OutputExecutor  _output;           // Output plugin thread.
+            EventDispatcher _eventDispatcher;  // External event dispatcher.
+            WatchDog        _receiveWatchDog;  // Handle reception timeout.
+            Mutex           _mutex;            // Global mutex, protect access to all subsequent fields.
+            Condition       _gotInput;         // Signaled each time an input plugin reports new packets.
+            size_t          _curPlugin;        // Index of current input plugin.
+            size_t          _curCycle;         // Current input cycle number.
+            volatile bool   _terminate;        // Terminate complete processing.
+            ActionQueue     _actions;          // Sequential queue list of actions to execute.
+            ActionSet       _events;           // Pending events, waiting to be cleared.
 
             // Names of actions for debug messages.
             static const Enumeration _actionNames;

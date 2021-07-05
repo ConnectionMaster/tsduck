@@ -54,6 +54,7 @@ namespace ts {
     //! Vector of Dtapi::DtHwFuncDesc.
     //!
     typedef std::vector<Dtapi::DtHwFuncDesc> DektecPortDescVector;
+
     //!
     //! Get the error message corresponding to a DTAPI error code
     //! @param [in] code DTAPI error code.
@@ -124,6 +125,7 @@ namespace ts {
         static void ReportDvbT2Pars(const Dtapi::DtDvbT2Pars&, Report& = CERR, int severity = Severity::Info, const UString& margin = UString());
         static void ReportDvbT2PlpPars(const Dtapi::DtDvbT2PlpPars&, Report& = CERR, int severity = Severity::Info, const UString& margin = UString());
         static void ReportDvbT2ParamInfo(const Dtapi::DtDvbT2ParamInfo&, Report& = CERR, int severity = Severity::Info, const UString& margin = UString());
+        static void ReportIpPars(const Dtapi::DtIpPars2&, Report& = CERR, int severity = Severity::Info, const UString& margin = UString());
 
     private:
         // Append a name to a string if a condition is true.

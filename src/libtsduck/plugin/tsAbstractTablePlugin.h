@@ -36,7 +36,7 @@
 #include "tsProcessorPlugin.h"
 #include "tsSectionDemux.h"
 #include "tsCyclingPacketizer.h"
-#include "tsPatchXML.h"
+#include "tsTablePatchXML.h"
 
 namespace ts {
     //!
@@ -58,7 +58,7 @@ namespace ts {
         //!
         //! Default bitrate of new PID if a table is created.
         //!
-        static const BitRate DEFAULT_BITRATE = 3000;
+        static constexpr BitRate::int_t DEFAULT_BITRATE = 3000;
 
     protected:
         //!
@@ -145,7 +145,7 @@ namespace ts {
         uint8_t           _new_version;      // New table version.
         SectionDemux      _demux;            // Section demux.
         CyclingPacketizer _pzer;             // Packetizer for modified tables.
-        PatchXML          _patch_xml;        // Table patcher using XML patch files.
+        TablePatchXML     _patch_xml;        // Table patcher using XML patch files.
 
         // Reinsert a table in the target PID.
         void reinsertTable(BinaryTable& table, bool is_target_table);

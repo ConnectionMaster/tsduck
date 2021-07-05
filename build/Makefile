@@ -49,7 +49,7 @@ GITHOOKS_TARGETS = $(if $(wildcard $(GITHOOKS_DIR)),$(addprefix $(GITHOOKS_DIR)/
 # A rule to create a git hook script.
 $(GITHOOKS_TARGETS): Makefile
 	@echo '  [GIT] updating $(notdir $@) hook'; \
-	 echo '#!/bin/bash' >$@; \
+	 echo '#!/usr/bin/env bash' >$@; \
 	 echo 'exec $$(dirname $$0)/../../$(GITHOOKS_CMD) $(notdir $@)' >>$@; \
 	 chmod a+x "$@"
 
@@ -58,19 +58,21 @@ default: $(GITHOOKS_TARGETS)
 	+@$(RECURSE)
 
 # Doxygen needs the TSDuck version and dot (from Graphviz).
-ifneq ($(filter-out doxygen,$(MAKECMDGOALS)), $(MAKECMDGOALS))
+ifneq ($(filter-out doxygen,$(MAKECMDGOALS)),$(MAKECMDGOALS))
     export TS_FULL_VERSION := $(shell ./get-version-from-sources.sh)
     export DOT_PATH := $(call F_SEARCH,dot)
     export HAVE_DOT := $(if $(DOT_PATH),YES,NO)
+    export DOXY_INCLUDE_PATH := $(shell find $(LIBTSDUCKDIR) -type d)
 endif
 
 # Install system files.
-.PHONY: install install-devel
+.PHONY: install install-tools install-devel
+install: install-tools install-devel
 ifdef MACOS
-install:
+install-tools:
 	@true
 else
-install: 80-tsduck.rules 80-tsduck.perms
+install-tools: 80-tsduck.rules 80-tsduck.perms
 	install -d -m 755 $(SYSROOT)$(UDEVDIR)
 	install -m 644 80-tsduck.rules $(SYSROOT)$(UDEVDIR)/
 	install -d -m 755 $(SYSROOT)$(ETCDIR)/security/console.perms.d
@@ -86,7 +88,7 @@ TARNAME = tsduck-$(VERSION)
 TARFILE = $(INSTALLERDIR)/$(TARNAME).tgz
 TMPROOT = $(INSTALLERDIR)/tmp
 ifdef NOTELETEXT
-    NOSOURCE += tsTeletextCharset.h tsTeletextDemux.h tsTeletextCharset.cpp tsTeletextDemux.cpp tsplugin_teletext.cpp
+    NOSOURCE += tsTeletextDemux.h tsTeletextDemux.cpp tsplugin_teletext.cpp
 endif
 .PHONY: tarball
 tarball:
@@ -94,7 +96,7 @@ tarball:
 	mkdir -p $(TMPROOT)/$(TARNAME)
 	tar -C $(ROOTDIR) $(patsubst %,--exclude '%',$(NOSOURCE)) -cpf - . | tar -C $(TMPROOT)/$(TARNAME) -xpf -
 ifdef NOTELETEXT
-	$(SED) -e '/tsTeletextCharset.h/d' -e '/tsTeletextDemux.h/d' -i $(TMPROOT)/$(TARNAME)/src/libtsduck/tsduck.h
+	$(SED) -e '/tsTeletextDemux.h/d' -i $(TMPROOT)/$(TARNAME)/src/libtsduck/tsduck.h
 endif
 	$(MAKE) -C $(TMPROOT)/$(TARNAME) distclean
 	tar -C $(TMPROOT) -czf $(TARFILE) -p --owner=0 --group=0 $(TARNAME)
@@ -120,6 +122,7 @@ rpm: tarball $(RPMBUILDROOT)
 	      -D 'version $(shell ./get-version-from-sources.sh --main)' \
 	      -D 'commit $(shell ./get-version-from-sources.sh --commit)' \
 	      -D 'distro $(DISTRO)' \
+	      -D '_smp_mflags $(MAKEFLAGS_SMP)' \
 	      $(if $(NOSRT),-D 'nosrt 1',) \
 	      $(if $(NOPCSC),-D 'nopcsc 1',) \
 	      $(if $(NOCURL),-D 'nocurl 1',) \
@@ -131,13 +134,14 @@ rpm32:
 	$(MAKE) rpm M32=true
 
 # Build the tsduck DEB package.
+# Make deb-dev depend on deb-tools to force serialization in case of -j.
 TMPDIR = /tmp/tsduck-deb-$(USER)
-.PHONY: deb deb-main deb-dev
-deb: deb-main deb-dev
-deb-main:
-	$(MAKE) NOTEST=true -C $(ROOTDIR) -j$(CPU_COUNT)
+.PHONY: deb deb-tools deb-dev
+deb: deb-tools deb-dev
+deb-tools:
+	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true -C $(ROOTDIR)
 	rm -rf $(TMPDIR)
-	$(MAKE) NOTEST=true -C $(ROOTDIR) install SYSROOT=$(TMPDIR)
+	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true -C $(ROOTDIR) install-tools SYSROOT=$(TMPDIR)
 	mkdir $(TMPDIR)/DEBIAN
 	sed -e 's/{{VERSION}}/$(VERSION)$(DISTRO)/g' \
 	    -e 's/{{ARCH}}/$(shell dpkg-architecture -qDEB_BUILD_ARCH)/g' \
@@ -150,10 +154,10 @@ deb-main:
 	chmod a+x $(TMPDIR)/DEBIAN/postinst
 	dpkg --build $(TMPDIR) $(INSTALLERDIR)
 	rm -rf $(TMPDIR)
-deb-dev:
-	$(MAKE) NOTEST=true -C $(ROOTDIR) -j$(CPU_COUNT)
+deb-dev: deb-tools
+	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true -C $(ROOTDIR)
 	rm -rf $(TMPDIR)
-	$(MAKE) NOTEST=true -C $(ROOTDIR) install-devel SYSROOT=$(TMPDIR)
+	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true -C $(ROOTDIR) install-devel SYSROOT=$(TMPDIR)
 	mkdir $(TMPDIR)/DEBIAN
 	sed -e 's/{{VERSION}}/$(VERSION)$(DISTRO)/g' \
 	    -e 's/{{ARCH}}/$(shell dpkg-architecture -qDEB_BUILD_ARCH)/g' \

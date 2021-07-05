@@ -29,7 +29,7 @@
 
 #include "tstsswitchInputExecutor.h"
 #include "tstsswitchCore.h"
-#include "tsGuard.h"
+#include "tsGuardMutex.h"
 #include "tsGuardCondition.h"
 TSDUCK_SOURCE;
 
@@ -128,7 +128,7 @@ bool ts::tsswitch::InputExecutor::abortInput()
 
 void ts::tsswitch::InputExecutor::setCurrent(bool isCurrent)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     _isCurrent = isCurrent;
 }
 
@@ -206,6 +206,8 @@ void ts::tsswitch::InputExecutor::main()
             // At this point, start is requested, reset trigger.
             _startRequest = false;
             _stopRequest = false;
+            // Inform the TSP layer to reset plugin session accounting.
+            restartPluginSession();
         }
 
         // Here, we need to start an input session.
@@ -285,7 +287,7 @@ void ts::tsswitch::InputExecutor::main()
 
             // Signal the presence of received packets.
             {
-                Guard lock(_mutex);
+                GuardMutex lock(_mutex);
                 _outCount += inCount;
             }
             _core.inputReceived(_pluginIndex);

@@ -29,12 +29,15 @@
 
 #include "tsDektecOutputPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsObjectRepository.h"
 #include "tsDektecUtils.h"
 #include "tsDektecDevice.h"
 #include "tsDektecVPD.h"
+#include "tsDektecArgsUtils.h"
 #include "tsHFBand.h"
 #include "tsBitrateDifferenceDVBT.h"
 #include "tsModulation.h"
+#include "tsSocketAddress.h"
 #include "tsIntegerUtils.h"
 #include "tsSysUtils.h"
 TSDUCK_SOURCE;
@@ -77,6 +80,8 @@ public:
     Dtapi::DtDevice      dtdev;              // Device descriptor
     Dtapi::DtOutpChannel chan;               // Output channel
     int                  detach_mode;        // Detach mode
+    int                  iostd_value;        // Value parameter for SetIoConfig on I/O standard.
+    int                  iostd_subvalue;     // SubValue parameter for SetIoConfig on I/O standard.
     BitRate              opt_bitrate;        // Bitrate option (0 means unspecified)
     BitRate              cur_bitrate;        // Current output bitrate
     int                  max_fifo_size;      // Maximum FIFO size
@@ -100,7 +105,9 @@ ts::DektecOutputPlugin::Guts::Guts() :
     device(),
     dtdev(),
     chan(),
-    detach_mode(DTAPI_WAIT_UNTIL_SENT),
+    detach_mode(0),
+    iostd_value(-1),
+    iostd_subvalue(-1),
     opt_bitrate(0),
     cur_bitrate(0),
     max_fifo_size(0),
@@ -151,6 +158,9 @@ ts::DektecOutputPlugin::DektecOutputPlugin(TSP* tsp_) :
     assert(DTAPI_DVBT2_8MHZ == DTAPI_MOD_DTMB_8MHZ);
 
     // Declaration of command-line options
+    DefineDektecIOStandardArgs(*this);
+    DefineDektecIPArgs(*this, false); // false = transmit
+
     option(u"204");
     help(u"204",
          u"ASI devices: Send 204-byte packets (188 meaningful bytes plus 16 "
@@ -174,7 +184,7 @@ ts::DektecOutputPlugin::DektecOutputPlugin(TSP* tsp_) :
          u"DVB-T2 modulators: indicate that the extended carrier mode is used. "
          u"By default, use normal carrier mode.");
 
-    option(u"bitrate", 'b', POSITIVE);
+    option<BitRate>(u"bitrate", 'b');
     help(u"bitrate",
          u"Specify output bitrate in bits/second. By default, use the input "
          u"device bitrate or, if the input device cannot report bitrate, analyze "
@@ -398,9 +408,9 @@ ts::DektecOutputPlugin::DektecOutputPlugin(TSP* tsp_) :
     option(u"instant-detach");
     help(u"instant-detach",
          u"At end of stream, perform an \"instant detach\" of the output channel. "
-         u"The default is to wait until all bytes are sent. The default is fine "
-         u"for ASI devices. With modulators, the \"wait until sent\" mode may "
-         u"hang at end of stream and --instant-detach avoids this.");
+         u"The transmit FIFO is immediately cleared without waiting for all data to be transmitted. "
+         u"With some Dektec devices, the default mode may hang at end of stream and --instant-detach avoids this. "
+         u"The options --instant-detach and --wait-detach are mutually exclusive.");
 
     option(u"inversion");
     help(u"inversion", u"All modulators devices: enable spectral inversion.");
@@ -786,6 +796,11 @@ ts::DektecOutputPlugin::DektecOutputPlugin(TSP* tsp_) :
          u"improves the spectrum, but increases processor overhead. The recommend "
          u"(and default) number of taps is 64 taps. If insufficient CPU power is "
          u"available, 32 taps produces acceptable results, too. ");
+
+    option(u"wait-detach");
+    help(u"wait-detach",
+         u"At end of stream, the plugin waits until all bytes in the transmit FIFO are sent. "
+         u"The options --instant-detach and --wait-detach are mutually exclusive.");
 }
 
 
@@ -796,7 +811,7 @@ ts::DektecOutputPlugin::DektecOutputPlugin(TSP* tsp_) :
 ts::DektecOutputPlugin::~DektecOutputPlugin()
 {
     if (_guts != nullptr) {
-        stop();
+        DektecOutputPlugin::stop();
         delete _guts;
         _guts = nullptr;
     }
@@ -845,15 +860,22 @@ bool ts::DektecOutputPlugin::start()
     }
 
     // Get command line arguments
-    _guts->dev_index = intValue<int>(u"device", -1);
-    _guts->chan_index = intValue<int>(u"channel", -1);
-    _guts->opt_bitrate = intValue<BitRate>(u"bitrate", 0);
-    _guts->detach_mode = present(u"instant-detach") ? DTAPI_INSTANT_DETACH : DTAPI_WAIT_UNTIL_SENT;
+    getIntValue(_guts->dev_index, u"device", -1);
+    getIntValue(_guts->chan_index, u"channel", -1);
+    getFixedValue(_guts->opt_bitrate, u"bitrate", 0);
+    _guts->detach_mode = present(u"instant-detach") ? DTAPI_INSTANT_DETACH : (present(u"wait-detach") ? DTAPI_WAIT_UNTIL_SENT : 0);
     _guts->mute_on_stop = false;
     _guts->preload_fifo = present(u"preload-fifo");
     _guts->maintain_preload = present(u"maintain-preload");
     _guts->drop_to_maintain = present(u"drop-to-maintain-preload");
-    _guts->power_mode = intValue(u"power-mode", -1);
+    getIntValue(_guts->power_mode, u"power-mode", -1);
+    GetDektecIOStandardArgs(*this, _guts->iostd_value, _guts->iostd_subvalue);
+
+    // Check options consistency.
+    if (present(u"instant-detach") && present(u"wait-detach")) {
+        tsp->error(u"options --instant-detach and --wait-detach are mutually exclusive.");
+        return false;
+    }
 
     // Get initial bitrate
     _guts->cur_bitrate = _guts->opt_bitrate != 0 ? _guts->opt_bitrate : tsp->bitrate();
@@ -864,15 +886,20 @@ bool ts::DektecOutputPlugin::start()
     }
 
     // Open the device
+    tsp->debug(u"attaching to device %s serial 0x%X", {_guts->device.model, _guts->device.desc.m_Serial});
     Dtapi::DTAPI_RESULT status = _guts->dtdev.AttachToSerial(_guts->device.desc.m_Serial);
     if (status != DTAPI_OK) {
         tsp->error(u"error attaching output Dektec device %d (%s): %s", {_guts->dev_index, _guts->device.model, DektecStrError(status)});
         return false;
     }
 
-    // Set power mode.
+    // Determine port number and channel capabilities.
     const int port = _guts->device.output[_guts->chan_index].m_Port;
+    Dtapi::DtCaps dt_flags = _guts->device.output[_guts->chan_index].m_Flags;
+
+    // Set power mode.
     if (_guts->power_mode >= 0) {
+        tsp->debug(u"setting IO config of port %d, group: %d, value: %d", {port, DTAPI_IOCONFIG_PWRMODE, _guts->power_mode});
         status = _guts->dtdev.SetIoConfig(port, DTAPI_IOCONFIG_PWRMODE, _guts->power_mode);
         if (status != DTAPI_OK) {
             return startError(u"set power mode", status);
@@ -880,6 +907,7 @@ bool ts::DektecOutputPlugin::start()
     }
 
     // Open the channel
+    tsp->debug(u"attaching to port %d", {port});
     status = _guts->chan.AttachToPort(&_guts->dtdev, port);
     if (status != DTAPI_OK) {
         tsp->error(u"error attaching output channel %d of Dektec device %d (%s): %s", {_guts->chan_index, _guts->dev_index, _guts->device.model, DektecStrError(status)});
@@ -890,12 +918,9 @@ bool ts::DektecOutputPlugin::start()
     // Get the Vital Product Data (VPD)
     const DektecVPD vpd(_guts->dtdev);
 
-    // Check if the device is a modulator.
-    const bool is_modulator = (_guts->device.output[_guts->chan_index].m_Flags & DTAPI_CAP_MOD) != 0;
+    // Check if the device is a modulator or a TS-over-IP.
+    const bool is_modulator = (dt_flags & DTAPI_CAP_MOD) != 0;
     _guts->mute_on_stop = false;
-
-    // Determine channel capabilities.
-    Dtapi::DtCaps dt_flags = _guts->device.output[_guts->chan_index].m_Flags;
 
     // Set default modulation for multi-standard modulators.
     // Also adjust device capabilities since m_Flags field is not
@@ -941,30 +966,64 @@ bool ts::DektecOutputPlugin::start()
     }
 
     // Reset output channel
+    tsp->debug(u"resetting channel, mode: %d", {DTAPI_FULL_RESET});
     status = _guts->chan.Reset(DTAPI_FULL_RESET);
     if (status != DTAPI_OK) {
         return startError(u"output device reset error", status);
     }
 
+    // Configure I/O standard if necessary.
+    if (_guts->iostd_value >= 0) {
+        tsp->debug(u"setting IO config of port %d, group: %d, value: %d, subvalue: %d", {port, DTAPI_IOCONFIG_IOSTD, _guts->iostd_value, _guts->iostd_subvalue});
+        status = _guts->chan.SetIoConfig(DTAPI_IOCONFIG_IOSTD, _guts->iostd_value, _guts->iostd_subvalue);
+        if (status != DTAPI_OK) {
+            return startError(u"error setting I/O standard", status);
+        }
+    }
+
     // Set 188/204-byte output packet format and stuffing
-    status = _guts->chan.SetTxMode(present(u"204") ? DTAPI_TXMODE_ADD16 : DTAPI_TXMODE_188, present(u"stuffing") ? 1 : 0);
+    const int tx_mode = present(u"204") ? DTAPI_TXMODE_ADD16 : DTAPI_TXMODE_188;
+    const int stuff_mode = present(u"stuffing") ? 1 : 0;
+    tsp->debug(u"setting TxMode, tx: %d, stuff: %d", {tx_mode, stuff_mode});
+    status = _guts->chan.SetTxMode(tx_mode, stuff_mode);
     if (status != DTAPI_OK) {
         return startError(u"output device SetTxMode error", status);
     }
 
-    // Set modulation parameters for modulators
+    // Set modulation parameters for modulators.
+    // Overwrite _guts->cur_bitrate and _guts->opt_bitrate with computed values from modulation parameters.
     if (is_modulator && !setModulation(modulation_type)) {
         return false;
     }
 
+    // Set IP parameters for TS-over-IP.
+    if ((dt_flags & DTAPI_CAP_IP) != 0) {
+        Dtapi::DtIpPars2 ip_pars;
+        if (!GetDektecIPArgs(*this, false, ip_pars)) {
+            return startError(u"invalid TS-over-IP parameters", DTAPI_OK);
+        }
+
+        // Report actual parameters in debug mode
+        tsp->debug(u"setting IP parameters: DtIpPars2 = {");
+        DektecDevice::ReportIpPars(ip_pars, *tsp, Severity::Debug, u"  ");
+        tsp->debug(u"}");
+
+        status = _guts->chan.SetIpPars(&ip_pars);
+        if (status != DTAPI_OK) {
+            return startError(u"output device SetIpPars error", status);
+        }
+    }
+
     // Set output level.
     if (present(u"level")) {
-        status = _guts->chan.SetOutputLevel(intValue<int>(u"level"));
+        const int level = intValue<int>(u"level");
+        tsp->debug(u"set output level to %d", {level});
+        status = _guts->chan.SetOutputLevel(level);
         if (status != DTAPI_OK) {
             // In case of error, report it but do not fail.
             // This feature is not supported on all modulators and
             // it seems severe to fail if unsupported.
-            tsp->error(u"set modulator output level: " + DektecStrError(status));
+            tsp->error(u"set modulator output level: %s", {DektecStrError(status)});
         }
     }
 
@@ -1004,15 +1063,13 @@ bool ts::DektecOutputPlugin::start()
     tsp->verbose(u"output fifo size: %'d bytes, max: %'d bytes, typical: %'d bytes", {_guts->fifo_size, _guts->max_fifo_size, typ_fifo_size});
 
     if (present(u"preload-fifo-delay")) {
-        _guts->preload_fifo_delay = intValue<uint64_t>(u"preload-fifo-delay");
-        if (_guts->preload_fifo_delay) {
-            if (!setPreloadFIFOSizeBasedOnDelay()) {
-                // can't set _guts->preload_fifo_size yet based on delay, because the bit rate hasn't been set yet.
-                // for now, fall through to --preload-fifo-percentage, with expectation that it will
-                // be calculated later when the caller sets the bit rate on the TSP object (and potentially
-                // multiple times later if the bit rate changes multiple times during a session)
-                tsp->verbose(u"For --preload-fifo-delay, no bit rate currently set, so will use --preload-fifo-percentage settings until a bit rate has been set.");
-            }
+        getIntValue(_guts->preload_fifo_delay, u"preload-fifo-delay");
+        if (_guts->preload_fifo_delay && !setPreloadFIFOSizeBasedOnDelay()) {
+            // Can't set _guts->preload_fifo_size yet based on delay, because the bit rate hasn't been set yet.
+            // for now, fall through to --preload-fifo-percentage, with expectation that it will
+            // be calculated later when the caller sets the bit rate on the TSP object (and potentially
+            // multiple times later if the bit rate changes multiple times during a session)
+            tsp->verbose(u"For --preload-fifo-delay, no bit rate currently set, so will use --preload-fifo-percentage settings until a bit rate has been set.");
         }
     }
 
@@ -1034,8 +1091,16 @@ bool ts::DektecOutputPlugin::start()
         }
     }
 
-    // Set output bitrate
-    status = _guts->chan.SetTsRateBps(int(_guts->cur_bitrate));
+    // Set output bitrate.
+    if (_guts->cur_bitrate == 0) {
+        tsp->warning(u"no input bitrate is available, use --bitrate in case of output error");
+    }
+    tsp->debug(u"setting TsRateBps using DtFractionInt: %f", {_guts->cur_bitrate});
+    status = _guts->chan.SetTsRateBps(ToDektecFractionInt(_guts->cur_bitrate));
+    if (status == DTAPI_E_NOT_SUPPORTED) {
+        tsp->debug(u"setting TsRateBps using DtFractionInt unsupported, using int: %'d", {_guts->cur_bitrate.toInt()});
+        status = _guts->chan.SetTsRateBps(int(_guts->cur_bitrate.toInt()));
+    }
     if (status != DTAPI_OK) {
         return startError(u"output device set bitrate error", status);
     }
@@ -1058,7 +1123,9 @@ bool ts::DektecOutputPlugin::start()
     // also, note the preload status by resetting _guts->preload_fifo--important to know if it
     // did a preload if the --maintain-preload option is used
     _guts->preload_fifo = _guts->starting;
-    status = _guts->chan.SetTxControl(_guts->starting ? DTAPI_TXCTRL_HOLD : DTAPI_TXCTRL_SEND);
+    const int tx_control = _guts->starting ? DTAPI_TXCTRL_HOLD : DTAPI_TXCTRL_SEND;
+    tsp->debug(u"setting TxControl to %d", {tx_control});
+    status = _guts->chan.SetTxControl(tx_control);
     if (status != DTAPI_OK) {
         return startError(u"output device start send error", status);
     }
@@ -1085,7 +1152,7 @@ bool ts::DektecOutputPlugin::startError(const UString& message, unsigned int sta
         tsp->error(message);
     }
     else {
-        tsp->error(message + u": " + DektecStrError(status));
+        tsp->error(u"%s: %s", {message, DektecStrError(status)});
     }
     _guts->chan.Detach(DTAPI_INSTANT_DETACH);
     _guts->dtdev.Detach();
@@ -1119,11 +1186,15 @@ bool ts::DektecOutputPlugin::setBitrate(int symbol_rate, int dt_modulation, int 
 // Compute and display symbol rate if not explicitly specified by the user.
 //----------------------------------------------------------------------------
 
-void ts::DektecOutputPlugin::displaySymbolRate(int ts_bitrate, int dt_modulation, int param0, int param1, int param2)
+void ts::DektecOutputPlugin::displaySymbolRate(BitRate ts_bitrate, int dt_modulation, int param0, int param1, int param2)
 {
     if (ts_bitrate > 0) {
         int symrate = -1;
-        Dtapi::DTAPI_RESULT status = Dtapi::DtapiModPars2SymRate(symrate, dt_modulation, param0, param1, param2, ts_bitrate);
+        Dtapi::DTAPI_RESULT status = Dtapi::DtapiModPars2SymRate(symrate, dt_modulation, param0, param1, param2, ToDektecFractionInt(ts_bitrate));
+        if (status != DTAPI_OK) {
+            tsp->debug(u"DtapiModPars2SymRate using DtFractionInt failed (), using int: %'d", {DektecStrError(status), ts_bitrate.toInt()});
+            status = Dtapi::DtapiModPars2SymRate(symrate, dt_modulation, param0, param1, param2, int(ts_bitrate.toInt()));
+        }
         if (status != DTAPI_OK) {
             tsp->verbose(u"error computing symbol rate: ", {DektecStrError(status)});
         }
@@ -1148,7 +1219,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
 
     // Get input plugin modulation parameters if required
     const bool use_input_modulation = present(u"input-modulation");
-    const ObjectPtr input_params(use_input_modulation ? Object::RetrieveFromRepository(u"tsp.dvb.params") : nullptr);
+    const ObjectPtr input_params(use_input_modulation ? ObjectRepository::Instance()->retrieve(u"tsp.dvb.params") : nullptr);
     const ModulationArgs* input = dynamic_cast<const ModulationArgs*>(input_params.pointer());
     ModulationArgs other_args;
 
@@ -1237,6 +1308,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             else if (!setBitrate(symbol_rate, modulation_type, fec, 0, 0)) {
                 return false;
             }
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, fec, 0, 0});
             status = _guts->chan.SetModControl(modulation_type, fec, 0, 0);
             break;
         }
@@ -1268,6 +1340,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             else if (!setBitrate(symbol_rate, modulation_type, fec, pilots | fec_frame, gold_code)) {
                 return false;
             }
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, fec, pilots | fec_frame, gold_code});
             status = _guts->chan.SetModControl(modulation_type, fec, pilots | fec_frame, gold_code);
             break;
         }
@@ -1288,6 +1361,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             else if (!setBitrate(symbol_rate, modulation_type, j83, qam_b, 0)) {
                 return false;
             }
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, j83, qam_b, 0});
             status = _guts->chan.SetModControl(modulation_type, j83, qam_b, 0);
             break;
         }
@@ -1370,6 +1444,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
                 return false;
             }
             // bw constel guard tr_mode
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, fec, param1, cell_id});
             status = _guts->chan.SetModControl(modulation_type, fec, param1, cell_id);
             break;
         }
@@ -1377,6 +1452,9 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
         case DTAPI_MOD_DVBT2: {
             Dtapi::DtDvbT2Pars pars;
             pars.Init(); // default values
+            // m_T2Version
+            // m_T2Profile
+            // m_T2BaseLite
             pars.m_Bandwidth = intValue<int>(u"bandwidth", DTAPI_DVBT2_8MHZ);
             pars.m_FftMode = intValue<int>(u"fft-mode", DTAPI_DVBT2_FFT_32K);
             pars.m_Miso = intValue<int>(u"miso", DTAPI_DVBT2_MISO_OFF);
@@ -1386,16 +1464,24 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             pars.m_PilotPattern = intValue<int>(u"pilot-pattern", DTAPI_DVBT2_PP_7);
             pars.m_NumT2Frames = intValue<int>(u"t2-fpsf", 2);
             pars.m_L1Modulation = intValue<int>(u"t2-l1-modulation", DTAPI_DVBT2_QAM16);
-            pars.m_FefEnable = present(u"fef");
-            pars.m_FefType = intValue<int>(u"fef-type", 0);
-            pars.m_FefLength = intValue<int>(u"fef-length", 1);
-            pars.m_FefS1 = intValue<int>(u"fef-s1", 2);
-            pars.m_FefS2 = intValue<int>(u"fef-s2", 1);
-            pars.m_FefInterval = intValue<int>(u"fef-interval", 1);
-            pars.m_FefSignal = intValue<int>(u"fef-signal", DTAPI_DVBT2_FEF_ZERO);
             pars.m_CellId = intValue<int>(u"cell-id", 0);
             pars.m_NetworkId = intValue<int>(u"t2-network-id", 0);
             pars.m_T2SystemId = intValue<int>(u"t2-system-id", 0);
+            // m_L1Repetition
+            // m_NumT2Frames
+            // m_NumDataSyms
+            // m_NumSubslices
+            // m_ComponentStartTime
+            pars.m_FefEnable = present(u"fef");
+            pars.m_FefType = intValue<int>(u"fef-type", 0);
+            pars.m_FefS1 = intValue<int>(u"fef-s1", 2);
+            pars.m_FefS2 = intValue<int>(u"fef-s2", 1);
+            pars.m_FefSignal = intValue<int>(u"fef-signal", DTAPI_DVBT2_FEF_ZERO);
+            pars.m_FefLength = intValue<int>(u"fef-length", 1);
+            pars.m_FefInterval = intValue<int>(u"fef-interval", 1);
+            // m_NumRfChans
+            // m_RfChanFreqs
+            // m_StartRfIdx
             // Obsolete field in DTAPI 4.10.0.145:
             // pars.m_Frequency = int(frequency);
             pars.m_NumPlps = 1; // This version supports single-PLP only
@@ -1421,7 +1507,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             }
             // Report actual parameters in debug mode
             tsp->debug(u"DVB-T2: DtDvbT2Pars = {");
-            DektecDevice::ReportDvbT2Pars(pars, *tsp, Severity::Debug, u"");
+            DektecDevice::ReportDvbT2Pars(pars, *tsp, Severity::Debug, u"  ");
             tsp->debug(u"}");
             tsp->debug(u"DVB-T2: DtDvbT2ParamInfo = {");
             DektecDevice::ReportDvbT2ParamInfo(info, *tsp, Severity::Debug, u"  ");
@@ -1431,6 +1517,23 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             if (status != DTAPI_OK) {
                 return startError(u"invalid combination of DVB-T2 parameters", status);
             }
+            // Compute exact bitrate from DVB-T2 parameters.
+            Dtapi::DtFractionInt frate;
+            status = Dtapi::DtapiModPars2TsRate(frate, pars);
+            if (status == DTAPI_OK && frate.m_Num > 0 && frate.m_Den > 0) {
+                FromDektecFractionInt(_guts->cur_bitrate, frate);
+                _guts->opt_bitrate = _guts->cur_bitrate;
+            }
+            else {
+                // Fractional bitrate unsupported or incorrect.
+                int irate = 0;
+                status = Dtapi::DtapiModPars2TsRate(irate, pars);
+                if (status != DTAPI_OK) {
+                    return startError(u"Error computing bitrate from DVB-T2 parameters", status);
+                }
+                _guts->opt_bitrate = _guts->cur_bitrate = BitRate(irate);
+            }
+            tsp->verbose(u"setting output TS bitrate to %'d b/s", {_guts->cur_bitrate});
             // Set modulation parameters
             status = _guts->chan.SetModControl(pars);
             break;
@@ -1447,7 +1550,8 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             }
             constel = intValue<int>(u"vsb", constel);
             const int taps = intValue<int>(u"vsb-taps", 64);
-            tsp->verbose(u"using ATSC " + DektecVSB.name(constel));
+            tsp->verbose(u"using ATSC %s", {DektecVSB.name(constel)});
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, constel, taps, 0});
             status = _guts->chan.SetModControl(modulation_type, constel, taps, 0);
             break;
         }
@@ -1461,6 +1565,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             const int interleaver = intValue<int>(u"dmb-interleaver", DTAPI_MOD_DTMB_IL_1);
             const int pilots = present(u"pilots") ? DTAPI_MOD_DTMB_PILOTS : DTAPI_MOD_DTMB_NO_PILOTS;
             const int frame_num = present(u"dmb-frame-numbering") ? DTAPI_MOD_DTMB_USE_FRM_NO : DTAPI_MOD_DTMB_NO_FRM_NO;
+            tsp->debug(u"SetModControl(%d, %d, %d, %d)", {modulation_type, bw | constel | fec | header | interleaver | pilots | frame_num, 0, 0});
             status = _guts->chan.SetModControl(modulation_type, bw | constel | fec | header | interleaver | pilots | frame_num, 0, 0);
             break;
         }
@@ -1474,7 +1579,7 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
             }
             Dtapi::DtCmmbPars pars;
             pars.m_Bandwidth = intValue<int>(u"cmmb-bandwidth", DTAPI_CMMB_BW_8MHZ);
-            pars.m_TsRate = int(_guts->cur_bitrate);
+            pars.m_TsRate = int(_guts->cur_bitrate.toInt());
             pars.m_TsPid = intValue<int>(u"cmmb-pid", 0);
             pars.m_AreaId = intValue<int>(u"cmmb-area-id", 0);
             pars.m_TxId = intValue<int>(u"cmmb-transmitter-id", 0);
@@ -1509,7 +1614,9 @@ bool ts::DektecOutputPlugin::setModulation(int& modulation_type)
     if (status != DTAPI_OK) {
         return startError(u"set modulator frequency error", status);
     }
-    status = _guts->chan.SetRfMode(DTAPI_UPCONV_NORMAL | (present(u"inversion") ? DTAPI_UPCONV_SPECINV : 0));
+    const int rf_mode = DTAPI_UPCONV_NORMAL | (present(u"inversion") ? DTAPI_UPCONV_SPECINV : 0);
+    tsp->debug(u"setting RfMode to %d", {rf_mode});
+    status = _guts->chan.SetRfMode(rf_mode);
     if (status != DTAPI_OK) {
         return startError(u"set modulator RF mode", status);
     }
@@ -1532,6 +1639,7 @@ bool ts::DektecOutputPlugin::stop()
 
         // Mute output signal for modulators which support this
         if (_guts->mute_on_stop) {
+            tsp->debug(u"setting RF mode to %d", {DTAPI_UPCONV_MUTE});
             Dtapi::DTAPI_RESULT status = _guts->chan.SetRfMode(DTAPI_UPCONV_MUTE);
             if (status != DTAPI_OK) {
                 tsp->error(u"error muting modulator output: " + DektecStrError(status));
@@ -1539,7 +1647,9 @@ bool ts::DektecOutputPlugin::stop()
         }
 
         // Detach the channel and the device
+        tsp->debug(u"detach channel, mode: %d", {_guts->detach_mode});
         _guts->chan.Detach(_guts->detach_mode);
+        tsp->debug(u"detach device");
         _guts->dtdev.Detach();
 
         _guts->is_started = false;
@@ -1579,13 +1689,16 @@ bool ts::DektecOutputPlugin::send(const TSPacket* buffer, const TSPacketMetadata
 
     char* data = reinterpret_cast<char*>(const_cast<TSPacket*>(buffer));
     int remain = int(packet_count * PKT_SIZE);
-    Dtapi::DTAPI_RESULT status;
+    Dtapi::DTAPI_RESULT status = DTAPI_OK;
 
-    // If no bitrate was specified on the command line, adjust the bitrate
-    // when input bitrate changes.
+    // If no bitrate was specified on the command line, adjust the bitrate when input bitrate changes.
     BitRate new_bitrate;
-    if (_guts->opt_bitrate == 0 && _guts->cur_bitrate != (new_bitrate = tsp->bitrate())) {
-        status = _guts->chan.SetTsRateBps(int(new_bitrate));
+    if (_guts->opt_bitrate == 0 && _guts->cur_bitrate != (new_bitrate = tsp->bitrate()) && new_bitrate != 0) {
+        status = _guts->chan.SetTsRateBps(ToDektecFractionInt(new_bitrate));
+        if (status == DTAPI_E_NOT_SUPPORTED) {
+            tsp->debug(u"setting TsRateBps using DtFractionInt unsupported, using int: %'d", {new_bitrate.toInt()});
+            status = _guts->chan.SetTsRateBps(int(new_bitrate.toInt()));
+        }
         if (status != DTAPI_OK) {
             tsp->error(u"error setting output bitrate on Dektec device: " + DektecStrError(status));
         }
@@ -1785,28 +1898,37 @@ bool ts::DektecOutputPlugin::send(const TSPacket* buffer, const TSPacketMetadata
 
 bool ts::DektecOutputPlugin::setPreloadFIFOSizeBasedOnDelay()
 {
-    if (_guts->preload_fifo_delay && _guts->cur_bitrate) {
+    if (_guts->preload_fifo_delay && _guts->cur_bitrate != 0) {
         // calculate new preload FIFO size based on new bit rate
         // to calculate the size, in bytes, based on the bit rate and the requested delay, it is:
         // <bit rate (in bits/s)> / <8 bytes / bit> * <delay (in ms)> / <1000 ms / s>
         // converting to uint64_t because multiplying the current bit rate by the delay may exceed the max value for a uint32_t
-        uint64_t prelimPreloadFifoSize = RoundDown<uint64_t>((uint64_t(_guts->cur_bitrate) * _guts->preload_fifo_delay) / 8000, PKT_SIZE);
+        uint64_t prelimPreloadFifoSize = RoundDown<uint64_t>(((_guts->cur_bitrate * _guts->preload_fifo_delay) / 8000).toInt(), PKT_SIZE);
 
         _guts->maintain_threshold = 0;
         if (_guts->maintain_preload && _guts->drop_to_maintain) {
             // use a threshold of 10 ms, which seems to work pretty well in practice
-            _guts->maintain_threshold = RoundDown(int((uint64_t(_guts->cur_bitrate) * 10ULL) / 8000ULL), int(PKT_SIZE));
+            _guts->maintain_threshold = RoundDown(int(((_guts->cur_bitrate * 10) / 8000).toInt()), int(PKT_SIZE));
         }
 
         if ((prelimPreloadFifoSize + uint64_t(_guts->maintain_threshold)) > uint64_t(_guts->fifo_size)) {
             _guts->preload_fifo_size = RoundDown(_guts->fifo_size - _guts->maintain_threshold, int(PKT_SIZE));
             if (_guts->maintain_threshold) {
-                tsp->verbose(u"For --preload-fifo-delay, delay (%d ms) too large (%'d bytes), based on bit rate (%'d b/s) and FIFO size (%'d bytes). Using FIFO size - 10 ms maintain preload threshold for preload size instead (%'d bytes).",
-                {_guts->preload_fifo_delay, prelimPreloadFifoSize, _guts->cur_bitrate, _guts->fifo_size, _guts->preload_fifo_size});
+                tsp->verbose(u"For --preload-fifo-delay, delay (%d ms) too large (%'d bytes), based on bit rate (%'d b/s) and FIFO size (%'d bytes). "
+                             u"Using FIFO size - 10 ms maintain preload threshold for preload size instead (%'d bytes).", {
+                             _guts->preload_fifo_delay,
+                             prelimPreloadFifoSize,
+                             _guts->cur_bitrate,
+                             _guts->fifo_size,
+                             _guts->preload_fifo_size});
             }
             else {
-                tsp->verbose(u"For --preload-fifo-delay, delay (%d ms) too large (%'d bytes), based on bit rate (%'d b/s) and FIFO size (%'d bytes). Using FIFO size for preload size instead.",
-                {_guts->preload_fifo_delay, prelimPreloadFifoSize, _guts->cur_bitrate, _guts->fifo_size});
+                tsp->verbose(u"For --preload-fifo-delay, delay (%d ms) too large (%'d bytes), based on bit rate (%'d b/s) and FIFO size (%'d bytes). "
+                             u"Using FIFO size for preload size instead.", {
+                             _guts->preload_fifo_delay,
+                             prelimPreloadFifoSize,
+                             _guts->cur_bitrate,
+                             _guts->fifo_size});
             }
         }
         else {

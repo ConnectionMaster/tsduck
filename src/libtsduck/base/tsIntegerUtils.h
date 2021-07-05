@@ -34,7 +34,7 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsUString.h"
+#include "tsPlatform.h"
 
 namespace ts {
     //
@@ -60,6 +60,70 @@ namespace ts {
         //! The equivalent signed type.
         typedef typename make_signed_impl<T, sizeof(T), std::is_signed<T>::value>::type type;
     };
+
+#if defined(DOXYGEN)
+    //!
+    //! Bounded integer cast.
+    //! @tparam INT1 An integer type.
+    //! @tparam INT2 An integer type.
+    //! @param [in] x An integer value of type @a INT2.
+    //! @return The value of @a x, within the limits of type @a INT1.
+    //!
+    template <typename INT1, typename INT2, typename std::enable_if<std::is_integral<INT1>::value && std::is_integral<INT2>::value, int>::type = 0>
+    inline INT1 bounded_cast(INT2 x)
+    {
+        return INT1(x);
+    }
+#else
+    // Actual implementations of bounded_cast, depending on type profiles.
+    // Temporary macro to select signed/unsigned versions of INT1 and INT2, and the relation between their sizes.
+    #define ONLY(sign1, op, sign2)                                         \
+        template <typename INT1,                                           \
+                  typename INT2,                                           \
+                  typename std::enable_if<std::is_integral<INT1>::value && \
+                                          std::is_integral<INT2>::value && \
+                                          std::is_##sign1<INT1>::value &&  \
+                                          std::is_##sign2<INT2>::value &&  \
+                                          (sizeof(INT1) op sizeof(INT2)),  \
+                                          int>::type = 0>
+
+    // signed <-- unsigned of same or larger size (test: higher bound).
+    ONLY(signed, <=, unsigned)
+    inline INT1 bounded_cast(INT2 x) { return INT1(std::min<INT2>(x, INT2(std::numeric_limits<INT1>::max()))); }
+
+    // signed <-- unsigned of smaller size (always fit).
+    ONLY(signed, >, unsigned)
+    inline INT1 bounded_cast(INT2 x) { return INT1(x); }
+
+    // unsigned <-- signed of larger size (test: lower and higher bounds).
+    ONLY(unsigned, <, signed)
+    inline INT1 bounded_cast(INT2 x) { return x < 0 ? 0 : INT1(std::min<INT2>(x, INT2(std::numeric_limits<INT1>::max()))); }
+
+    // unsigned <-- signed of same or smaller size (test: lower bound).
+    ONLY(unsigned, >=, signed)
+    inline INT1 bounded_cast(INT2 x) { return x < 0 ? 0 : INT1(x); }
+
+    // unsigned <-- unsigned of larger size (test: higher bound).
+    ONLY(unsigned, <, unsigned)
+    inline INT1 bounded_cast(INT2 x) { return INT1(std::min<INT2>(x, INT2(std::numeric_limits<INT1>::max()))); }
+
+    // unsigned <-- unsigned of smaller size (always fit).
+    ONLY(unsigned, >=, unsigned)
+    inline INT1 bounded_cast(INT2 x) { return INT1(x); }
+
+    // signed <-- signed of smaller size (always fit).
+    ONLY(signed, >=, signed)
+    inline INT1 bounded_cast(INT2 x) { return INT1(x); }
+
+    // signed <-- signed of larger size (test: lower and higher bounds).
+    ONLY(signed, <, signed)
+    inline INT1 bounded_cast(INT2 x)
+    {
+        return INT1(std::max<INT2>(INT2(std::numeric_limits<INT1>::min()), std::min<INT2>(x, INT2(std::numeric_limits<INT1>::max()))));
+    }
+
+    #undef ONLY
+#endif
 
     //!
     //! Perform a bounded addition without overflow.
@@ -183,6 +247,42 @@ namespace ts {
     //! @cond nodoxygen
     // Template specialization.
     template<> TSDUCKDLL uint64_t Power10<uint64_t>(size_t pow);
+    //! @endcond
+
+    //!
+    //! Static values of power of 10.
+    //! @tparam POW The exponent of 10.
+    //! @tparam INT The integer type for the power of 10.
+    //!
+    template <typename INT, const size_t POW>
+    struct static_power10 {
+        #if defined (DOXYGEN)
+        static constexpr INT value;   //!< Value of 10 power POW.
+        #endif
+    };
+
+    //! @cond nodoxygen
+    // Template specializations.
+    template <typename INT> struct static_power10<INT,  0> { static constexpr INT value = 1; };
+    template <typename INT> struct static_power10<INT,  1> { static constexpr INT value = 10; };
+    template <typename INT> struct static_power10<INT,  2> { static constexpr INT value = 100; };
+    template <typename INT> struct static_power10<INT,  3> { static constexpr INT value = 1000; };
+    template <typename INT> struct static_power10<INT,  4> { static constexpr INT value = 10000; };
+    template <typename INT> struct static_power10<INT,  5> { static constexpr INT value = 100000; };
+    template <typename INT> struct static_power10<INT,  6> { static constexpr INT value = 1000000; };
+    template <typename INT> struct static_power10<INT,  7> { static constexpr INT value = 10000000; };
+    template <typename INT> struct static_power10<INT,  8> { static constexpr INT value = 100000000; };
+    template <typename INT> struct static_power10<INT,  9> { static constexpr INT value = 1000000000; };
+    template <typename INT> struct static_power10<INT, 10> { static constexpr INT value = TS_UCONST64(10000000000); };
+    template <typename INT> struct static_power10<INT, 11> { static constexpr INT value = TS_UCONST64(100000000000); };
+    template <typename INT> struct static_power10<INT, 12> { static constexpr INT value = TS_UCONST64(1000000000000); };
+    template <typename INT> struct static_power10<INT, 13> { static constexpr INT value = TS_UCONST64(10000000000000); };
+    template <typename INT> struct static_power10<INT, 14> { static constexpr INT value = TS_UCONST64(100000000000000); };
+    template <typename INT> struct static_power10<INT, 15> { static constexpr INT value = TS_UCONST64(1000000000000000); };
+    template <typename INT> struct static_power10<INT, 16> { static constexpr INT value = TS_UCONST64(10000000000000000); };
+    template <typename INT> struct static_power10<INT, 17> { static constexpr INT value = TS_UCONST64(100000000000000000); };
+    template <typename INT> struct static_power10<INT, 18> { static constexpr INT value = TS_UCONST64(1000000000000000000); };
+    template <typename INT> struct static_power10<INT, 19> { static constexpr INT value = TS_UCONST64(10000000000000000000); };
     //! @endcond
 }
 

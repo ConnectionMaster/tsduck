@@ -35,6 +35,8 @@
 
 TSCONFIG=${BASH_SOURCE[0]}
 SCRIPT=$(basename $TSCONFIG)
+SYSTEM=$(uname -s)
+info()  { echo >&2 "$SCRIPT: $*"; }
 error() { echo >&2 "$SCRIPT: $*"; exit 1; }
 usage() { error "invalid option $*, try --help"; }
 
@@ -54,12 +56,20 @@ Syntax: $SCRIPT [options]
   --plugin      directory for TSDuck plugins
   --config      directory for TSDuck configuration files
   --include     include directory
+  --java        jar file for TSDuck Java bindings, to be added in CLASSPATH
+  --python      directory for TSDuck Python bindings, to be added in PYTHONPATH
 
   --help        display this help and exit
   --version     output version information
   --vernum      output the version information as a number
 
 EOF
+    if [[ $SYSTEM == Linux ]]; then
+        cat >&2 <<EOF
+  --install-dvb-firmware   download and install additional DVB firmware
+
+EOF
+    fi
     exit
 }
 
@@ -82,6 +92,14 @@ cmd_config() {
 
 cmd_include() {
     echo "$(cmd_prefix)/include/tsduck"
+}
+
+cmd_java() {
+    echo "$(cmd_prefix)/share/tsduck/java/tsduck.jar"
+}
+
+cmd_python() {
+    echo "$(cmd_prefix)/share/tsduck/python"
 }
 
 cmd_lib() {
@@ -131,6 +149,35 @@ cmd_vernum() {
     echo $(( ($(version_major) * 10000000) + ($(version_minor) * 100000) + $(version_commit) ))
 }
 
+cmd_install_firmware() {
+    [[ $SYSTEM == Linux ]] || error "DVB firmware is available on Linux only"
+    [[ $(id -u) -eq 0 ]] || error "must be root to install firmware"
+    FWDIR="$SYSROOT/lib/firmware"
+    [[ -d "$FWDIR" ]] || error "directory $FWDIR does not exist, maybe not the right system"
+
+    # linux-firmware package: standard package (depends on distro).
+    if [[ -n $(which apt 2>/dev/null) ]]; then
+        if ! (apt -qq list linux-firmware 2>/dev/null | grep -q installed); then
+            info "installing package linux-firmware ..."
+            apt install -y linux-firmware
+        fi
+    fi
+    DNF=$(which dnf 2>/dev/null)
+    [[ -z "$DNF" ]] && DNF=$(which yum 2>/dev/null)
+    if [[ -n "$DNF" ]]; then
+        if ! rpm -q linux-firmware &>/dev/null; then
+            info "installing package linux-firmware ..."
+            "$DNF" install -y linux-firmware
+        fi
+    fi
+
+    # OpenELEC project: The firmware files are directly downloaded from the GitHut repository.
+    # Exclude the first two levels of directory (down to "firmware" directory).
+    info "downloading firmware from OpenELEC project ..."
+    curl -sL https://github.com/OpenELEC/dvb-firmware/tarball/master | \
+        tar -C "$FWDIR" -xzpvf - --strip-components=2 --wildcards 'OpenELEC-dvb-firmware-*/firmware'
+}
+
 if [ $# -eq 0 ]; then
     # No option, display everything.
     echo "version: $(cmd_version)"
@@ -143,6 +190,8 @@ if [ $# -eq 0 ]; then
     echo "cflags: $(cmd_cflags)"
     echo "libs: $(cmd_libs)"
     echo "static-libs: $(cmd_staticlibs)"
+    echo "java: $(cmd_java)"
+    echo "python: $(cmd_python)"
 else
     # Display options one by one.
     for arg in "$@"; do
@@ -152,13 +201,16 @@ else
             --config) cmd_config ;;
             --help) cmd_help ;;
             --include) cmd_include ;;
+            --java) cmd_java ;;
             --lib) cmd_lib ;;
             --libs) cmd_libs ;;
             --plugin) cmd_plugin ;;
             --prefix) cmd_prefix ;;
+            --python) cmd_python ;;
             --static-libs) cmd_staticlibs ;;
             --version) cmd_version ;;
             --vernum) cmd_vernum ;;
+            --install-dvb*) cmd_install_firmware ;;
             *) usage "$arg" ;;
         esac
         shift

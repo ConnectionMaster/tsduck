@@ -201,7 +201,7 @@ ts::DataInjectPlugin::DataInjectPlugin(TSP* tsp_) :
     _req_bitrate(0),
     _lost_packets(0)
 {
-    option(u"bitrate-max", 'b', POSITIVE);
+    option<BitRate>(u"bitrate-max", 'b');
     help(u"bitrate-max",
          u"Specifies the maximum bitrate for the data PID in bits / second. "
          u"By default, the data PID bitrate is limited by the stuffing bitrate "
@@ -279,11 +279,11 @@ ts::DataInjectPlugin::DataInjectPlugin(TSP* tsp_) :
 bool ts::DataInjectPlugin::start()
 {
     // Command line options
-    _max_bitrate = intValue<BitRate>(u"bitrate-max", 0);
-    _data_pid = intValue<PID>(u"pid");
+    getFixedValue(_max_bitrate, u"bitrate-max");
+    getIntValue(_data_pid, u"pid");
     const size_t queue_size = intValue<size_t>(u"queue-size", DEFAULT_QUEUE_SIZE);
     _reuse_port = !present(u"no-reuse-port");
-    _sock_buf_size = intValue<size_t>(u"buffer-size");
+    getIntValue(_sock_buf_size, u"buffer-size");
     _unregulated = present(u"unregulated");
 
     // Set logging levels.
@@ -337,7 +337,7 @@ bool ts::DataInjectPlugin::start()
 
     // Clear client session.
     clearSession();
-    tsp->verbose(u"initial bandwidth allocation is %s", {_req_bitrate == 0 ? u"unlimited" : UString::Decimal(_req_bitrate) + u" b/s"});
+    tsp->verbose(u"initial bandwidth allocation is %'d", {_req_bitrate == 0 ? u"unlimited" : UString::Fixed(_req_bitrate) + u" b/s"});
 
     // TS processing state
     _cc_fixer.reset();
@@ -360,7 +360,7 @@ bool ts::DataInjectPlugin::start()
 void ts::DataInjectPlugin::clearSession()
 {
     // Work on some protected data
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // No client session is established.
     _channel_established = false;
@@ -420,7 +420,7 @@ ts::ProcessorPlugin::Status ts::DataInjectPlugin::processPacket(TSPacket& pkt, T
         // Try to insert data
         if (_unregulated || _pkt_next_data <= _pkt_current) {
             // Time to insert data packet, if any is available immediately.
-            Guard lock(_mutex);
+            GuardMutex lock(_mutex);
 
             // Get next packet to insert.
             bool got_packet = false;
@@ -446,7 +446,7 @@ ts::ProcessorPlugin::Status ts::DataInjectPlugin::processPacket(TSPacket& pkt, T
                 // Otherwise, try to update any null packet (unbounded bitrate).
                 if (!_unregulated || _req_bitrate != 0) {
                     // TODO: refine this, works only for low injection bitrates.
-                    _pkt_next_data += tsp->bitrate() / _req_bitrate;
+                    _pkt_next_data += (tsp->bitrate() / _req_bitrate).toInt();
                 }
             }
         }
@@ -495,7 +495,7 @@ bool ts::DataInjectPlugin::processBandwidthRequest(const tlv::MessagePtr& reques
         return false;
     }
 
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // Compute new bandwidth
     if (m->has_bandwidth) {
@@ -510,7 +510,7 @@ bool ts::DataInjectPlugin::processBandwidthRequest(const tlv::MessagePtr& reques
     response.stream_id = m->stream_id;
     response.client_id = m->client_id;
     response.has_bandwidth = _req_bitrate > 0;
-    response.bandwidth = uint16_t(_req_bitrate / 1000); // protocol unit is kb/s
+    response.bandwidth = uint16_t(_req_bitrate.toInt() / 1000); // protocol unit is kb/s
     return true;
 }
 
@@ -534,7 +534,7 @@ bool ts::DataInjectPlugin::processDataProvision(const tlv::MessagePtr& msg)
         return false;
     }
 
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // Check that the client and data id are expected.
     if (m->client_id != _client_id) {
@@ -671,7 +671,7 @@ void ts::DataInjectPlugin::TCPListener::main()
                         channel_status.client_id = m->client_id;
                         channel_status.section_TSpkt_flag = m->section_TSpkt_flag;
                         ok = _client.send(channel_status, _plugin->_logger);
-                        Guard lock(_plugin->_mutex);
+                        GuardMutex lock(_plugin->_mutex);
                         _plugin->_client_id = m->client_id;
                         _plugin->_section_mode = !m->section_TSpkt_flag; // flag == 0 means section
                         _plugin->_channel_established = true;
@@ -716,7 +716,7 @@ void ts::DataInjectPlugin::TCPListener::main()
                         stream_status.data_id = m->data_id;
                         stream_status.data_type = m->data_type;
                         ok = _client.send(stream_status, _plugin->_logger);
-                        Guard lock(_plugin->_mutex);
+                        GuardMutex lock(_plugin->_mutex);
                         _plugin->_data_id = m->data_id;
                         _plugin->_stream_established = true;
                     }

@@ -28,7 +28,8 @@
 //----------------------------------------------------------------------------
 
 #include "tsThread.h"
-#include "tsGuard.h"
+#include "tsThreadLocalObjects.h"
+#include "tsGuardMutex.h"
 #include "tsMemory.h"
 #include "tsSysUtils.h"
 #include "tsSysInfo.h"
@@ -37,28 +38,13 @@ TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
-// Default constructor (all attributes have their default values).
+// Constructors and destructors
 //----------------------------------------------------------------------------
 
 ts::Thread::Thread() :
-    _attributes(),
-    _mutex(),
-    _typename(),
-    _started(false),
-    _waiting(false),
-#if defined(TS_WINDOWS)
-    _handle(INVALID_HANDLE_VALUE),
-    _thread_id(0)
-#else
-    _pthread()
-#endif
+    Thread(ThreadAttributes())
 {
 }
-
-
-//----------------------------------------------------------------------------
-// Constructor from specified attributes.
-//----------------------------------------------------------------------------
 
 ts::Thread::Thread(const ThreadAttributes& attributes) :
     _attributes(attributes),
@@ -70,21 +56,21 @@ ts::Thread::Thread(const ThreadAttributes& attributes) :
     _handle(INVALID_HANDLE_VALUE),
     _thread_id(0)
 #else
+#if defined(GPROF)
+    // When using gprof, get the initial profiling timer.
+    _itimer(),
+    _itimer_valid(::getitimer(ITIMER_PROF, &_itimer) == 0),
+#endif
     _pthread()
 #endif
 {
 }
 
-
-//----------------------------------------------------------------------------
-// Destructor
-//----------------------------------------------------------------------------
-
 ts::Thread::~Thread()
 {
     // Make sure that the parent class has completed the waitForTermination() or has never started the thread.
     // First, get the started attribute but release
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     if (_started) {
         std::cerr << std::endl
                   << "*** Internal error, Thread subclass \"" << _typename
@@ -102,14 +88,14 @@ ts::Thread::~Thread()
 
 ts::UString ts::Thread::getTypeName() const
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     const UString name(_typename);
     return name;
 }
 
 void ts::Thread::setTypeName(const UString& name)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     if (!name.empty()) {
         // An actual name is given, use it.
         _typename = name;
@@ -143,7 +129,7 @@ void ts::Thread::Yield()
 
 void ts::Thread::getAttributes(ThreadAttributes& attributes)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     attributes = _attributes;
 }
 
@@ -154,7 +140,7 @@ void ts::Thread::getAttributes(ThreadAttributes& attributes)
 
 bool ts::Thread::setAttributes(const ThreadAttributes& attributes)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // New attributes are accepted as long as we did not start
     if (_started) {
@@ -174,7 +160,7 @@ bool ts::Thread::setAttributes(const ThreadAttributes& attributes)
 bool ts::Thread::isCurrentThread() const
 {
     // Critical section on flags
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // We cannot be running in the thread if it is not started
     return _started && isCurrentThreadUnchecked();
@@ -202,7 +188,7 @@ bool ts::Thread::isCurrentThreadUnchecked() const
 bool ts::Thread::start()
 {
     // Critical section on flags
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // Void if already started
     if (_started) {
@@ -301,7 +287,7 @@ bool ts::Thread::waitForTermination()
 {
     // Critical section on flags
     {
-        Guard lock(_mutex);
+        GuardMutex lock(_mutex);
 
         // Void if already terminated
         if (!_started) {
@@ -338,7 +324,7 @@ bool ts::Thread::waitForTermination()
 
     // Critical section on flags
     {
-        Guard lock(_mutex);
+        GuardMutex lock(_mutex);
         _started = false;
         _waiting = false;
     }
@@ -359,14 +345,16 @@ void ts::Thread::mainWrapper()
     catch (const std::exception& e) {
         std::cerr << "*** Internal error, thread aborted: " << e.what() << std::endl;
     }
+    ThreadLocalObjects::Instance()->deleteLocalObjects();
 }
 
 #if defined(TS_WINDOWS)
 
 ::DWORD WINAPI ts::Thread::ThreadProc(::LPVOID parameter)
 {
-    // Execute thread code.
     Thread* thread = reinterpret_cast<Thread*>(parameter);
+
+    // Execute thread code.
     thread->mainWrapper();
 
     // Perform auto-deallocation
@@ -383,8 +371,16 @@ void ts::Thread::mainWrapper()
 
 void* ts::Thread::ThreadProc(void* parameter)
 {
-    // Execute thread code.
     Thread* thread = reinterpret_cast<Thread*>(parameter);
+
+#if defined(GPROF)
+    // When using gprof, set the same profiling timer as the calling thread.
+    if (thread->_itimer_valid) {
+        ::setitimer(ITIMER_PROF, &thread->_itimer, nullptr);
+    }
+#endif
+
+    // Execute thread code.
     thread->mainWrapper();
 
     // Perform auto-deallocation

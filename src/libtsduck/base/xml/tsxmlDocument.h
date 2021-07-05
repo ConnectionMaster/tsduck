@@ -85,7 +85,7 @@ namespace ts {
             //! - All directories in @c TSPLUGINS_PATH environment variable.
             //! - All directories in @c LD_LIBRARY_PATH environment variable (UNIX only).
             //! - All directories in @c PATH (UNIX) or @c Path (Windows) environment variable.
-            //! @param [in] stdInputIfEmpty If true and if @a fileName is empty, reads the standard input.
+            //! @param [in] stdInputIfEmpty If true and if @a fileName is empty or "-", read the standard input.
             //! @return True on success, false on error.
             //!
             bool load(const UString& fileName, bool search = true, bool stdInputIfEmpty = false);
@@ -101,7 +101,7 @@ namespace ts {
             //! Save an XML file.
             //! @param [in] fileName Name of the XML file to save.
             //! @param [in] indent Indentation width of each level.
-            //! @param [in] stdOutputIfEmpty If true and if @a fileName is empty, writes to the standard output.
+            //! @param [in] stdOutputIfEmpty If true and if @a fileName is empty or "-", writes to the standard output.
             //! @return True on success, false on error.
             //!
             bool save(const UString& fileName, size_t indent = 2, bool stdOutputIfEmpty = false);

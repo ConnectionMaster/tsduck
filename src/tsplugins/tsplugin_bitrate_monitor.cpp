@@ -57,9 +57,9 @@ namespace ts {
     private:
 
         // Default values
-        static constexpr BitRate DEFAULT_BITRATE_MIN = 10;
-        static constexpr BitRate DEFAULT_BITRATE_MAX = 0xFFFFFFFF;
-        static constexpr size_t  DEFAULT_TIME_WINDOW_SIZE = 5;
+        static constexpr BitRate::int_t DEFAULT_BITRATE_MIN = 10;
+        static constexpr BitRate::int_t DEFAULT_BITRATE_MAX = 0xFFFFFFFF;
+        static constexpr size_t DEFAULT_TIME_WINDOW_SIZE = 5;
 
         // Type indicating status of current bitrate, regarding allowed range.
         enum RangeStatus {LOWER, IN_RANGE, GREATER};
@@ -99,8 +99,8 @@ namespace ts {
 TS_REGISTER_PROCESSOR_PLUGIN(u"bitrate_monitor", ts::BitrateMonitorPlugin);
 
 #if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr ts::BitRate ts::BitrateMonitorPlugin::DEFAULT_BITRATE_MIN;
-constexpr ts::BitRate ts::BitrateMonitorPlugin::DEFAULT_BITRATE_MAX;
+constexpr ts::BitRate::int_t ts::BitrateMonitorPlugin::DEFAULT_BITRATE_MIN;
+constexpr ts::BitRate::int_t ts::BitrateMonitorPlugin::DEFAULT_BITRATE_MAX;
 constexpr size_t ts::BitrateMonitorPlugin::DEFAULT_TIME_WINDOW_SIZE;
 #endif
 
@@ -159,12 +159,12 @@ ts::BitrateMonitorPlugin::BitrateMonitorPlugin(TSP* tsp_) :
          u"Time interval (in seconds) used to compute the bitrate. "
          u"Default: " + UString::Decimal(DEFAULT_TIME_WINDOW_SIZE) + u" s.");
 
-    option(u"min", 0, UINT32);
+    option<BitRate>(u"min");
     help(u"min",
          u"Set minimum allowed value for bitrate (bits/s). "
          u"Default: " + UString::Decimal(DEFAULT_BITRATE_MIN) + u" b/s.");
 
-    option(u"max", 0, UINT32);
+    option<BitRate>(u"max");
     help(u"max",
          u"Set maximum allowed value for bitrate (bits/s). "
          u"Default: " + UString::Decimal(DEFAULT_BITRATE_MAX) + u" b/s.");
@@ -236,12 +236,12 @@ bool ts::BitrateMonitorPlugin::getOptions()
     }
 
     // Get options
-    _tag = value(u"tag");
-    _alarm_command = value(u"alarm-command");
-    _window_size = intValue(u"time-interval", DEFAULT_TIME_WINDOW_SIZE);
-    _min_bitrate = intValue(u"min", DEFAULT_BITRATE_MIN);
-    _max_bitrate = intValue(u"max", DEFAULT_BITRATE_MAX);
-    _periodic_bitrate = intValue(u"periodic-bitrate", 0);
+    getValue(_tag, u"tag");
+    getValue(_alarm_command, u"alarm-command");
+    getIntValue(_window_size, u"time-interval", DEFAULT_TIME_WINDOW_SIZE);
+    getFixedValue(_min_bitrate, u"min", DEFAULT_BITRATE_MIN);
+    getFixedValue(_max_bitrate, u"max", DEFAULT_BITRATE_MAX);
+    getIntValue(_periodic_bitrate, u"periodic-bitrate", 0);
     getIntValues(_labels_below, u"set-label-below");
     getIntValues(_labels_normal, u"set-label-normal");
     getIntValues(_labels_above, u"set-label-above");
@@ -314,12 +314,12 @@ void ts::BitrateMonitorPlugin::computeBitrate()
         total_pkt_count  += _pkt_count[i];
     }
 
-    const BitRate bitrate = BitRate(total_pkt_count * PKT_SIZE * 8 / _pkt_count.size());
+    const BitRate bitrate = BitRate(total_pkt_count * PKT_SIZE_BITS) / _pkt_count.size();
 
     // Periodic bitrate display.
     if (_periodic_bitrate > 0 && --_periodic_countdown <= 0) {
         _periodic_countdown = _periodic_bitrate;
-        tsp->info(u"%s, %s bitrate: %'d bits/s", {Time::CurrentLocalTime().format(Time::DATE | Time::TIME), _alarm_prefix, bitrate});
+        tsp->info(u"%s, %s bitrate: %'d bits/s", {Time::CurrentLocalTime().format(Time::DATETIME), _alarm_prefix, bitrate});
     }
 
     // Check the bitrate value, regarding the allowed range.

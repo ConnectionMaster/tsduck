@@ -54,6 +54,6 @@ test: execs
 	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) $(BINDIR)/utest $(UTESTFLAGS)
 	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) $(BINDIR)/utest_static $(UTESTFLAGS)
 
-.PHONY: install install-devel
-install install-devel:
+.PHONY: install install-tools install-devel
+install install-tools install-devel:
 	@true

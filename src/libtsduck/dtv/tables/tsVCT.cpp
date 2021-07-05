@@ -119,7 +119,7 @@ void ts::VCT::clearContent()
 // Set all known values in a Service object.
 //----------------------------------------------------------------------------
 
-void ts::VCT::Channel::setService(Service& service) const
+void ts::VCT::Channel::updateService(Service& service) const
 {
     service.setId(program_number);
     service.setTSId(channel_TSID);
@@ -200,10 +200,40 @@ ts::VCT::ChannelList::const_iterator ts::VCT::findServiceInternal(Service& servi
 
     if (srv != channels.end()) {
         // Service found, set known fields.
-        srv->second.setService(service);
+        srv->second.updateService(service);
     }
 
     return srv;
+}
+
+
+//----------------------------------------------------------------------------
+// Collect all informations about all services in the VCT.
+//----------------------------------------------------------------------------
+
+void ts::VCT::updateServices(DuckContext& duck, ServiceList& slist) const
+{
+    // Loop on all services in the SDT.
+    for (auto vct_it = channels.begin(); vct_it != channels.end(); ++vct_it) {
+        const Channel& chan(vct_it->second);
+
+        // Consider only services in this TS.
+        if (chan.channel_TSID == transport_stream_id) {
+            // Try to find an existing matching service. The service id must match.
+            // The TS is and orig. netw. id must either not exist or match.
+            auto srv = slist.begin();
+            while (srv != slist.end() && (!srv->hasId(chan.program_number) || (srv->hasTSId() && !srv->hasTSId(transport_stream_id)))) {
+                ++srv;
+            }
+            if (srv == slist.end()) {
+                // Service was not found, create one at end of list.
+                srv = slist.emplace(srv, chan.program_number);
+            }
+
+            // Now fill the service with known information.
+            chan.updateService(*srv);
+        }
+    }
 }
 
 

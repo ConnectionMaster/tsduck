@@ -34,7 +34,6 @@
 #include "tsTime.h"
 #include "tsCASDate.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -60,6 +59,7 @@ public:
     void testDaylightSavingTime();
     void testCAS();
     void testJST();
+    void testLeapSeconds();
 
     TSUNIT_TEST_BEGIN(TimeTest);
     TSUNIT_TEST(testTime);
@@ -75,6 +75,7 @@ public:
     TSUNIT_TEST(testDaylightSavingTime);
     TSUNIT_TEST(testCAS);
     TSUNIT_TEST(testJST);
+    TSUNIT_TEST(testLeapSeconds);
     TSUNIT_TEST_END();
 };
 
@@ -260,6 +261,17 @@ void TimeTest::testDecode()
     TSUNIT_EQUAL(12, f.minute);
     TSUNIT_EQUAL(0, f.second);
     TSUNIT_EQUAL(2, f.millisecond);
+
+    // ISO 8601 date is implicitly accepted.
+    TSUNIT_ASSERT(t.decode(u"2018-10-03T18:27:47.234Z", ts::Time::ALL));
+    f = ts::Time::Fields(t);
+    TSUNIT_EQUAL(2018, f.year);
+    TSUNIT_EQUAL(10, f.month);
+    TSUNIT_EQUAL(3, f.day);
+    TSUNIT_EQUAL(18, f.hour);
+    TSUNIT_EQUAL(27, f.minute);
+    TSUNIT_EQUAL(47, f.second);
+    TSUNIT_EQUAL(234, f.millisecond);
 }
 
 void TimeTest::testEpoch()
@@ -277,7 +289,7 @@ void TimeTest::testUnixTime()
         << "          and " <<(1523624074 / (24 * 3600)) << " days from UNIX Epoch" << std::endl;
 
     TSUNIT_ASSERT(ts::Time::UnixTimeToUTC(0) == ts::Time::UnixEpoch);
-    TSUNIT_EQUAL(u"2018/04/13 12:54:34.000", ts::Time::UnixTimeToUTC(1523624074));
+    TSUNIT_EQUAL(u"2018/04/13 12:54:34.000", ts::Time::UnixTimeToUTC(1523624074).format());
 }
 
 void TimeTest::testDaylightSavingTime()
@@ -442,4 +454,25 @@ void TimeTest::testJST()
     TSUNIT_EQUAL(u"2020/04/30 03:00:00.000", ts::Time(2020, 4, 30,  12,  0,  0).JSTToUTC().format());
     TSUNIT_EQUAL(u"2020/05/01 05:00:00.000", ts::Time(2020, 4, 30,  20,  0,  0).UTCToJST().format());
     TSUNIT_EQUAL(u"2020/04/29 19:00:00.000", ts::Time(2020, 4, 30,   4,  0,  0).JSTToUTC().format());
+}
+
+void TimeTest::testLeapSeconds()
+{
+    TSUNIT_EQUAL(0, ts::Time::Epoch.leapSecondsTo(ts::Time::Epoch));
+    TSUNIT_EQUAL(0, ts::Time::Epoch.leapSecondsTo(ts::Time(1971, 1, 1, 0, 0, 0)));
+    TSUNIT_EQUAL(0, ts::Time(1971, 1, 1, 0, 0, 0).leapSecondsTo(ts::Time(1972, 1, 1, 0, 0, 0)));
+    TSUNIT_EQUAL(11, ts::Time(1971, 1, 1, 0, 0, 0).leapSecondsTo(ts::Time(1972, 7, 1, 0, 0, 0)));
+    TSUNIT_EQUAL(37, ts::Time::Epoch.leapSecondsTo(ts::Time(2021, 1, 1, 0, 0, 0)));
+    TSUNIT_EQUAL(18, ts::Time::GPSEpoch.leapSecondsTo(ts::Time(2021, 1, 1, 0, 0, 0)));
+    TSUNIT_EQUAL(5, ts::Time(1985, 1, 1, 0, 0, 0).leapSecondsTo(ts::Time(1992, 7, 1, 0, 0, 0)));
+
+    // Check that system time does NOT include leap seconds.
+    const ts::MilliSecond year = 365 * ts::MilliSecPerDay;
+    const ts::MilliSecond leap_year = 366 * ts::MilliSecPerDay;
+    TSUNIT_EQUAL(year, ts::Time(1987, 1, 1, 0, 0) - ts::Time(1986, 1, 1, 0, 0));
+    TSUNIT_EQUAL(year, ts::Time(1988, 1, 1, 0, 0) - ts::Time(1987, 1, 1, 0, 0));
+    TSUNIT_EQUAL(leap_year, ts::Time(1989, 1, 1, 0, 0) - ts::Time(1988, 1, 1, 0, 0));
+    TSUNIT_EQUAL(year, ts::Time(1990, 1, 1, 0, 0) - ts::Time(1989, 1, 1, 0, 0));
+    TSUNIT_EQUAL(year, ts::Time(1991, 1, 1, 0, 0) - ts::Time(1990, 1, 1, 0, 0));
+    TSUNIT_EQUAL(year, ts::Time(1992, 1, 1, 0, 0) - ts::Time(1991, 1, 1, 0, 0));
 }

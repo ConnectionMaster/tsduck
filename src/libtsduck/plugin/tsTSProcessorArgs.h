@@ -47,12 +47,12 @@ namespace ts {
     {
     public:
         UString         app_name;         //!< Application name, for help messages.
-        bool            monitor;          //!< Run a resource monitoring thread.
         bool            ignore_jt;        //!< Ignore "joint termination" options in plugins.
         bool            log_plugin_index; //!< Log plugin index with plugin name.
         size_t          ts_buffer_size;   //!< Size in bytes of the global TS packet buffer.
         size_t          max_flush_pkt;    //!< Max processed packets before flush.
         size_t          max_input_pkt;    //!< Max packets per input operation.
+        size_t          max_output_pkt;   //!< Max packets per outsput operation.
         size_t          init_input_pkt;   //!< Initial number of input packets to read before starting the processing (zero means default).
         size_t          instuff_nullpkt;  //!< Add input stuffing: add @a instuff_nullpkt null packets every @a instuff_inpkt input packets.
         size_t          instuff_inpkt;    //!< Add input stuffing: add @a instuff_nullpkt null packets every @a instuff_inpkt input packets.

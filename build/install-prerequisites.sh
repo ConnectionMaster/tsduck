@@ -49,6 +49,7 @@
 #  - Arch Linux
 #  - Alpine Linux
 #  - Gentoo
+#  - Linux Mint
 #
 #-----------------------------------------------------------------------------
 
@@ -133,6 +134,14 @@ elif [[ "$DISTRO" == "Ubuntu" ]]; then
     sudo apt install -y $PKGOPTS $pkglist
     # Update command: sudo apt update; sudo apt upgrade
 
+elif [[ "$DISTRO" == "Linuxmint" ]]; then
+
+    # Linux Mint
+    pkglist="g++ dos2unix curl tar zip doxygen graphviz pcscd libpcsclite-dev dpkg-dev python3 default-jdk libcurl4 libcurl4-openssl-dev libsrt-dev"
+    sudo apt update
+    sudo apt install -y $PKGOPTS $pkglist
+    # Update command: sudo apt update; sudo apt upgrade
+
 elif [[ "$DISTRO" = "Debian" || "$DISTRO" = "Raspbian" ]]; then
 
     # Debian or Raspbian (Raspberry Pi)
@@ -201,7 +210,7 @@ elif [[ -f /etc/redhat-release ]]; then
 elif [[ -f /etc/arch-release ]]; then
 
     # Arch Linux
-    pkglist="make gcc dos2unix core/which inetutils net-tools curl tar zip doxygen graphviz pcsclite srt python jdk11-openjdk"
+    pkglist="make gcc dos2unix core/which inetutils net-tools curl tar zip doxygen graphviz pcsclite srt python jdk-openjdk"
     sudo pacman -Syu --noconfirm $PKGOPTS $pkglist
     # Update command: sudo pacman -Syu
 
@@ -217,6 +226,8 @@ elif [[ -f /etc/gentoo-release ]]; then
     # Gentoo Linux
     pkglist="sys-devel/gcc app-text/dos2unix net-misc/curl app-arch/tar app-arch/zip app-arch/unzip app-doc/doxygen media-gfx/graphviz sys-apps/pcsc-lite net-libs/srt dev-lang/python dev-java/openjdk"
     sudo emerge -n $PKGOPTS $pkglist
-    # Update command: sudo emerge --update --deep --changed-use @world
+    # Update command: sudo emerge --sync
+    # or (??): sudo emerge -auvND --with-bdeps=y world
+    # or (??): sudo emerge --update --deep --changed-use @world
 
 fi

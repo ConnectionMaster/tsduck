@@ -55,9 +55,11 @@ TSDuck can be built on Windows, Linux and macOS systems. See the
 
 ### Download
 
-Pre-built [binary packages](https://github.com/tsduck/tsduck/releases)
-are available for Windows, Fedora and Ubuntu. On macOS,
+Pre-built [binary packages](https://github.com/tsduck/tsduck/releases) are available
+for Windows and Linux (Fedora, CentOS, Ubuntu, Debian, Raspbian). On macOS,
 [use the Homebrew packager](https://github.com/tsduck/homebrew-tsduck/blob/master/README.md).
+
+The latest developments can be tested using [nightly builds](https://tsduck.io/download/prerelease/).
 
 The command `tsversion --check` can be used to check if a new version of TSDuck is available
 online. The command `tsversion --upgrade` downloads the latest binaries for the current

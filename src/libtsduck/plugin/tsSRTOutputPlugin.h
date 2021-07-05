@@ -33,7 +33,7 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsOutputPlugin.h"
+#include "tsAbstractDatagramOutputPlugin.h"
 #include "tsSRTSocket.h"
 
 namespace ts {
@@ -41,7 +41,7 @@ namespace ts {
     //! Secure Reliable Transport (SRT) output plugin for tsp.
     //! @ingroup plugin
     //!
-    class TSDUCKDLL SRTOutputPlugin: public OutputPlugin
+    class TSDUCKDLL SRTOutputPlugin: public AbstractDatagramOutputPlugin
     {
         TS_NOBUILD_NOCOPY(SRTOutputPlugin);
     public:
@@ -52,22 +52,23 @@ namespace ts {
         SRTOutputPlugin(TSP* tsp);
 
         // Implementation of plugin API
-        virtual bool getOptions(void) override;
-        virtual bool start(void) override;
-        virtual bool stop(void) override;
-        virtual bool isRealTime(void) override { return true; }
-        virtual bool send(const TSPacket*, const TSPacketMetadata*, size_t) override;
+        virtual bool getOptions() override;
+        virtual bool start() override;
+        virtual bool stop() override;
+        virtual bool isRealTime() override;
 
         //! @cond nodoxygen
         // A dummy storage value to force inclusion of this module when using the static library.
         static const int REFERENCE;
         //! @endcond
 
+    protected:
+        // Implementation of AbstractDatagramOutputPlugin
+        virtual bool sendDatagram(const void* address, size_t size) override;
+
     private:
-        SocketAddress _local_addr;  // Local address.
-        SocketAddress _remote_addr; // Remote address.
-        PacketCounter _pkt_count;   // Total packet counter for output packets
-        SRTSocket     _sock;
-        SRTSocketMode _mode;
+        bool        _multiple;       // Accept multiple (sequential) connections.
+        MilliSecond _restart_delay;  // If _multiple, wait before reconnecting.
+        SRTSocket   _sock;           // Outgoing SRT socket
     };
 }

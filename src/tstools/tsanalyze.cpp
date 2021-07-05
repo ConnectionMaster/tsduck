@@ -74,13 +74,14 @@ Options::Options(int argc, char *argv[]) :
     duck.defineArgsForStandards(*this);
     duck.defineArgsForTimeReference(*this);
     duck.defineArgsForCharset(*this);
+    duck.defineArgsForPDS(*this);
     pager.defineArgs(*this);
     analysis.defineArgs(*this);
 
     option(u"", 0, STRING, 0, 1);
     help(u"", u"Input transport stream file (standard input if omitted).");
 
-    option(u"bitrate", 'b', UNSIGNED);
+    option<ts::BitRate>(u"bitrate", 'b');
     help(u"bitrate",
          u"Specifies the bitrate of the transport stream in bits/second "
          u"(based on 188-byte packets). By default, the bitrate is "
@@ -102,7 +103,7 @@ Options::Options(int argc, char *argv[]) :
     analysis.loadArgs(duck, *this);
 
     getValue(infile, u"");
-    getIntValue(bitrate, u"bitrate");
+    getFixedValue(bitrate, u"bitrate");
     getIntValue(format, u"format", ts::TSPacketFormat::AUTODETECT);
 
     exitOnError();

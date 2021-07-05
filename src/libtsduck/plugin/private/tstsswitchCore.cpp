@@ -28,7 +28,7 @@
 //----------------------------------------------------------------------------
 
 #include "tstsswitchCore.h"
-#include "tsGuard.h"
+#include "tsGuardMutex.h"
 #include "tsGuardCondition.h"
 #include "tsAlgorithm.h"
 #include "tsFatal.h"
@@ -41,9 +41,10 @@ TSDUCK_SOURCE;
 
 ts::tsswitch::Core::Core(const InputSwitcherArgs& opt, const PluginEventHandlerRegistry& handlers, Report& log) :
     _log(log),
-    _opt(opt), // consistency enforced by copy constructor
+    _opt(opt),
     _inputs(_opt.inputs.size(), nullptr),
-    _output(opt, handlers, *this, log), // load output plugin and analyze options
+    _output(_opt, handlers, *this, _log), // load output plugin and analyze options
+    _eventDispatcher(_opt, _log),
     _receiveWatchDog(this, _opt.receiveTimeout, 0, _log),
     _mutex(),
     _gotInput(),
@@ -130,6 +131,9 @@ bool ts::tsswitch::Core::start()
         }
     }
 
+    // Signal initial input.
+    _eventDispatcher.signalNewInput(_curPlugin, _curPlugin);
+
     return success;
 }
 
@@ -163,20 +167,26 @@ void ts::tsswitch::Core::stop(bool success)
 
 void ts::tsswitch::Core::setInput(size_t index)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     setInputLocked(index, false);
 }
 
 void ts::tsswitch::Core::nextInput()
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     setInputLocked((_curPlugin + 1) % _inputs.size(), false);
 }
 
 void ts::tsswitch::Core::previousInput()
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     setInputLocked((_curPlugin > 0 ? _curPlugin : _inputs.size()) - 1, false);
+}
+
+size_t ts::tsswitch::Core::currentInput()
+{
+    GuardMutex lock(_mutex);
+    return _curPlugin;
 }
 
 
@@ -253,7 +263,7 @@ void ts::tsswitch::Core::handleWatchDogTimeout(WatchDog& watchdog)
 {
     _log.verbose(u"receive timeout, switching to next plugin");
 
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     setInputLocked((_curPlugin + 1) % _inputs.size(), true);
 }
 
@@ -400,6 +410,7 @@ void ts::tsswitch::Core::execute(const Action& event)
                 break;
             }
             case SET_CURRENT: {
+                _eventDispatcher.signalNewInput(_curPlugin, action.index);
                 _curPlugin = action.index;
                 break;
             }
@@ -485,7 +496,7 @@ bool ts::tsswitch::Core::outputSent(size_t pluginIndex, size_t count)
 
 bool ts::tsswitch::Core::inputStarted(size_t pluginIndex, bool success)
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     // Execute all commands if waiting on this event.
     execute(Action(WAIT_STARTED, pluginIndex, success));
@@ -557,7 +568,7 @@ bool ts::tsswitch::Core::inputStopped(size_t pluginIndex, bool success)
 
     // Locked sequence.
     {
-        Guard lock(_mutex);
+        GuardMutex lock(_mutex);
         _log.debug(u"input %d completed, success: %s", {pluginIndex, success});
 
         // Count end of cycle when the last plugin terminates.

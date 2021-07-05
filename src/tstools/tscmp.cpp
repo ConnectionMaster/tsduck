@@ -37,6 +37,7 @@
 #include "tsjsonOutputArgs.h"
 #include "tsTSFileInputBuffered.h"
 #include "tsTextFormatter.h"
+#include "tsFileUtils.h"
 #include "tsjsonObject.h"
 #include "tsjsonString.h"
 #include "tsjsonNumber.h"
@@ -339,7 +340,7 @@ int MainCode(int argc, char *argv[])
 
     // Display headers
     if (opt.json.json) {
-        ts::json::Value& jfiles(root.query(u"files", true, ts::json::TypeArray));
+        ts::json::Value& jfiles(root.query(u"files", true, ts::json::Type::Array));
         jfiles.set(ts::AbsoluteFilePath(file1.getFileName()));
         jfiles.set(ts::AbsoluteFilePath(file2.getFileName()));
     }

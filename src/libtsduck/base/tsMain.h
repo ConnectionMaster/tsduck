@@ -36,89 +36,35 @@
 #pragma once
 #include "tsArgs.h"
 #include "tsVersionInfo.h"
-#include "tsConsoleState.h"
-#include "tsIPUtils.h"
-#include "tsCOM.h"
 
-#if defined(TS_WINDOWS) && !defined(TS_NO_BUILD_VERSION)
-#include "tsVersion.h"
-#endif
+//!
+//! A function to wrap the entry point of an application.
+//! The application code should use the macro TS_MAIN instead of
+//! directly calling this function.
+//!
+//! Uncaught exceptions are displayed.
+//! On Windows, the COM environment and IP networking are initialized.
+//! The Windows console is set to UTF-8 mode and restored to its previous value on exit.
+//!
+//! @param [in] func The actual main function with the same profile as main().
+//! @param [in] argc Command line parameter count.
+//! @param [in] argv Command line parameters.
+//! @return The process exit code, typically EXIT_SUCCESS or EXIT_FAILURE.
+//!
+int TSDUCKDLL MainWrapper(int (*func)(int argc, char* argv[]), int argc, char* argv[]);
 
 //!
 //! A macro which expands to a main() program.
-//! Uncaught exceptions are displayed.
-//!
-//! On Windows, the IP networking is initialized and the version of the
-//! tsduck DLL is checked. It has been noted that using a tsduck DLL with
-//! an incompatible version makes the application silently exit on Windows.
-//! This is why we check the version of the DLL.
-//!
+//! An explicit reference is made to the TSDuck library version to check
+//! that the compilation and runtime versions are identical.
 //! @param func The actual main function with the same profile as main().
 //! @hideinitializer
 //!
-#if !defined(TS_WINDOWS)
-#define TS_MAIN(func)                                                         \
-    static ts::ConsoleState _consoleState;                                    \
-    int func(int argc, char *argv[]);                                         \
-    int main(int argc, char *argv[])                                          \
-    {                                                                         \
-        try {                                                                 \
-            return func(argc, argv);                                          \
-        }                                                                     \
-        catch (const std::exception& e) {                                     \
-            std::cerr << "Program aborted: " << e.what() << std::endl;        \
-            return EXIT_FAILURE;                                              \
-        }                                                                     \
-    }                                                                         \
-    typedef int UnusedMainType /* allow trailing semi-colon */
-#elif defined(TS_NO_BUILD_VERSION)
-#define TS_MAIN(func)                                                         \
-    static ts::ConsoleState _consoleState;                                    \
-    int func(int argc, char *argv[]);                                         \
-    int main(int argc, char *argv[])                                          \
-    {                                                                         \
-        try {                                                                 \
-            ts::COM com;                                                      \
-            if (!com.isInitialized() || !ts::IPInitialize()) {                \
-                return EXIT_FAILURE;                                          \
-            }                                                                 \
-            return func(argc, argv);                                          \
-        }                                                                     \
-        catch (const std::exception& e) {                                     \
-            std::cerr << "Program aborted: " << e.what() << std::endl;        \
-            return EXIT_FAILURE;                                              \
-        }                                                                     \
-    }                                                                         \
-    typedef int UnusedMainType /* allow trailing semi-colon */
-#else
-#define TS_MAIN(func)                                                         \
-    static ts::ConsoleState _consoleState;                                    \
-    int func(int argc, char *argv[]);                                         \
-    int main(int argc, char *argv[])                                          \
-    {                                                                         \
-        if (tsduckLibraryVersionMajor != TS_VERSION_MAJOR ||                  \
-            tsduckLibraryVersionMinor != TS_VERSION_MINOR ||                  \
-            tsduckLibraryVersionCommit != TS_COMMIT)                          \
-        {                                                                     \
-            std::cerr << "**** TSDuck library version mismatch, library is "  \
-                      << tsduckLibraryVersionMajor << "."                     \
-                      << tsduckLibraryVersionMinor << "-"                     \
-                      << tsduckLibraryVersionCommit                           \
-                      << ", this command needs " TS_VERSION_USTRING " ****"   \
-                      << std::flush << std::endl;                             \
-            return EXIT_FAILURE;                                              \
-        }                                                                     \
-        try {                                                                 \
-            ts::COM com;                                                      \
-            if (!com.isInitialized() || !ts::IPInitialize()) {                \
-                return EXIT_FAILURE;                                          \
-            }                                                                 \
-            return func(argc, argv);                                          \
-        }                                                                     \
-        catch (const std::exception& e) {                                     \
-            std::cerr << "Program aborted: " << e.what() << std::endl;        \
-            return EXIT_FAILURE;                                              \
-        }                                                                     \
-    }                                                                         \
-    typedef int UnusedMainType /* allow trailing semi-colon */
-#endif
+#define TS_MAIN(func)                         \
+    int func(int argc, char *argv[]);         \
+    int main(int argc, char *argv[])          \
+    {                                         \
+        TS_LIBCHECK();                        \
+        return MainWrapper(func, argc, argv); \
+    }                                         \
+    typedef int TS_UNIQUE_NAME(UnusedMainType) /* allow trailing semi-colon */

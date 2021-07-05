@@ -33,12 +33,13 @@
 
 #include "tsMain.h"
 #include "tsDuckContext.h"
-#include "tsPatchXML.h"
+#include "tsTablePatchXML.h"
 #include "tsxmlModelDocument.h"
 #include "tsxmlPatchDocument.h"
 #include "tsxmlJSONConverter.h"
 #include "tsjsonOutputArgs.h"
 #include "tsTextFormatter.h"
+#include "tsSectionFile.h"
 #include "tsOutputRedirector.h"
 #include "tsSafePtr.h"
 #include "tsFatal.h"
@@ -59,18 +60,21 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        ts::DuckContext      duck;        // TSDuck execution contexts.
-        ts::UStringVector    infiles;     // Input file names.
-        ts::UString          outfile;     // Output file name.
-        ts::UString          model;       // Model file name.
-        ts::UStringVector    patches;     // XML patch files,.
-        bool                 reformat;    // Reformat input files.
-        bool                 xml_line;    // Output XML on one single line.
-        ts::UString          xml_prefix;  // Prefix in XML line.
-        size_t               indent;      // Output indentation.
-        ts::xml::Tweaks      xml_tweaks;  // XML formatting options.
-        ts::json::OutputArgs json;        // JSON output options.
-        ts::xml::JSONConverterArgs x2j;   // XML-to-JSON conversion options.
+        ts::DuckContext      duck;          // TSDuck execution contexts.
+        ts::UStringVector    infiles;       // Input file names.
+        ts::UString          outfile;       // Output file name.
+        ts::UString          model;         // Model file name.
+        ts::UStringVector    patches;       // XML patch files,.
+        bool                 reformat;      // Reformat input files.
+        bool                 xml_line;      // Output XML on one single line.
+        bool                 tables_model;  // Use table model file.
+        bool                 use_model;     // There is a model to use.
+        bool                 from_json;     // Perform an automated JSON-to-XML conversion on input.
+        bool                 need_output;   // An output file is needed.
+        ts::UString          xml_prefix;    // Prefix in XML line.
+        size_t               indent;        // Output indentation.
+        ts::xml::Tweaks      xml_tweaks;    // XML formatting options.
+        ts::json::OutputArgs json;          // JSON output options.
     };
 }
 
@@ -83,15 +87,17 @@ Options::Options(int argc, char *argv[]) :
     patches(),
     reformat(false),
     xml_line(false),
+    tables_model(false),
+    use_model(false),
+    from_json(false),
+    need_output(false),
     xml_prefix(),
     indent(2),
     xml_tweaks(),
-    json(true),
-    x2j()
+    json(true)
 {
     json.setHelp(u"Perform an automated XML-to-JSON conversion. The output file is in JSON format instead of XML.");
     json.defineArgs(*this);
-    x2j.defineArgs(*this);
     xml_tweaks.defineArgs(*this);
 
     setIntro(u"Any input XML file name can be replaced with \"inline XML content\", starting with \"<?xml\".");
@@ -103,6 +109,12 @@ Options::Options(int argc, char *argv[]) :
     help(u"channel",
          u"A shortcut for '--model tsduck.channels.model.xml'. "
          u"It verifies that the input files are valid channel configuration files.");
+
+    option(u"from-json", 'f');
+    help(u"from-json",
+         u"Each input file must be a JSON file, "
+         u"typically from a previous automated XML-to-JSON conversion or in a similar format. "
+         u"A reverse conversion is first performed and the resulting XML document is processed as input.");
 
     option(u"hf-band", 'h');
     help(u"hf-band",
@@ -123,6 +135,11 @@ Options::Options(int argc, char *argv[]) :
     help(u"model", u"filename",
          u"Specify an XML model file which is used to validate all input files.");
 
+    option(u"monitor");
+    help(u"monitor",
+         u"A shortcut for '--model tsduck.monitor.model.xml'. "
+         u"It verifies that the input files are valid system monitoring configuration files.");
+
     option(u"output", 'o', STRING);
     help(u"output", u"filename",
          u"Specify the name of the output file (standard output by default). "
@@ -141,7 +158,8 @@ Options::Options(int argc, char *argv[]) :
 
     option(u"tables", 't');
     help(u"tables",
-         u"A shortcut for '--model tsduck.tables.model.xml'. "
+         u"A shortcut for '--model " + ts::UString(ts::SectionFile::XML_TABLES_MODEL) + "'. "
+         u"Table definitions for installed TSDuck extensions are also merged in the main model. "
          u"It verifies that the input files are valid PSI/SI tables files.");
 
     option(u"xml-line", 0, STRING, 0, 1, 0, UNLIMITED_VALUE, true);
@@ -153,19 +171,23 @@ Options::Options(int argc, char *argv[]) :
     analyze(argc, argv);
 
     json.loadArgs(duck, *this);
-    x2j.loadArgs(duck, *this);
     xml_tweaks.loadArgs(duck, *this);
 
     getValues(infiles, u"");
     getValues(patches, u"patch");
     getValue(outfile, u"output");
-    getValue(model, u"model");
     getIntValue(indent, u"indent", 2);
     getValue(xml_prefix, u"xml-line");
     reformat = present(u"reformat") || !patches.empty();
     xml_line = present(u"xml-line");
+    from_json = present(u"from-json");
 
-    // Predefined models.
+    // Get model file.
+    if (present(u"model") + present(u"tables") + present(u"channel") + present(u"hf-band") + present(u"lnb") > 1) {
+        error(u"more than one XML model is specified");
+    }
+    getValue(model, u"model");
+    tables_model = present(u"tables");
     if (present(u"channel")) {
         model = u"tsduck.channels.model.xml";
     }
@@ -175,9 +197,7 @@ Options::Options(int argc, char *argv[]) :
     else if (present(u"lnb")) {
         model = u"tsduck.lnbs.model.xml";
     }
-    else if (present(u"tables")) {
-        model = u"tsduck.tables.model.xml";
-    }
+    use_model = tables_model || !model.empty();
 
     // An input file named "" or "-" means standard input.
     for (auto it = infiles.begin(); it != infiles.end(); ++it) {
@@ -185,6 +205,9 @@ Options::Options(int argc, char *argv[]) :
             it->clear();
         }
     }
+
+    // An output file wil be produced.
+    need_output = reformat || json.json || from_json;
 
     exitOnError();
 }
@@ -202,20 +225,27 @@ int MainCode(int argc, char *argv[])
     // Load the model file if any is specified.
     // Note that JSONConverter is a subclass of ModelDocument.
     // The object named 'model' can be used either as a model and a JSON converter.
-    ts::xml::JSONConverter model(opt.x2j, opt);
+    ts::xml::JSONConverter model(opt);
     model.setTweaks(opt.xml_tweaks);
-    if (!opt.model.empty() && !model.load(opt.model, true)) {
+    bool model_ok = true;
+    if (opt.tables_model) {
+        model_ok = ts::SectionFile::LoadModel(model);
+    }
+    else if (!opt.model.empty()) {
+        model_ok = model.load(opt.model, true);
+    }
+    if (!model_ok) {
         opt.error(u"error loading model files, cannot validate input files");
     }
 
     // Load patch files.
-    ts::PatchXML patch(opt.duck);
+    ts::TablePatchXML patch(opt.duck);
     patch.addPatchFileNames(opt.patches);
     patch.loadPatchFiles(opt.xml_tweaks);
     opt.exitOnError();
 
     // Redirect standard output only if required.
-    ts::OutputRedirector out(opt.reformat || opt.json.json ? opt.outfile : u"", opt, std::cout, std::ios::out);
+    ts::OutputRedirector out(opt.need_output ? opt.outfile : u"", opt, std::cout, std::ios::out);
 
     // Now process each input file one by one.
     for (size_t i = 0; i < opt.infiles.size(); ++i) {
@@ -226,13 +256,22 @@ int MainCode(int argc, char *argv[])
         // Load the input file.
         ts::xml::Document doc(opt);
         doc.setTweaks(opt.xml_tweaks);
-        bool ok = doc.load(file_name, false, true);
+        bool ok = true;
+        if (opt.from_json) {
+            // Load a JSON fil and convert it to XML.
+            ts::json::ValuePtr root;
+            ok = ts::json::LoadFile(root, file_name, opt) && model.convertToXML(*root, doc, false);
+        }
+        else {
+            // Load a true XML file.
+            ok = doc.load(file_name, false, true);
+        }
         if (!ok) {
             opt.error(u"error loading %s", {display_name});
         }
 
         // Validate the file according to the model.
-        if (ok && !opt.model.empty() && !model.validate(doc)) {
+        if (ok && opt.use_model && !model.validate(doc)) {
             opt.error(u"%s is not conformant with the XML model", {display_name});
             ok = false;
         }
@@ -253,16 +292,11 @@ int MainCode(int argc, char *argv[])
             }
             if (opt.json.json) {
                 // Perform XML to JSON conversion.
-                ts::json::ValuePtr jobj(model.convert(doc));
-                if (jobj.isNull()) {
-                    opt.error(u"JSON conversion error on %s", {display_name});
-                }
-                else {
-                    // Output JSON result, either on one line or output file.
-                    opt.json.report(*jobj, std::cout, opt);
-                }
+                const ts::json::ValuePtr jobj(model.convertToJSON(doc));
+                // Output JSON result, either on one line or output file.
+                opt.json.report(*jobj, std::cout, opt);
             }
-            else if (opt.reformat) {
+            else if (opt.reformat || opt.from_json) {
                 // Same XML output on stdout (possibly already redirected to a file).
                 doc.save(u"", opt.indent, true);
             }

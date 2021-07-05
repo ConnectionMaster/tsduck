@@ -32,7 +32,7 @@
 #include "tsxmlDeclaration.h"
 #include "tsxmlComment.h"
 #include "tsxmlUnknown.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
 #include "tsFatal.h"
 TSDUCK_SOURCE;
 
@@ -75,7 +75,7 @@ const ts::xml::Tweaks& ts::xml::Document::tweaks() const
 
 bool ts::xml::Document::IsInlineXML(const UString& name)
 {
-    return name.startWith(u"<?xml", CASE_INSENSITIVE);
+    return name.startWith(u"<?xml", CASE_INSENSITIVE, true);
 }
 
 
@@ -121,14 +121,13 @@ bool ts::xml::Document::load(std::istream& strm)
 
 bool ts::xml::Document::load(const UString& fileName, bool search, bool stdInputIfEmpty)
 {
-    // Specific case of inline XML content, when the string is not the name
-    // of a file but directly an XML content.
+    // Specific case of inline XML content, when the string is not the name of a file but directly an XML content.
     if (IsInlineXML(fileName)) {
         return parse(fileName);
     }
 
     // Specific case of the standard input.
-    if (stdInputIfEmpty && fileName.empty()) {
+    if (stdInputIfEmpty && (fileName.empty() || fileName == u"-")) {
         return load(std::cin);
     }
 
@@ -236,7 +235,7 @@ bool ts::xml::Document::save(const UString& fileName, size_t indent, bool stdOut
     TextFormatter out(report());
     out.setIndentSize(indent);
 
-    if (stdOutputIfEmpty && fileName.empty()) {
+    if (stdOutputIfEmpty && (fileName.empty() || fileName == u"-")) {
         out.setStream(std::cout);
     }
     else if (!out.setFile(fileName)) {

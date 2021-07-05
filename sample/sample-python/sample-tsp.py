@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 #----------------------------------------------------------------------------
 #
 # TSDuck sample Python application running a chain of plugins.
 #
 #----------------------------------------------------------------------------
 
-import ts
+import tsduck
 
 # Create an asynchronous report to log multi-threaded messages.
 # Initial level is verbose, using time-stamped messages.
-rep = ts.AsyncReport(severity = ts.Report.Verbose, timed_log = True)
-rep.info("TSDuck version: %s" % ts.__version__)
+rep = tsduck.AsyncReport(severity = tsduck.Report.Verbose, timed_log = True)
+rep.info("TSDuck version: %s" % tsduck.__version__)
 
 # Create a TS processor using the report.
-tsp = ts.TSProcessor(rep)
+tsp = tsduck.TSProcessor(rep)
 
 # Set some global TS processing options.
 tsp.add_input_stuffing = [1, 10]   # one null packet every 10 input packets

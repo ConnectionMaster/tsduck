@@ -58,9 +58,22 @@ ts::SocketAddress::~SocketAddress()
 
 
 //----------------------------------------------------------------------------
+// Get/set port
+//----------------------------------------------------------------------------
+
+ts::SocketAddress::Port ts::SocketAddress::port() const
+{
+    return _port;
+}
+
+void ts::SocketAddress::setPort(Port port)
+{
+    _port = port;
+}
+
+
+//----------------------------------------------------------------------------
 // Decode a string "addr[:port]" or "[addr:]port".
-// Addr can also be a hostname which is resolved.
-// Return true on success, false on error.
 //----------------------------------------------------------------------------
 
 bool ts::SocketAddress::resolve(const UString& name, Report& report)
@@ -69,7 +82,7 @@ bool ts::SocketAddress::resolve(const UString& name, Report& report)
     clear();
 
     // Locate last colon in string
-    UString::size_type colon = name.rfind(u":");
+    const size_t colon = name.rfind(':');
 
     if (colon == NPOS) {
         // No colon in string, can be an address alone or a port alone.

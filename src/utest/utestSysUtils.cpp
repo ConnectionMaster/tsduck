@@ -27,10 +27,11 @@
 //
 //----------------------------------------------------------------------------
 //
-//  TSUnit test suite for tsSysUtils.h
+//  TSUnit test suite for tsSysUtils.h and tsFileUtils.h
 //
 //----------------------------------------------------------------------------
 
+#include "tsFileUtils.h"
 #include "tsSysUtils.h"
 #include "tsSysInfo.h"
 #include "tsRegistry.h"
@@ -38,7 +39,6 @@
 #include "tsTime.h"
 #include "tsUID.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 #if defined(TS_WINDOWS)
 #include "tsWinUtils.h"
@@ -474,7 +474,7 @@ void SysUtilsTest::testTempFiles()
     TSUNIT_ASSERT(_CreateFile(tmpName, 0));
     TSUNIT_ASSERT(ts::FileExists(tmpName));
     TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 0);
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(tmpName));
     TSUNIT_ASSERT(!ts::FileExists(tmpName));
 }
 
@@ -488,17 +488,17 @@ void SysUtilsTest::testFileSize()
     TSUNIT_ASSERT(ts::FileExists(tmpName));
     TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 1234);
 
-    TSUNIT_ASSERT(ts::TruncateFile(tmpName, 567) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::TruncateFile(tmpName, 567));
     TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 567);
 
     const ts::UString tmpName2(ts::TempFile());
     TSUNIT_ASSERT(!ts::FileExists(tmpName2));
-    TSUNIT_ASSERT(ts::RenameFile(tmpName, tmpName2) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::RenameFile(tmpName, tmpName2));
     TSUNIT_ASSERT(ts::FileExists(tmpName2));
     TSUNIT_ASSERT(!ts::FileExists(tmpName));
     TSUNIT_ASSERT(ts::GetFileSize(tmpName2) == 567);
 
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName2) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(tmpName2));
     TSUNIT_ASSERT(!ts::FileExists(tmpName2));
 }
 
@@ -556,7 +556,7 @@ void SysUtilsTest::testFileTime()
     TSUNIT_ASSERT(fileUtc.UTCToLocal() == fileLocal);
     TSUNIT_ASSERT(fileLocal.localToUTC() == fileUtc);
 
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(tmpName));
     TSUNIT_ASSERT(!ts::FileExists(tmpName));
 }
 
@@ -567,7 +567,7 @@ void SysUtilsTest::testDirectory()
     const ts::UString fileName(sep + u"foo.bar");
 
     TSUNIT_ASSERT(!ts::FileExists(dirName));
-    TSUNIT_ASSERT(ts::CreateDirectory(dirName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::CreateDirectory(dirName));
     TSUNIT_ASSERT(ts::FileExists(dirName));
     TSUNIT_ASSERT(ts::IsDirectory(dirName));
 
@@ -577,7 +577,7 @@ void SysUtilsTest::testDirectory()
 
     const ts::UString dirName2(ts::TempFile(u""));
     TSUNIT_ASSERT(!ts::FileExists(dirName2));
-    TSUNIT_ASSERT(ts::RenameFile(dirName, dirName2) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::RenameFile(dirName, dirName2));
     TSUNIT_ASSERT(ts::FileExists(dirName2));
     TSUNIT_ASSERT(ts::IsDirectory(dirName2));
     TSUNIT_ASSERT(!ts::FileExists(dirName));
@@ -585,11 +585,11 @@ void SysUtilsTest::testDirectory()
     TSUNIT_ASSERT(ts::FileExists(dirName2 + fileName));
     TSUNIT_ASSERT(!ts::IsDirectory(dirName2 + fileName));
 
-    TSUNIT_ASSERT(ts::DeleteFile(dirName2 + fileName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(dirName2 + fileName));
     TSUNIT_ASSERT(!ts::FileExists(dirName2 + fileName));
     TSUNIT_ASSERT(ts::IsDirectory(dirName2));
 
-    TSUNIT_ASSERT(ts::DeleteFile(dirName2) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(dirName2));
     TSUNIT_ASSERT(!ts::FileExists(dirName2));
     TSUNIT_ASSERT(!ts::IsDirectory(dirName2));
 }
@@ -601,7 +601,7 @@ void SysUtilsTest::testWildcard()
     const size_t count = 10;
 
     // Create temporary directory
-    TSUNIT_ASSERT(ts::CreateDirectory(dirName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::CreateDirectory(dirName));
     TSUNIT_ASSERT(ts::IsDirectory(dirName));
 
     // Create one file with unique pattern
@@ -629,12 +629,12 @@ void SysUtilsTest::testWildcard()
 
     // Final cleanup
     for (ts::UStringVector::const_iterator it = fileNames.begin(); it != fileNames.end(); ++it) {
-        TSUNIT_ASSERT(ts::DeleteFile(*it) == ts::SYS_SUCCESS);
+        TSUNIT_ASSERT(ts::DeleteFile(*it));
         TSUNIT_ASSERT(!ts::FileExists(*it));
     }
-    TSUNIT_ASSERT(ts::DeleteFile(spuriousFileName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(spuriousFileName));
     TSUNIT_ASSERT(!ts::FileExists(spuriousFileName));
-    TSUNIT_ASSERT(ts::DeleteFile(dirName) == ts::SYS_SUCCESS);
+    TSUNIT_ASSERT(ts::DeleteFile(dirName));
     TSUNIT_ASSERT(!ts::FileExists(dirName));
 }
 

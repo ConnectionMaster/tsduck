@@ -36,6 +36,6 @@ include ../../Makefile.tsduck
 default:
 	@true
 
-.PHONY: install install-devel
-install install-devel:
+.PHONY: install install-tools install-devel
+install install-tools install-devel:
 	@true

@@ -38,13 +38,12 @@
 #include "tsMutex.h"
 #include "tsCondition.h"
 #include "tsGuardCondition.h"
-#include "tsGuard.h"
+#include "tsGuardMutex.h"
 #include "tsTime.h"
 #include "tsMonotonic.h"
 #include "tsSysUtils.h"
 #include "utestTSUnitThread.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -299,7 +298,7 @@ namespace {
         virtual void test() override
         {
             // Acquire the test mutex.
-            ts::Guard lock1(_mutex, 0);
+            ts::GuardMutex lock1(_mutex, 0);
             TSUNIT_ASSERT(lock1.isLocked());
             // Signal that we have acquired it.
             {
@@ -372,7 +371,7 @@ namespace {
         virtual void test() override
         {
             {
-                ts::Guard lock(_mutex);
+                ts::GuardMutex lock(_mutex);
                 TSUNIT_ASSERT(_data == 4);
             }
             while (_data > 0) {

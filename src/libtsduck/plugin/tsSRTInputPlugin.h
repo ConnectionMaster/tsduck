@@ -52,10 +52,10 @@ namespace ts {
         SRTInputPlugin(TSP* tsp);
 
         // Implementation of plugin API.
-        virtual bool getOptions(void) override;
-        virtual bool start(void) override;
-        virtual bool stop(void) override;
-        virtual bool abortInput(void) override;
+        virtual bool getOptions() override;
+        virtual bool start() override;
+        virtual bool stop() override;
+        virtual bool abortInput() override;
 
         //! @cond nodoxygen
         // A dummy storage value to force inclusion of this module when using the static library.
@@ -64,12 +64,9 @@ namespace ts {
 
     protected:
         // Implementation of AbstractDatagramInputPlugin.
-        virtual bool receiveDatagram(void* buffer, size_t buffer_size, size_t& ret_size, MicroSecond& timestamp) override;
+        virtual bool receiveDatagram(uint8_t* buffer, size_t buffer_size, size_t& ret_size, MicroSecond& timestamp) override;
 
     private:
-        SRTSocket     _sock;
-        SRTSocketMode _mode;
-        SocketAddress _local_addr;
-        SocketAddress _remote_addr;
+        SRTSocket _sock;
     };
 }

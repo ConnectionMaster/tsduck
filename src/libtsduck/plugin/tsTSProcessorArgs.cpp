@@ -52,12 +52,12 @@ constexpr size_t ts::TSProcessorArgs::MIN_BUFFER_SIZE;
 
 ts::TSProcessorArgs::TSProcessorArgs() :
     app_name(),
-    monitor(false),
     ignore_jt(false),
     log_plugin_index(false),
     ts_buffer_size(DEFAULT_BUFFER_SIZE),
     max_flush_pkt(0),
     max_input_pkt(0),
+    max_output_pkt(NPOS), // unlimited
     init_input_pkt(0),
     instuff_nullpkt(0),
     instuff_inpkt(0),
@@ -107,7 +107,7 @@ void ts::TSProcessorArgs::defineArgs(Args& args) const
               u"Specify that <count> null TS packets must be automatically inserted "
               u"at the end of the processing, after what comes from the input plugin.");
 
-    args.option(u"bitrate", 'b', Args::POSITIVE);
+    args.option<BitRate>(u"bitrate", 'b');
     args.help(u"bitrate",
               u"Specify the input bitrate, in bits/seconds. By default, the input "
               u"bitrate is provided by the input plugin or by analysis of the PCR.");
@@ -202,11 +202,12 @@ void ts::TSProcessorArgs::defineArgs(Args& args) const
               u"as it can, depending on the free space in the buffer. In real-time mode, "
               u"the default is " + UString::Decimal(DEF_MAX_INPUT_PKT_RT) + u" packets.");
 
-    args.option(u"monitor", 'm');
-    args.help(u"monitor",
-              u"Continuously monitor the system resources which are used by tsp. "
-              u"This includes CPU load, virtual memory usage. Useful to verify the "
-              u"stability of the application.");
+    args.option(u"max-output-packets", 0, Args::POSITIVE);
+    args.help(u"max-output-packets",
+              u"Specify the maximum number of packets to be sent at a time by the output plugin. "
+              u"By default, tsp sends as many packets as available. "
+              u"This option is useful only when an output plugin or device has problems with large output requests. "
+              u"This option forces multiple smaller send operations.");
 
     args.option(u"realtime", 'r', Args::TRISTATE, 0, 1, -255, 256, true);
     args.help(u"realtime",
@@ -227,21 +228,21 @@ void ts::TSProcessorArgs::defineArgs(Args& args) const
 bool ts::TSProcessorArgs::loadArgs(DuckContext& duck, Args& args)
 {
     app_name = args.appName();
-    monitor = args.present(u"monitor");
     log_plugin_index = args.present(u"log-plugin-index");
     ts_buffer_size = args.intValue<size_t>(u"buffer-size-mb", DEFAULT_BUFFER_SIZE);
-    fixed_bitrate = args.intValue<BitRate>(u"bitrate", 0);
+    args.getFixedValue(fixed_bitrate, u"bitrate", 0);
     bitrate_adj = MilliSecPerSec * args.intValue(u"bitrate-adjust-interval", DEF_BITRATE_INTERVAL);
-    max_flush_pkt = args.intValue<size_t>(u"max-flushed-packets", 0);
-    max_input_pkt = args.intValue<size_t>(u"max-input-packets", 0);
-    init_input_pkt = args.intValue<size_t>(u"initial-input-packets", 0);
-    instuff_start = args.intValue<size_t>(u"add-start-stuffing", 0);
-    instuff_stop = args.intValue<size_t>(u"add-stop-stuffing", 0);
+    args.getIntValue(max_flush_pkt, u"max-flushed-packets", 0);
+    args.getIntValue(max_input_pkt, u"max-input-packets", 0);
+    args.getIntValue(max_output_pkt, u"max-output-packets", NPOS); // unlimited by default
+    args.getIntValue(init_input_pkt, u"initial-input-packets", 0);
+    args.getIntValue(instuff_start, u"add-start-stuffing", 0);
+    args.getIntValue(instuff_stop, u"add-stop-stuffing", 0);
     ignore_jt = args.present(u"ignore-joint-termination");
-    realtime = args.tristateValue(u"realtime");
-    receive_timeout = args.intValue<MilliSecond>(u"receive-timeout", 0);
-    control_port = args.intValue<uint16_t>(u"control-port", 0);
-    control_timeout = args.intValue<MilliSecond>(u"control-timeout", DEF_CONTROL_TIMEOUT);
+    args.getTristateValue(realtime, u"realtime");
+    args.getIntValue(receive_timeout, u"receive-timeout", 0);
+    args.getIntValue(control_port, u"control-port", 0);
+    args.getIntValue(control_timeout, u"control-timeout", DEF_CONTROL_TIMEOUT);
     control_reuse = args.present(u"control-reuse-port");
 
     // Convert MB in MiB for buffer size for compatibility with original versions.

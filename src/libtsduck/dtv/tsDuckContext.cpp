@@ -52,6 +52,7 @@ ts::DuckContext::DuckContext(Report* report, std::ostream* output) :
     _charsetOut(&DVBCharTableSingleByte::DVB_ISO_6937),
     _casId(CASID_NULL),
     _defaultPDS(0),
+    _useLeapSeconds(true),
     _cmdStandards(Standards::NONE),
     _accStandards(Standards::NONE),
     _hfDefaultRegion(),
@@ -70,6 +71,13 @@ ts::DuckContext::DuckContext(Report* report, std::ostream* output) :
     // Initialize time reference from configuration file. Ignore errors.
     if (!_timeRefConfig.empty() && !setTimeReference(_timeRefConfig)) {
         CERR.verbose(u"invalid default.time '%s' in %s", {_timeRefConfig, DuckConfigFile::Instance()->fileName()});
+    }
+
+    // Get leap.seconds initial value from configuration file. Default value is true.
+    const UString ls(DuckConfigFile::Instance()->value(u"leap.seconds"));
+    if (!ls.empty() && !ls.toBool(_useLeapSeconds)) {
+        _useLeapSeconds = true;
+        CERR.verbose(u"invalid leap.seconds '%s' in %s", {ls, DuckConfigFile::Instance()->fileName()});
     }
 }
 
@@ -175,12 +183,12 @@ ts::PDS ts::DuckContext::actualPDS(PDS pds) const
         // A default PDS was specified.
         return _defaultPDS;
     }
-    else if ((_accStandards & Standards::ATSC) == Standards::ATSC) {
+    else if (bool(_accStandards & Standards::ATSC)) {
         // We have previously found ATSC signalization, use the fake PDS for ATSC.
         // This allows interpretation of ATSC descriptors in MPEG-defined tables (eg. PMT).
         return PDS_ATSC;
     }
-    else if ((_accStandards & Standards::ISDB) == Standards::ISDB) {
+    else if (bool(_accStandards & Standards::ISDB)) {
         // Same principle for ISDB.
         return PDS_ISDB;
     }
@@ -345,7 +353,7 @@ bool ts::DuckContext::setOutput(const UString& fileName, bool override)
         }
 
         // Open new file if any.
-        if (!fileName.empty()) {
+        if (!fileName.empty() && fileName != u"-") {
             _report->verbose(u"creating %s", {fileName});
             const std::string nameUTF8(fileName.toUTF8());
             _outFile.open(nameUTF8.c_str(), std::ios::out);
@@ -427,6 +435,11 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
                   u"automatically detected from their signalization. This option is only "
                   u"useful when ISDB-related stuff are found in the TS before the first "
                   u"ISDB-specific table.");
+
+        args.option(u"ignore-leap-seconds", 0);
+        args.help(u"ignore-leap-seconds",
+                  u"Do not include explicit leap seconds in some UTC computations. "
+                  u"Currently, this applies to SCTE 35 splice_schedule() commands only.");
     }
 
     // Options relating to default UHF/VHF region.
@@ -495,7 +508,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
     // Option --philippines triggers different options in different sets of options.
     if (cmdOptionsMask & (CMD_CHARSET | CMD_STANDARDS | CMD_HF_REGION | CMD_TIMEREF)) {
 
-        // Build help text. Same principla as --japan.
+        // Build help text. Same principle as --japan.
         UStringList options;
         if (_definedCmdOptions & CMD_STANDARDS) {
             options.push_back(u"--isdb");
@@ -519,7 +532,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
     // Option --brazil triggers different options in different sets of options.
     if (cmdOptionsMask & (CMD_CHARSET | CMD_STANDARDS | CMD_HF_REGION | CMD_TIMEREF)) {
 
-        // Build help text. Same principla as --japan.
+        // Build help text. Same principle as --japan.
         UStringList options;
         if (_definedCmdOptions & CMD_STANDARDS) {
             options.push_back(u"--isdb");
@@ -543,7 +556,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
     // Option --usa triggers different options in different sets of options.
     if (cmdOptionsMask & (CMD_STANDARDS | CMD_HF_REGION)) {
 
-        // Build help text. Same principla as --japan.
+        // Build help text. Same principle as --japan.
         UStringList options;
         if (_definedCmdOptions & CMD_STANDARDS) {
             options.push_back(u"--atsc");
@@ -576,7 +589,17 @@ bool ts::DuckContext::loadArgs(Args& args)
 
     // Options relating to default DVB character sets.
     if (_definedCmdOptions & CMD_CHARSET) {
-        if (args.present(u"europe")) {
+        const UString name(args.value(u"default-charset"));
+        if (!name.empty()) {
+            const Charset* cset = DVBCharTable::GetCharset(name);
+            if (cset == nullptr) {
+                args.error(u"invalid character set name '%s'", {name});
+            }
+            else {
+                _charsetIn = _charsetOut = cset;
+            }
+        }
+        else if (args.present(u"europe")) {
             _charsetIn = _charsetOut = &DVBCharTableSingleByte::DVB_ISO_8859_15;
         }
         else if (args.present(u"brazil")) {
@@ -588,23 +611,14 @@ bool ts::DuckContext::loadArgs(Args& args)
         else if (args.present(u"japan")) {
             _charsetIn = _charsetOut = &ARIBCharset::B24;
         }
-        else {
-            const UString name(args.value(u"default-charset"));
-            if (!name.empty()) {
-                const Charset* cset = DVBCharTable::GetCharset(name);
-                if (cset == nullptr) {
-                    args.error(u"invalid character set name '%s'", {name});
-                }
-                else {
-                    _charsetIn = _charsetOut = cset;
-                }
-            }
-        }
     }
 
     // Options relating to default UHF/VHF region.
     if (_definedCmdOptions & CMD_HF_REGION) {
-        if (args.present(u"japan")) {
+        if (args.present(u"hf-band-region")) {
+            args.getValue(_hfDefaultRegion, u"hf-band-region", _hfDefaultRegion.c_str());
+        }
+        else if (args.present(u"japan")) {
             _hfDefaultRegion = u"japan";
         }
         else if (args.present(u"brazil")) {
@@ -612,9 +626,6 @@ bool ts::DuckContext::loadArgs(Args& args)
         }
         else if (args.present(u"philippines")) {
             _hfDefaultRegion = u"philippines";
-        }
-        else if (args.present(u"hf-band-region")) {
-            args.getValue(_hfDefaultRegion, u"hf-band-region");
         }
     }
 
@@ -629,6 +640,7 @@ bool ts::DuckContext::loadArgs(Args& args)
         if (args.present(u"abnt") || args.present(u"brazil") || args.present(u"philippines")) {
             _cmdStandards |= Standards::ISDB | Standards::ABNT;
         }
+        _useLeapSeconds = !args.present(u"ignore-leap-seconds");
     }
     if ((_definedCmdOptions & (CMD_CHARSET | CMD_STANDARDS | CMD_HF_REGION | CMD_TIMEREF)) && args.present(u"japan")) {
         _cmdStandards |= Standards::JAPAN;
@@ -655,7 +667,13 @@ bool ts::DuckContext::loadArgs(Args& args)
 
     // Options relating to non-standard time reference.
     if (_definedCmdOptions & CMD_TIMEREF) {
-        if (args.present(u"japan")) {
+        if (args.present(u"time-reference")) {
+            const UString name(args.value(u"time-reference"));
+            if (!setTimeReference(name)) {
+                args.error(u"invalid time reference '%s'", {name});
+            }
+        }
+        else if (args.present(u"japan")) {
             _timeReference = Time::JSTOffset;
         }
         else if (args.present(u"brazil")) {
@@ -663,12 +681,6 @@ bool ts::DuckContext::loadArgs(Args& args)
         }
         else if (args.present(u"philippines")) {
             _timeReference = 8 * MilliSecPerHour; // UTC+8
-        }
-        else if (args.present(u"time-reference")) {
-            const UString name(args.value(u"time-reference"));
-            if (!setTimeReference(name)) {
-                args.error(u"invalid time reference '%s'", {name});
-            }
         }
     }
 
@@ -725,6 +737,9 @@ void ts::DuckContext::restoreArgs(const SavedArgs& args)
     }
     if (_definedCmdOptions & CMD_CAS) {
         _casId = args._casId;
+    }
+    if (_definedCmdOptions & CMD_PDS) {
+        _defaultPDS = args._defaultPDS;
     }
     if (_definedCmdOptions & CMD_HF_REGION) {
         _hfDefaultRegion = args._hfDefaultRegion;

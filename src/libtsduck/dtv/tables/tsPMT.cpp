@@ -206,7 +206,7 @@ bool ts::PMT::Stream::isAudio(const DuckContext& duck) const
         return true;
     }
 
-    const bool isdb = (duck.standards() & Standards::ISDB) != Standards::NONE;
+    const bool isdb = bool(duck.standards() & Standards::ISDB);
 
     // Other audio components may have "PES private data" stream type
     // but are identified by specific descriptors.
@@ -242,7 +242,7 @@ bool ts::PMT::Stream::isAudio(const DuckContext& duck) const
 
 bool ts::PMT::Stream::isSubtitles(const DuckContext& duck) const
 {
-    const bool atsc = (duck.standards() & Standards::ATSC) != Standards::NONE;
+    const bool atsc = bool(duck.standards() & Standards::ATSC);
 
     for (size_t index = 0; index < descs.count(); ++index) {
         const DescriptorPtr& dsc(descs[index]);
@@ -274,12 +274,33 @@ bool ts::PMT::Stream::isSubtitles(const DuckContext& duck) const
 
 
 //----------------------------------------------------------------------------
+// Get the PID class of the stream.
+//----------------------------------------------------------------------------
+
+ts::PIDClass ts::PMT::Stream::getClass(const DuckContext& duck) const
+{
+    if (isVideo(duck)) {
+        return PIDClass::VIDEO;
+    }
+    else if (isAudio(duck)) {
+        return PIDClass::AUDIO;
+    }
+    else if (isSubtitles(duck)) {
+        return PIDClass::SUBTITLES;
+    }
+    else {
+        return PIDClass::DATA;
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // Try to determine the codec which is used in the stream.
 //----------------------------------------------------------------------------
 
 ts::CodecType ts::PMT::Stream::getCodec(const DuckContext& duck) const
 {
-    const bool atsc = (duck.standards() & Standards::ATSC) != Standards::NONE;
+    const bool atsc = bool(duck.standards() & Standards::ATSC);
 
     // Try classes of stream types.
     if (StreamTypeIsAVC(stream_type)) {

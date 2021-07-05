@@ -37,21 +37,27 @@ OBJSUBDIR := objs-tsplugins
 
 include ../../Makefile.tsduck
 
-.PHONY: shlibs install install-devel
+.PHONY: shlibs install install-tools install-devel
 
 ifndef STATIC
 
 # Dynamic link (the default), we build shared objects.
 SHLIBS := $(addprefix $(BINDIR)/,$(addsuffix .so,$(TSPLUGINS)))
 
+# Obsolete plugins, were in separate shared libraries, now in libtsduck.so.
+# Maintenance: also update build/tsduck.nsi (Windows).
+OBSOLETE_PLUGINS := dektec drop file fork hls http ip null psi skip srt tables
+
 default: shlibs
 	@true
 shlibs: $(SHLIBS)
 $(SHLIBS): $(SHARED_LIBTSDUCK)
 
-install: $(SHLIBS)
+install: install-tools install-devel
+install-tools: $(SHLIBS)
 	install -d -m 755 $(SYSROOT)$(USRLIBDIR)/tsduck
 	install -m 644 $(SHLIBS) $(SYSROOT)$(USRLIBDIR)/tsduck
+	rm -f $(addprefix $(SYSROOT)$(USRLIBDIR)/tsduck/tsplugin_,$(addsuffix .so,$(OBSOLETE_PLUGINS)))
 install-devel:
 	@true
 
@@ -60,7 +66,7 @@ else
 # With static link, we compile only (in a specific directory), we do not build shared objects.
 default: $(addprefix $(OBJDIR)/,$(addsuffix .o,$(TSPLUGINS)))
 	@true
-install:
+install-tools:
 	@true
 install-devel:
 	@true

@@ -32,9 +32,9 @@
 //----------------------------------------------------------------------------
 
 #include "tsByteBlock.h"
-#include "tsSysUtils.h"
+#include "tsFileUtils.h"
+#include "tsNullReport.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -80,13 +80,13 @@ void ByteBlockTest::beforeTest()
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 // Test suite cleanup method.
 void ByteBlockTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName);
+    ts::DeleteFile(_tempFileName, NULLREP);
 }
 
 

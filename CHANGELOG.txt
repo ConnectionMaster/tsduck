@@ -2,10 +2,115 @@ TSDUCK CHANGE LOG AND RELEASE NOTES
 
 -------------------------------------------------------------------------------
 
-VERSION 3.25-2185
+VERSION 3.28-2442
 
 [NEW] New commands and plugins:
 
+  * Added plugin "pcredit" (edit PCR, PTS and DTS values in various ways).
+
+[IMP] Improvements on existing commands and plugins:
+
+  * New options in exiting commands and plugins:
+    - Option --install-dvb-firmware in "tsconfig".
+
+[BUG] Bug fixes:
+
+  * Fixed issue #791: In plugin "merge", the PCR were not correcty adjusted
+    when the input PCR had a discontinuity in the future.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.27-2434
+
+[NEW] New commands and plugins:
+
+  * Added command "tsfclean" (cleanup TS files).
+  * Added plugin "pcrcopy" (copy and synchronize PCR from one PID to another).
+  * Added plugin "svresync" (resynchronize the clock of a service based on
+    another service).
+  * Added plugin "pidshift" (shift selected PID's forward inside the TS).
+  * Added plugin "eitinject" (generate and inject EIT's inside the TS).
+
+[IMP] Improvements on existing commands and plugins:
+
+  * Added support for Dektec Ethernet devices (eg. DTA-2162).
+  * The plugin "zap" can now select more than one service.
+  * New options in exiting commands and plugins:
+    - Option --max-output-packets in "tsp".
+    - Option --force-local-multicast-outgoing in output plugin "ip".
+    - Options --fifo-size, --preload-fifo in input plugin "dektec".
+    - Option --wait-detach in output plugin "dektec".
+    - Option --io-standard and all TS-over-IP options in input and output
+      plugins "dektec".
+    - Options --enforce-burst, --packet-burst in output plugin "srt".
+    - Options --audio, --codec, --ecm, --emm, --intra-frame, --psi-si,
+      --service, --subtitles, --video in plugin "filter".
+    - Options --restart and --restart-interval in plugin "merge".
+    - Option --system-synchronous in plugin "timeref".
+    - Options --no-repeat, --payload-and, --payload-or, --payload-xor in packet
+      processing plugin "craft".
+    - Option --multiple-files in plugin "pes".
+    - Options --apdu and --continue-on-error in "tssmartcard".
+
+[BUG] Bug fixes:
+
+  * Fixed issue #764: SCTE 35 splice information tables were not correctly
+    deserialized when the command length field was the legacy value 0xFFF.
+  * Fixed issue #771: Multi-standard ASI Dektec devices surch as DTA-2174B
+    did not work properly.
+  * Fixed a rare issue where tsp with option --add-input-stuffing silently
+    terminated after some long random time.
+  * Fixed issue #811: In plugin "merge", the options --drop and --pass were
+    not correctly handled when they had one single value (not a range).
+
+-------------------------------------------------------------------------------
+
+VERSION 3.26-2344
+
+[NEW] New commands and plugins:
+
+  * Added input and output plugins "memory" (direct application interaction).
+  * Added input plugin "pcap" (Wireshark capture files).
+
+[IMP] Improvements on existing commands and plugins:
+
+  * Resource monitoring of "tsp" and "tsswitch" (option --monitor) is now
+    configurable using XML files and alarm commands can be triggered on
+    CPU or memory misbehavior.
+  * When the environment variable TSDUCK_NO_USER_CONFIG is defined to some
+    non-empty value, the user's configuration file is not loaded.
+  * Bitrates are now handled, entered and computed with one decimal digit.
+    The increased precision was required by some modulations.
+  * New options in exiting commands and plugins:
+    - Option --event-code in plugins "mpe", "psi" and "tables".
+    - Options --min-bitrate and --min-inter-packet in plugin "spliceinject".
+    - Option --java and --python in "tsconfig".
+    - Options --alarm-command, --max-pre-roll-time, --max-repetition,
+      --min-pre-roll-time, --min-repetition value and --no-adjustment
+      to plugin "splicemonitor".
+    - Options --event-command, --event-udp, --event-ttl and --event-local-address
+      to "tsswitch".
+    - Options --max-size and --max-duration in output plugin "file".
+    - Options --multiple and --restart-delay in output plugin "srt".
+    - Options --caller and --listener in "srt" input and output plugins.
+      The address:port parameter and the --rendezvous options are now legacy.
+    - Option --ignore-leap-seconds in "tsanalyze", "tsdate", "tsp", "tspsi",
+      "tstabcomp", "tstabdump", "tstables" and plugins "analyze", "psi",
+      "tables".
+
+[BUG] Bug fixes:
+
+  * In the display of SCTE 35 splice information tables, the UTC times in the
+    splice_schedule() commands were incorrectly displayed.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.25-2236
+
+[NEW] New commands and plugins:
+
+  * Added plugin "splicemonitor" (monitor SCTE-35 splice commands).
+  * Added input and output plugins "memory" for C++/Java/Python developers.
   * Java bindings have been added for high-level functions of the TSDuck
     library. All "tsp" features are now available from Java.
 
@@ -14,9 +119,9 @@ VERSION 3.25-2185
   * Everywhere an input XML file name is expected, it is possible to specify
     an "inline XML content" directly. The string is recognized as an inline
     XML content and not a file name when it starts with "<?xml".
-  * In some utilities or plugins where an output XML file name can be produced,
-    it is possible to specify an automated XML-to-JSON conversion and get a
-    JSON output.
+  * In most utilities or plugins where XML files can be read or written, it is
+    possible to specify an automated XML-to-JSON conversion and read or write
+    JSON input or output.
   * Everywhere XML or JSON output can be produced, it is possible to log
     the XML or JSON data on one line using options --log-xml-line (or
     --xml-line) and --json-line. Java or Python applications which intercept
@@ -27,6 +132,8 @@ VERSION 3.25-2185
     line are still accepted for compatibility.
   * In plugin "bitrate_monitor", the alarm command receives more parameters.
   * The plugin "reduce" can now reduce the bitrate using PCR and VBR.
+  * The command "tstabcomp" can use the standard input and output for XML or
+    binary section files.
   * New options in exiting commands and plugins:
     - Option --save-es in plugin "pes".
     - Option --extended-info in "tslsdvb" (--verbose no longer displays the
@@ -35,15 +142,32 @@ VERSION 3.25-2185
       "tstabcomp", "tstabdump", "tstables", "tsterinfo" and plugins "dvb",
       "analyze", "psi", "tables".
     - Option --abnt in "tsanalyze", "tsdate", "tsp", "tspsi", "tstabcomp",
-      "tstabdump", "tstables", and plugins "analyze", "psi", "tables".
+      "tstabdump", "tstables" and plugins "analyze", "psi", "tables".
     - Options --fixed-proportion, --input-bitrate, --packet-window, --pcr-based,
       --reference-pcr-pid, --target-bitrate, --time-window in plugin "reduce".
     - Option --json-line in "tsanalyze", "tscmp", "tsdektec" and plugin
       "analyze".
-    - Option --log-xml-line to "tstables" and plugin "tables".
+    - Options --log-xml-line and --log-hexa-line to "tstables" and plugin
+      "tables".
     - Options --log-xml-line, --strict-xml, --text-output, --xml-output to
       "tspsi" and plugin "psi".
-    - Options --json, --json-line and --x2j-* to "tsxml".
+    - Options --json, --json-line, --from-json and --x2j-* to "tsxml".
+    - Options --json-output, --log-json-line, --rewrite-json and --x2j-* to
+      "tstables" and plugin "tables".
+    - Options --json-output, --log-json-line and --x2j-* to "tspsi" and plugin
+      "psi".
+    - Options --json, --from-json and --x2j-* to "tstabcomp".
+    - Option --json to "tspacketize".
+    - Option --default-pds to "tsanalyze", "tsscan" and plugin "analyze".
+    - Option --log-hexa-line to plugin "mpe".
+
+[BUG] Bug fixes:
+
+  * The global "tsp" options --default-pds and --hf-band-region were not
+    correctly passed to the plugins.
+  * Fixed issue #719: The option --default-pds was not correctly used in
+    "tsscan" when looking for logical channel numbers in streams with invalid
+    signalization (missing private data specifier descriptor).
 
 -------------------------------------------------------------------------------
 

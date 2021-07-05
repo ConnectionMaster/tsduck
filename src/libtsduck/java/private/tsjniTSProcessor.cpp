@@ -38,42 +38,18 @@ TSDUCK_SOURCE;
 
 #if !defined(TS_NO_JAVA)
 
-//----------------------------------------------------------------------------
-// Interface of native methods.
-//----------------------------------------------------------------------------
-
-extern "C" {
-    // Method: io.tsduck.TSProcessor.initNativeObject
-    // Signature: (Lio/tsduck/Report;)V
-    JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_initNativeObject(JNIEnv*, jobject, jobject);
-
-    // Method: io.tsduck.TSProcessor.start
-    // Signature: ()B
-    JNIEXPORT jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv*, jobject);
-
-    // Method: io.tsduck.TSProcessor.abort
-    // Signature: ()V
-    JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_abort(JNIEnv*, jobject);
-
-    // Method: io.tsduck.TSProcessor.waitForTermination
-    // Signature: ()V
-    JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_waitForTermination(JNIEnv*, jobject);
-
-    // Method: io.tsduck.TSProcessor.delete
-    // Signature: ()V
-    JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_delete(JNIEnv*, jobject);
-}
-
-//----------------------------------------------------------------------------
-// Implementation of native methods.
-//----------------------------------------------------------------------------
-
-JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_initNativeObject(JNIEnv* env, jobject obj, jobject jreport)
+//
+// private native void initNativeObject(Report report);
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_TSProcessor_initNativeObject(JNIEnv* env, jobject obj, jobject jreport)
 {
     // Make sure we do not allocate twice (and lose previous instance).
     ts::TSProcessor* tsp = ts::jni::GetPointerField<ts::TSProcessor>(env, obj, "nativeObject");
-    if (tsp == nullptr) {
-        ts::Report* report = ts::jni::GetPointerField<ts::Report>(env, jreport, "nativeObject");
+    if (env != nullptr && tsp == nullptr) {
+        ts::Report* report = nullptr;
+        if (jreport != nullptr) {
+            report = ts::jni::GetPointerField<ts::Report>(env, jreport, "nativeObject");
+        }
         if (report == nullptr) {
             report = ts::NullReport::Instance();
         }
@@ -81,7 +57,10 @@ JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_initNativeObject(JNIEnv* env, 
     }
 }
 
-JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_abort(JNIEnv* env, jobject obj)
+//
+// public native void abort();
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_TSProcessor_abort(JNIEnv* env, jobject obj)
 {
     ts::TSProcessor* tsp = ts::jni::GetPointerField<ts::TSProcessor>(env, obj, "nativeObject");
     if (tsp != nullptr) {
@@ -89,7 +68,10 @@ JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_abort(JNIEnv* env, jobject obj
     }
 }
 
-JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_waitForTermination(JNIEnv* env, jobject obj)
+//
+// public native void waitForTermination();
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_TSProcessor_waitForTermination(JNIEnv* env, jobject obj)
 {
     ts::TSProcessor* tsp = ts::jni::GetPointerField<ts::TSProcessor>(env, obj, "nativeObject");
     if (tsp != nullptr) {
@@ -97,7 +79,10 @@ JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_waitForTermination(JNIEnv* env
     }
 }
 
-JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_delete(JNIEnv* env, jobject obj)
+//
+// public native void delete();
+//
+TSDUCKJNI void JNICALL Java_io_tsduck_TSProcessor_delete(JNIEnv* env, jobject obj)
 {
     ts::TSProcessor* tsp = ts::jni::GetPointerField<ts::TSProcessor>(env, obj, "nativeObject");
     if (tsp != nullptr) {
@@ -107,32 +92,13 @@ JNIEXPORT void JNICALL Java_io_tsduck_TSProcessor_delete(JNIEnv* env, jobject ob
 }
 
 //----------------------------------------------------------------------------
-// Get a plugin description from a Java array of string.
-//----------------------------------------------------------------------------
-
-static bool GetPluginOption(JNIEnv* env, jobjectArray strings, ts::PluginOptions& plugin)
-{
-    plugin.clear();
-    if (env == nullptr || strings == nullptr || env->ExceptionCheck()) {
-        return false;
-    }
-    const jsize count = env->GetArrayLength(strings);
-    if (count > 0) {
-        plugin.name = ts::jni::ToUString(env, jstring(env->GetObjectArrayElement(strings, 0)));
-        plugin.args.resize(size_t(count - 1));
-        for (jsize i = 1; i < count; ++i) {
-            plugin.args[i-1] = ts::jni::ToUString(env, jstring(env->GetObjectArrayElement(strings, i)));
-        }
-    }
-    return !plugin.name.empty();
-}
-
-
-//----------------------------------------------------------------------------
 // Start method: the parameters are fetched from the Java object fields.
 //----------------------------------------------------------------------------
 
-JNIEXPORT jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject obj)
+//
+// public native boolean start();
+//
+TSDUCKJNI jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject obj)
 {
     ts::TSProcessor* tsp = ts::jni::GetPointerField<ts::TSProcessor>(env, obj, "nativeObject");
     if (tsp == nullptr) {
@@ -141,7 +107,6 @@ JNIEXPORT jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject
 
     // Build TSProcessor arguments.
     ts::TSProcessorArgs args;
-    args.monitor = ts::jni::GetBoolField(env, obj, "monitor");
     args.ignore_jt = ts::jni::GetBoolField(env, obj, "ignoreJointTermination");
     args.log_plugin_index = ts::jni::GetBoolField(env, obj, "logPluginIndex");
     args.ts_buffer_size = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "bufferSize")));
@@ -150,6 +115,10 @@ JNIEXPORT jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject
     }
     args.max_flush_pkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "maxFlushedPackets")));
     args.max_input_pkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "maxInputPackets")));
+    args.max_output_pkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "maxOutputPackets")));
+    if (args.max_output_pkt == 0) {
+        args.max_output_pkt = ts::NPOS;  // zero means unlimited
+    }
     args.init_input_pkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "initialInputPackets")));
     args.instuff_nullpkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "addInputStuffingNull")));
     args.instuff_inpkt = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "addInputStuffingInput")));
@@ -161,16 +130,10 @@ JNIEXPORT jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject
     args.app_name = ts::jni::GetStringField(env, obj, "appName");
 
     // Get plugins description.
-    // Note: The packet processor plugin can be null (no plugin)
-    // but the presence of the input and output plugin is required.
-    const jobjectArray jplugins = jobjectArray(ts::jni::GetObjectField(env, obj, "plugins", JCS_ARRAY(JCS_ARRAY(JCS_STRING))));
-    bool ok = GetPluginOption(env, jobjectArray(ts::jni::GetObjectField(env, obj, "input", JCS_ARRAY(JCS_STRING))), args.input) &&
-              GetPluginOption(env, jobjectArray(ts::jni::GetObjectField(env, obj, "output", JCS_ARRAY(JCS_STRING))), args.output);
-    const jsize count = jplugins != nullptr ? env->GetArrayLength(jplugins) : 0;
-    args.plugins.resize(size_t(count));
-    for (jsize i = 0; ok && i < count; ++i) {
-        ok = GetPluginOption(env, jobjectArray(env->GetObjectArrayElement(jplugins, i)), args.plugins[i]);
-    }
+    // Note: The packet processor plugin can be null (no plugin) but the presence of the input and output plugin is required.
+    bool ok = ts::jni::GetPluginOptions(env, jobjectArray(ts::jni::GetObjectField(env, obj, "input", JCS_ARRAY(JCS_STRING))), args.input) &&
+              ts::jni::GetPluginOptions(env, jobjectArray(ts::jni::GetObjectField(env, obj, "output", JCS_ARRAY(JCS_STRING))), args.output) &&
+              ts::jni::GetPluginOptionsVector(env, jobjectArray(ts::jni::GetObjectField(env, obj, "plugins", JCS_ARRAY(JCS_ARRAY(JCS_STRING)))), args.plugins);
 
     // Debug message.
     if (tsp->report().debug()) {

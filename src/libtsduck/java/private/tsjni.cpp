@@ -28,6 +28,8 @@
 //----------------------------------------------------------------------------
 
 #include "tsjni.h"
+#include "tsCerrReport.h"
+#include "tsThreadLocalObjects.h"
 TSDUCK_SOURCE;
 
 #if !defined(TS_NO_JAVA)
@@ -200,6 +202,118 @@ bool ts::jni::SetStringField(JNIEnv* env, jobject obj, const char* fieldName, co
     }
     const jstring jval = ToJString(env, value);
     return jval != nullptr && SetObjectField(env, obj, fieldName, JCS_STRING, jval);
+}
+
+
+//----------------------------------------------------------------------------
+// Get a plugin description from a Java array of string.
+//----------------------------------------------------------------------------
+
+bool ts::jni::GetPluginOptions(JNIEnv* env, jobjectArray strings, ts::PluginOptions& plugin)
+{
+    plugin.clear();
+    if (env == nullptr || strings == nullptr || env->ExceptionCheck()) {
+        return false;
+    }
+    const jsize count = env->GetArrayLength(strings);
+    if (count > 0) {
+        plugin.name = ts::jni::ToUString(env, jstring(env->GetObjectArrayElement(strings, 0)));
+        plugin.args.resize(size_t(count - 1));
+        for (jsize i = 1; i < count; ++i) {
+            plugin.args[i-1] = ts::jni::ToUString(env, jstring(env->GetObjectArrayElement(strings, i)));
+        }
+    }
+    return !plugin.name.empty();
+}
+
+bool ts::jni::GetPluginOptionsVector(JNIEnv* env, jobjectArray strings, PluginOptionsVector& plugins)
+{
+    const jsize count = strings != nullptr ? env->GetArrayLength(strings) : 0;
+    plugins.resize(size_t(count));
+    bool ok = true;
+    for (jsize i = 0; ok && i < count; ++i) {
+        ok = GetPluginOptions(env, jobjectArray(env->GetObjectArrayElement(strings, i)), plugins[i]);
+    }
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// A private class which manages the JNIEnv pointer for the current thread.
+//----------------------------------------------------------------------------
+
+namespace {
+
+    // Class declaration, one instance per thread.
+    class LocalThreadJNI : public ts::Object
+    {
+    public:
+        // The constructor attaches to the JVM when necessary.
+        LocalThreadJNI();
+        LocalThreadJNI(const LocalThreadJNI&) = default;
+        LocalThreadJNI& operator=(const LocalThreadJNI&) = default;
+
+        // The destructor detaches from the JVM when necessary.
+        virtual ~LocalThreadJNI() override;
+
+        // Get the JNIEnv point for the curren thread.
+        JNIEnv* env() const { return _env; }
+
+    private:
+        JNIEnv* _env;         // The JNI environment pointer for this thread.
+        bool    _detach_jvm;  // The current thread shall detach from the JVM before exit.
+    };
+
+    // The constructor attaches to the JVM when necessary.
+    LocalThreadJNI::LocalThreadJNI() :
+        _env(nullptr),
+        _detach_jvm(false)
+    {
+        if (ts::jni::javaVM != nullptr) {
+            void* penv = nullptr;
+            jint status = ts::jni::javaVM->GetEnv(&penv, JNI_VERSION_1_2);
+            if (status != JNI_OK || penv == nullptr) {
+                // Thread not attached, this is a native thread, attach it now.
+                status = ts::jni::javaVM->AttachCurrentThread(&penv, nullptr);
+                _detach_jvm = true;
+            }
+            if (status == JNI_OK && penv != nullptr) {
+                _env = reinterpret_cast<JNIEnv*>(penv);
+            }
+        }
+        CERR.debug(u"start of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", {ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm});
+    }
+
+    // The destructor detaches from the JVM when necessary.
+    LocalThreadJNI::~LocalThreadJNI()
+    {
+        CERR.debug(u"end of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", {ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm});
+        _env = nullptr;
+        if (_detach_jvm && ts::jni::javaVM != nullptr) {
+            _detach_jvm = false;
+            ts::jni::javaVM->DetachCurrentThread();
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get the JNIEnv pointer for the current thread.
+//----------------------------------------------------------------------------
+
+JNIEnv* ts::jni::JNIEnvForCurrentThead()
+{
+    // Get the thread-specific LocalThreadJNI.
+    ts::ObjectPtr obj(ThreadLocalObjects::Instance()->getLocalObject(u"LocalThreadJNI"));
+    LocalThreadJNI* lobj = dynamic_cast<LocalThreadJNI*>(obj.pointer());
+    if (lobj == nullptr) {
+        // First time we use this thread, create the thread-specific LocalThreadJNI.
+        obj = lobj = new LocalThreadJNI;
+        CheckNonNull(lobj);
+        CheckNonNull(lobj->env());
+        ThreadLocalObjects::Instance()->setLocalObject(u"LocalThreadJNI", obj);
+    }
+    return lobj->env();
 }
 
 #endif // TS_NO_JAVA

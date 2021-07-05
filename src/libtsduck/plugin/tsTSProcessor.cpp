@@ -33,7 +33,7 @@
 #include "tstspProcessorExecutor.h"
 #include "tstspControlServer.h"
 #include "tsMonotonic.h"
-#include "tsGuard.h"
+#include "tsGuardMutex.h"
 TSDUCK_SOURCE;
 
 
@@ -49,7 +49,6 @@ ts::TSProcessor::TSProcessor(Report& report) :
     _args(),
     _input(nullptr),
     _output(nullptr),
-    _monitor(&_report),
     _control(nullptr),
     _packet_buffer(nullptr),
     _metadata_buffer(nullptr)
@@ -69,6 +68,14 @@ ts::TSProcessor::~TSProcessor()
 
 void ts::TSProcessor::cleanupInternal()
 {
+    // Terminate and delete the control server.
+    // This must be done first since the control server accesses the plugin executors.
+    if (_control != nullptr) {
+        // Deleting the object terminates the server thread.
+        delete _control;
+        _control = nullptr;
+    }
+
     // Abort and wait for threads to terminate
     tsp::PluginExecutor* proc = _input;
     do {
@@ -90,20 +97,14 @@ void ts::TSProcessor::cleanupInternal()
     _input = nullptr;
     _output = nullptr;
 
+    // Deallocate packet buffers.
     if (_packet_buffer != nullptr) {
         delete _packet_buffer;
         _packet_buffer = nullptr;
     }
-
     if (_metadata_buffer != nullptr) {
         delete _metadata_buffer;
         _metadata_buffer = nullptr;
-    }
-
-    if (_control != nullptr) {
-        // Deleting the object terminates the monitor thread.
-        delete _control;
-        _control = nullptr;
     }
 }
 
@@ -116,7 +117,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
 {
     // Initial sequence under mutex protection.
     {
-        Guard lock(_mutex);
+        GuardMutex lock(_mutex);
 
         // Check if we are already started.
         if (_input != nullptr || _terminating) {
@@ -167,8 +168,9 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
         // Adjust some default parameters.
         _args.applyDefaults(realtime);
 
-        // Exit on error when initializing the plugins
+        // Exit on error when initializing the plugins.
         if (_report.gotErrors()) {
+            _report.debug(u"error when initializing the plugins");
             cleanupInternal();
             return false;
         }
@@ -180,6 +182,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
             proc->setRealTimeForAll(realtime);
             // Decode command line parameters for the plugin.
             if (!proc->plugin()->getOptions()) {
+                _report.debug(u"getOptions() error in plugin %s", {proc->pluginName()});
                 cleanupInternal();
                 return false;
             }
@@ -202,15 +205,11 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
         // End of locked section.
     }
 
-    // Start the monitoring thread if required.
-    if (_args.monitor) {
-        _monitor.start();
-    }
-
     // Start all processors, except output, in reverse order (input last).
     // Exit application in case of error.
     for (tsp::PluginExecutor* proc = _output->ringPrevious<tsp::PluginExecutor>(); proc != _output; proc = proc->ringPrevious<tsp::PluginExecutor>()) {
         if (!proc->plugin()->start()) {
+            _report.debug(u"start() error in plugin %s", {proc->pluginName()});
             cleanupInternal();
             return false;
         }
@@ -219,6 +218,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
     // Initialize packet buffer in the ring of executors.
     // Exit application in case of error.
     if (!_input->initAllBuffers(_packet_buffer, _metadata_buffer)) {
+        _report.debug(u"init buffer error");
         cleanupInternal();
         return false;
     }
@@ -226,6 +226,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
     // Start the output device (we now have an idea of the bitrate).
     // Exit application in case of error.
     if (!_output->plugin()->start()) {
+        _report.debug(u"start() error in output plugin %s", {_output->pluginName()});
         cleanupInternal();
         return false;
     }
@@ -251,7 +252,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
 
 bool ts::TSProcessor::isStarted()
 {
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
     return _input != nullptr && !_terminating;
 }
 
@@ -264,7 +265,7 @@ void ts::TSProcessor::abort()
 {
     _report.debug(u"aborting all plugins...");
 
-    Guard lock(_mutex);
+    GuardMutex lock(_mutex);
 
     if (_input != nullptr) {
         // Place all threads in "aborted" state so that each thread will see its

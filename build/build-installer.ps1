@@ -155,11 +155,6 @@ if (-not $NoInstaller -or -not $NoPortable) {
     }
 }
 
-# Get version name.
-$GetVersion = (Join-Path $PSScriptRoot get-version-from-sources.ps1)
-$Version = (& $GetVersion)
-$VersionInfo = (& $GetVersion -Windows)
-
 # Lower process priority so that the build does not eat up all CPU.
 if (-not $NoLowPriority) {
     (Get-Process -Id $PID).PriorityClass = "BelowNormal"
@@ -176,6 +171,11 @@ if (-not $NoBuild) {
         Exit-Script -NoPause:$NoPause "Error building the product"
     }
 }
+
+# Get version name.
+$GetVersion = (Join-Path $PSScriptRoot get-version-from-sources.ps1)
+$Version = (& $GetVersion)
+$VersionInfo = (& $GetVersion -Windows)
 
 # A function to build a binary installer.
 function Build-Binary([string]$BinSuffix, [string]$Arch, [string]$VCRedist, [string]$HeadersDir)
@@ -222,8 +222,9 @@ if (-not $NoInstaller) {
     if ($NoTeletext) {
         $Exclude += "*\tsduck.h"
         $Exclude += "*\tsTeletextDemux.h"
-        $Exclude += "*\tsTeletextCharset.h"
-        Get-Content (Join-Multipath @($SrcDir, "libtsduck", "tsduck.h")) | `            Where-Object { ($_ -notmatch 'tsTeletextDemux.h') -and ($_ -notmatch 'tsTeletextCharset.h') } | `            Out-File -Encoding ascii (Join-Path $TempDir tsduck.h)
+        Get-Content (Join-Multipath @($SrcDir, "libtsduck", "tsduck.h")) | `
+            Where-Object { $_ -notmatch 'tsTeletextDemux.h' } | `
+            Out-File -Encoding ascii (Join-Path $TempDir tsduck.h)
     }
     Get-ChildItem (Join-Path $SrcDir libtsduck) -Recurse -Include "*.h" | `
         Where-Object {
@@ -283,6 +284,12 @@ function Build-Portable([string]$BinSuffix, [string]$InstallerSuffix, [string]$V
         Copy-Item (Join-Multipath @($RootDir, "doc", "tsduck.pdf")) -Destination $TempDoc
         Copy-Item (Join-Path $RootDir "CHANGELOG.txt") -Destination $TempDoc
 
+        $TempPython = (New-Directory @($TempRoot, "python"))
+        Copy-Item (Join-Multipath @($SrcDir, "libtsduck", "python", "*.py")) -Destination $TempPython
+
+        $TempJava = (New-Directory @($TempRoot, "java"))
+        Copy-Item $JarFile -Destination $TempJava
+
         $TempSetup = (New-Directory @($TempRoot, "setup"))
         Copy-Item (Join-Path $BinDir "setpath.exe") -Destination $TempSetup
         Copy-Item $VCRedist -Destination $TempSetup
@@ -331,7 +338,8 @@ if (-not $NoSource) {
         & (Join-MultiPath @($TempRoot, "build", "cleanup.ps1")) -Deep -NoPause -Silent
 
         if ($NoTeletext) {
-            Get-ChildItem $TempRoot -Recurse -Include @("tsTeletextDemux.*", "tsTeletextCharset.*", "tsplugin_teletext.*") | Remove-Item -Force -ErrorAction Ignore
+            Get-ChildItem $TempRoot -Recurse -Include @("tsTeletextDemux.*", "tsplugin_teletext.*") | `
+                Remove-Item -Force -ErrorAction Ignore
         }
 
         # Create the source zip file.

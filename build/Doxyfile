@@ -44,36 +44,13 @@ PROJECT_LOGO   = ../images/tsduck-32.png
 
 # Input and output files:
 
+INPUT            = ../src/doc ../src/libtsduck
 FILE_PATTERNS    = *.h *.dox *.md *.java *.py
-EXCLUDE_PATTERNS = *Template.h tsduck.h
-INPUT            = ../src/doc ../src/libtsduck ../src/tstools
+EXCLUDE_PATTERNS = *Template.h tsduck.h */private/*
 RECURSIVE        = YES
 IMAGE_PATH       = ../images
 OUTPUT_DIRECTORY = ../bin/doxy
-EXCLUDE          = ../src/libtsduck/dtv/private \
-                   ../src/libtsduck/plugin/private \
-                   ../src/libtsduck/python/private \
-                   ../src/libtsduck/java/private
-INCLUDE_PATH     = ../src/libtsduck \
-                   ../src/libtsduck/base \
-                   ../src/libtsduck/base/json \
-                   ../src/libtsduck/base/linux \
-                   ../src/libtsduck/base/mac \
-                   ../src/libtsduck/base/network \
-                   ../src/libtsduck/base/unix \
-                   ../src/libtsduck/base/windows \
-                   ../src/libtsduck/base/xml \
-                   ../src/libtsduck/crypto \
-                   ../src/libtsduck/dtv \
-                   ../src/libtsduck/dtv/charset \
-                   ../src/libtsduck/dtv/codec \
-                   ../src/libtsduck/dtv/descriptors \
-                   ../src/libtsduck/dtv/dvbsimulcrypt \
-                   ../src/libtsduck/dtv/linux \
-                   ../src/libtsduck/dtv/mac \
-                   ../src/libtsduck/dtv/tables \
-                   ../src/libtsduck/dtv/windows \
-                   ../src/libtsduck/plugin
+INCLUDE_PATH     = $(DOXY_INCLUDE_PATH)
 
 # Creating subdirs is useful to create a more balanced usage of the file system.
 # The problem is that it is hard to predict stable direct links to useful pages

@@ -53,8 +53,9 @@ else
     $(EXECS): $(STATIC_LIBTSDUCK)
 endif
 
-.PHONY: install install-devel
-install: $(EXECS)
+.PHONY: install install-tools install-devel
+install: install-tools install-devel
+install-tools: $(EXECS)
 	install -d -m 755 $(SYSROOT)$(SYSPREFIX)/bin
 	install -m 755 $(EXECS) $(SYSROOT)$(SYSPREFIX)/bin
 install-devel:

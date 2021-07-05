@@ -29,16 +29,20 @@
 #
 #  GitHub Actions configuration file : Nightly builds
 #
+#  Builds installers for Windows and Ubuntu. Build programmer's doc package.
+#  Upload them all as artifacts of this workflow.
+#
 #-----------------------------------------------------------------------------
 
 name: Nightly build
 
-# Trigger the workflow every day at 01:10 GMT
 on:
+  # Trigger the workflow every day at 00:40 UTC.
   schedule:
-    - cron:  '10 1 * * *'
+    - cron:  '40 0 * * *'
+  # Allow manual trigger.
+  workflow_dispatch:
 
-# We currently build on Windows only. If is easy for users to rebuild on Unix.
 jobs:
   windows:
     name: Windows build
@@ -168,9 +172,13 @@ jobs:
         tsp --list=input &>tsp.input.txt
         tsp --list=output &>tsp.output.txt
         tsp --list=packet &>tsp.packet.txt
-        for cmd in $(find $(build/setenv.sh --display) -type f -executable -name 'ts*' ! -name '*.*' | sort); do
-            echo -n $(basename $cmd):
-            $cmd --help=description 2>&1
+        bin=$(build/setenv.sh --display)
+        for file in src/tstools/*.cpp; do
+            name=$(basename $file .cpp)
+            if [[ -x $bin/$name ]]; then
+                echo -n $name:
+                $bin/$name --help=description 2>&1
+            fi
         done >tsduck.commands.txt
         zip -q9 tsduck.commands.zip tsp.version.txt tsp.input.txt tsp.output.txt tsp.packet.txt tsduck.commands.txt
 

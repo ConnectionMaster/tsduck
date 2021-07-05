@@ -20,8 +20,8 @@ public class SampleMessageHandling {
          * Constructor.
          * @param severity Initial severity.
          */
-        public Logger() {
-            super(Report.Verbose, false, 512);
+        public Logger(int severity) {
+            super(severity, false, 512);
         }
 
         /**
@@ -35,35 +35,29 @@ public class SampleMessageHandling {
         }
     }
 
+    /**
+     * Main program.
+     * @param args Command line arguments.
+     */
     public static void main(String[] args) {
 
-        /*
-         * Create a report to log multi-threaded messages.
-         * In this example, this is a user-defined Java class which collects messages.
-         */
-        Logger rep = new Logger();
+        // Create a report to log multi-threaded messages.
+        // In this example, this is a user-defined Java class which collects messages.
+        Logger rep = new Logger(Report.Verbose);
 
-        /*
-         * Checking that it works as well with Java application messages.
-         */
+        // Checking that it works as well with Java application messages.
         rep.info("application message");
 
-        /*
-         * Create a TS processor using the report.
-         */
+        // Create a TS processor using the report.
         TSProcessor tsp = new TSProcessor(rep);
 
-        /*
-         * Set some global TS processing options.
-         */
+        // Set some global TS processing options.
         tsp.addInputStuffingNull = 1;    // one null packet ...
         tsp.addInputStuffingInput = 10;  // ... every 10 input packets
         tsp.bitrate = 1000000;           // nominal bitrate is 1 Mb/s
         tsp.appName = "demo";            // informational only, for log messages
 
-        /*
-         * Set the plugin chain.
-         */
+        // Set the plugin chain.
         tsp.input = new String[] {"craft", "--count", "1000", "--pid", "100", "--payload-pattern", "0123"};
         tsp.plugins = new String[][] {
             {"until", "--packet", "100"},
@@ -71,16 +65,12 @@ public class SampleMessageHandling {
         };
         tsp.output = new String[] {"drop"};
 
-        /*
-         * Run the TS processing and wait until completion.
-         */
+        // Run the TS processing and wait until completion.
         tsp.start();
         tsp.waitForTermination();
         tsp.delete();
 
-        /*
-         * Terminate the asynchronous report.
-         */
+        // Terminate the asynchronous report.
         rep.terminate();
         rep.delete();
     }

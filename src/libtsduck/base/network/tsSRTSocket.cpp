@@ -28,7 +28,10 @@
 //----------------------------------------------------------------------------
 
 #include "tsSRTSocket.h"
+#include "tsSingletonManager.h"
 #include "tsArgs.h"
+#include "tsMutex.h"
+#include "tsGuardMutex.h"
 #include "tsFatal.h"
 TSDUCK_SOURCE;
 
@@ -40,18 +43,32 @@ TSDUCK_SOURCE;
 
 void ts::SRTSocket::defineArgs(ts::Args& args) const
 {
-    args.option(u"conn-timeout", 0, ts::Args::INTEGER, 0, 1, 0, (1 << 20));
+    args.option(u"caller", 'c', Args::STRING);
+    args.help(u"caller", u"address:port",
+              u"Use SRT in caller (or rendezvous) mode. "
+              u"The parameter specifies the IPv4 remote address (or host name) and UDP port. "
+              u"If --listener is also specified, the SRT socket works in rendezvous mode.");
+
+    args.option(u"listener", 'l', Args::STRING);
+    args.help(u"listener", u"[address:]port",
+              u"Use SRT in listener (or rendezvous) mode. "
+              u"The parameter specifies the IPv4 local address and UDP port on which the SRT socket listens. "
+              u"The address is optional, the port is mandatory. "
+              u"If --caller is also specified, the SRT socket works in rendezvous mode.");
+
+    args.option(u"conn-timeout", 0, Args::INTEGER, 0, 1, 0, (1 << 20));
     args.help(u"conn-timeout",
               u"Connect timeout. SRT cannot connect for RTT > 1500 msec (2 handshake exchanges) "
               u"with the default connect timeout of 3 seconds. This option applies to the caller "
               u"and rendezvous connection modes. The connect timeout is 10 times the value set "
               u"for the rendezvous mode (which can be used as a workaround for this connection "
-              u"problem with earlier versions.");
+              u"problem with earlier versions).");
 
-    args.option(u"ffs", 0, ts::Args::POSITIVE);
-    args.help(u"ffs", u"Flight Flag Size (maximum number of bytes that can be sent without being acknowledged).");
+    args.option(u"ffs", 0, Args::POSITIVE);
+    args.help(u"ffs",
+              u"Flight Flag Size (maximum number of bytes that can be sent without being acknowledged).");
 
-    args.option(u"input-bw", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int64_t>::max());
+    args.option(u"input-bw", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int64_t>::max());
     args.help(u"input-bw",
               u"This option is effective only if SRTO_MAXBW is set to 0 (relative). It controls "
               u"the maximum bandwidth together with SRTO_OHEADBW option according to the formula: "
@@ -62,13 +79,13 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"Recommended: set this option to the predicted bitrate of your live stream and keep default 25% "
               u"value for SRTO_OHEADBW.");
 
-    args.option(u"iptos", 0, ts::Args::INTEGER, 0, 1, 0, 255);
+    args.option(u"iptos", 0, Args::INTEGER, 0, 1, 0, 255);
     args.help(u"iptos",
               u"IPv4 Type of Service (see IP_TOS option for IP) or IPv6 Traffic Class "
               u"(see IPV6_TCLASS of IPv6) depending on socket address family. Applies to sender only. "
               u"Sender: user configurable, default: 0xB8.");
 
-    args.option(u"ipttl", 0, ts::Args::INTEGER, 0, 1, 1, 255);
+    args.option(u"ipttl", 0, Args::INTEGER, 0, 1, 1, 255);
     args.help(u"ipttl",
               u"IPv4 Time To Live (see IP_TTL option for IP) or IPv6 unicast hops "
               u"(see IPV6_UNICAST_HOPS for IPV6) depending on socket address family. "
@@ -79,14 +96,14 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"This option enforces that both connection parties have the same passphrase set "
               u"(including empty, that is, with no encryption), or otherwise the connection is rejected.");
 
-    args.option(u"kmrefreshrate", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
+    args.option(u"kmrefreshrate", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
     args.help(u"kmrefreshrate",
               u"The number of packets to be transmitted after which the Stream Encryption Key (SEK), "
               u"used to encrypt packets, will be switched to the new one. Note that the old and new "
               u"keys live in parallel for a certain period of time (see SRTO_KMPREANNOUNCE) before "
               u"and after the switchover.");
 
-    args.option(u"kmpreannounce", 0, ts::Args::INTEGER, 0, 1, 1, std::numeric_limits<int32_t>::max());
+    args.option(u"kmpreannounce", 0, Args::INTEGER, 0, 1, 1, std::numeric_limits<int32_t>::max());
     args.help(u"kmpreannounce",
               u"The interval (defined in packets) between when a new Stream Encrypting Key (SEK) "
               u"is sent and when switchover occurs. This value also applies to the subsequent "
@@ -96,7 +113,7 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"window (i.e. the number of packets that have already left the sender but have "
               u"not yet arrived at the receiver).");
 
-    args.option(u"latency", 0, ts::Args::POSITIVE);
+    args.option(u"latency", 0, Args::POSITIVE);
     args.help(u"latency",
               u"This flag sets both SRTO_RCVLATENCY and SRTO_PEERLATENCY to the same value. "
               u"Note that prior to version 1.3.0 this is the only flag to set the latency, "
@@ -104,10 +121,10 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"side is sender (see SRTO_SENDER) and SRTO_RCVLATENCY when the side is receiver, "
               u"and the bidirectional stream sending in version 1.2.0is not supported.");
 
-    args.option(u"linger", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
+    args.option(u"linger", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
     args.help(u"linger", u"Linger time on close, recommended value: 0");
 
-    args.option(u"lossmaxttl", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
+    args.option(u"lossmaxttl", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
     args.help(u"lossmaxttl",
               u"The value up to which the Reorder Tolerance may grow. When Reorder Tolerance is > 0, "
               u"then packet loss report is delayed until that number of packets come in. "
@@ -118,7 +135,7 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"is turned off, and the loss report is always sent immediately upon "
               u"experiencing a 'gap' in sequences.");
 
-    args.option(u"mss", 0, ts::Args::INTEGER, 0, 1, 76, std::numeric_limits<int32_t>::max());
+    args.option(u"mss", 0, Args::INTEGER, 0, 1, 76, std::numeric_limits<int32_t>::max());
     args.help(u"mss",
               u"Maximum Segment Size. Used for buffer allocation and rate calculation using "
               u"packet counter assuming fully filled packets. The smallest MSS between the "
@@ -128,14 +145,14 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"size of the UDP payload or SRT payload - this size is the size of the IP "
               u"packet, including the UDP and SRT headers.");
 
-    args.option(u"max-bw", 0, ts::Args::INTEGER, 0, 1, -1, std::numeric_limits<int64_t>::max());
+    args.option(u"max-bw", 0, Args::INTEGER, 0, 1, -1, std::numeric_limits<int64_t>::max());
     args.help(u"max-bw",
               u"Maximum send bandwidth. NOTE: This option has a default value of -1. "
               u"Although in case when the stream rate is mostly constant it is recommended to "
               u"use value 0 here and shape the bandwidth limit using SRTO_INPUTBW "
               u"and SRTO_OHEADBW options.");
 
-    args.option(u"transtype", 0, ts::Args::STRING);
+    args.option(u"transtype", 0, Args::STRING);
     args.help(u"transtype",
               u"Sets the transmission type for the socket, in particular, setting this option "
               u"sets multiple other parameters to their default values as required for a "
@@ -144,7 +161,7 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
     args.option(u"messageapi");
     args.help(u"messageapi", u"When set, this socket uses the Message API, otherwise it uses Buffer API.");
 
-    args.option(u"min-version", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
+    args.option(u"min-version", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
     args.help(u"min-version",
               u"The minimum SRT version that is required from the peer. A connection to a peer "
               u"that does not satisfy the minimum version requirement will be rejected.");
@@ -154,58 +171,58 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"When this option is specified, the receiver will send UMSG_LOSSREPORT messages periodically "
               u"until the lost packet is retransmitted or intentionally dropped.");
 
-    args.option(u"ohead-bw", 0, ts::Args::INTEGER, 0, 1, 5, 100);
+    args.option(u"ohead-bw", 0, Args::INTEGER, 0, 1, 5, 100);
     args.help(u"ohead-bw",
               u"Recovery bandwidth overhead above input rate (see SRTO_INPUTBW). "
               u"It is effective only if SRTO_MAXBW is set to 0.");
 
-    args.option(u"packet-filter", 0, ts::Args::STRING);
+    args.option(u"packet-filter", 0, Args::STRING);
     args.help(u"packet-filter",
               u"Set up the packet filter. The string must match appropriate syntax for packet filter setup."
               u"See: https://github.com/Haivision/srt/blob/master/docs/packet-filtering-and-fec.md");
 
-    args.option(u"passphrase", 0, ts::Args::STRING);
+    args.option(u"passphrase", 0, Args::STRING);
     args.help(u"passphrase",
               u"Sets the passphrase for encryption. This turns encryption on on this side (or turns "
               u"it off, if empty passphrase is passed).");
 
-    args.option(u"payload-size", 0, ts::Args::INTEGER, 0, 1, 0, 1456);
+    args.option(u"payload-size", 0, Args::INTEGER, 0, 1, 0, 1456);
     args.help(u"payload-size",
               u"Sets the maximum declared size of a single call to sending function in Live mode. "
               u"Use 0 if this value isn't used (which is default in file mode). This value shall "
               u"not be exceeded for a single data sending instruction in Live mode.");
 
-    args.option(u"pbkeylen", 0, ts::Args::INTEGER, 0, 1, 0, 32);
+    args.option(u"pbkeylen", 0, Args::INTEGER, 0, 1, 0, 32);
     args.help(u"pbkeylen",
               u"Sender encryption key length, can be 0, 16 (AES-128), 24 (AES-192), 32 (AES-256).");
 
-    args.option(u"peer-idle-timeout", 0, ts::Args::POSITIVE);
+    args.option(u"peer-idle-timeout", 0, Args::POSITIVE);
     args.help(u"peer-idle-timeout",
               u"The maximum time in [ms] to wait until any packet is received from peer since "
               u"the last such packet reception. If this time is passed, connection is considered "
               u"broken on timeout.");
 
-    args.option(u"peer-latency", 0, ts::Args::POSITIVE);
+    args.option(u"peer-latency", 0, Args::POSITIVE);
     args.help(u"peer-latency",
               u"The latency value (as described in SRTO_RCVLATENCY) that is set by the sender "
               u"side as a minimum value for the receiver.");
 
-    args.option(u"rcvbuf", 0, ts::Args::POSITIVE);
+    args.option(u"rcvbuf", 0, Args::POSITIVE);
     args.help(u"rcvbuf", u"Receive Buffer Size.");
 
-    args.option(u"rcv-latency", 0, ts::Args::POSITIVE);
+    args.option(u"rcv-latency", 0, Args::POSITIVE);
     args.help(u"rcv-latency",
               u"The time that should elapse since the moment when the packet was sent and "
               u"the moment when it's delivered to the receiver application in the receiving function.");
 
-    args.option(u"polling-time", 0, ts::Args::POSITIVE);
+    args.option(u"polling-time", 0, Args::POSITIVE);
     args.help(u"polling-time", u"Epoll timeout value (in ms) for non-blocking mode");
 
-    args.option(u"sndbuf", 0, ts::Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
+    args.option(u"sndbuf", 0, Args::INTEGER, 0, 1, 0, std::numeric_limits<int32_t>::max());
     args.help(u"sndbuf", u"Send Buffer Size. Warning: configured in bytes, converted in packets, "
               u"when set, based on MSS value. For desired result, configure MSS first.");
 
-    args.option(u"tlpktdrop", 0, ts::Args::INTEGER, 0, 1, 0, 1);
+    args.option(u"tlpktdrop", 0, Args::INTEGER, 0, 1, 0, 1);
     args.help(u"tlpktdrop",
               u"Too-late Packet Drop. When enabled on receiver, it skips missing packets that "
               u"have not been delivered in time and delivers the subsequent packets to the "
@@ -214,7 +231,7 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"packets that have no chance to be delivered in time. It is automatically enabled "
               u"in sender if receiver supports it.");
 
-    args.option(u"streamid", 0, ts::Args::STRING);
+    args.option(u"streamid", 0, Args::STRING);
     args.help(u"streamid",
               u"A string limited to 512 characters that can be set on the socket prior to connecting. "
               u"This stream ID will be able to be retrieved by the listener side from the socket that "
@@ -223,10 +240,10 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
               u"from srt_accept). This string can be used completely free-form, however it's highly "
               u"recommended to follow the SRT Access Control guidlines.");
 
-    args.option(u"udp-rcvbuf", 0, ts::Args::POSITIVE);
+    args.option(u"udp-rcvbuf", 0, Args::POSITIVE);
     args.help(u"udp-rcvbuf", u"UDP Socket Receive Buffer Size.");
 
-    args.option(u"udp-sndbuf", 0, ts::Args::POSITIVE);
+    args.option(u"udp-sndbuf", 0, Args::POSITIVE);
     args.help(u"udp-sndbuf", u"UDP Socket Send Buffer Size.");
 }
 
@@ -242,16 +259,18 @@ void ts::SRTSocket::defineArgs(ts::Args& args) const
 
 ts::SRTSocket::SRTSocket() : _guts(nullptr) {}
 ts::SRTSocket::~SRTSocket() {}
-bool ts::SRTSocket::open(SRTSocketMode mode, const ts::SocketAddress& local_addr, const ts::SocketAddress& remote_addr, ts::Report& report) NOSRT_ERROR
-bool ts::SRTSocket::close(ts::Report& report) NOSRT_ERROR
-bool ts::SRTSocket::loadArgs(ts::DuckContext& duck, ts::Args& args) { return true; }
-bool ts::SRTSocket::send(const void* data, size_t size, ts::Report& report) NOSRT_ERROR
-bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, ts::Report& report) NOSRT_ERROR
-bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, MicroSecond& timestamp, ts::Report& report) NOSRT_ERROR
-bool ts::SRTSocket::getSockOpt(int optName, const char* optNameStr, void* optval, int& optlen, ts::Report& report) const NOSRT_ERROR
+bool ts::SRTSocket::open(SRTSocketMode, const SocketAddress&, const SocketAddress&, Report& report) NOSRT_ERROR
+bool ts::SRTSocket::close(Report& report) NOSRT_ERROR
+bool ts::SRTSocket::peerDisconnected() const { return false; }
+bool ts::SRTSocket::loadArgs(DuckContext&, Args&) { return true; }
+bool ts::SRTSocket::send(const void*, size_t, Report& report) NOSRT_ERROR
+bool ts::SRTSocket::receive(void*, size_t, size_t&, Report& report) NOSRT_ERROR
+bool ts::SRTSocket::receive(void*, size_t, size_t&, MicroSecond&, Report& report) NOSRT_ERROR
+bool ts::SRTSocket::getSockOpt(int, const char*, void*, int&, Report& report) const NOSRT_ERROR
 int  ts::SRTSocket::getSocket() const { return -1; }
 bool ts::SRTSocket::getMessageApi() const { return false; }
 ts::UString ts::SRTSocket::GetLibraryVersion() { return NOSRT_ERROR_MSG; }
+bool ts::SRTSocket::setAddressesInternal(const UString&, const UString&, bool, Report& report) NOSRT_ERROR
 
 #else
 
@@ -272,6 +291,55 @@ TS_MSC_NOWARNING(4005)  // 'xxx' : macro redefinition
 TS_MSC_NOWARNING(4668)  // 'xxx' is not defined as a preprocessor macro, replacing with '0' for '#if/#elif'
 #include <srt/srt.h>
 TS_POP_WARNING()
+
+
+//----------------------------------------------------------------------------
+// A global singleton which initializes SRT.
+// The SRT library is initialized when the first SRT socket is opened
+// and terminated when the last socket is closed.
+//----------------------------------------------------------------------------
+
+namespace {
+    class SRTInit
+    {
+        TS_DECLARE_SINGLETON(SRTInit);
+    public:
+        void start();
+        void stop();
+    private:
+        ts::Mutex _mutex;
+        size_t    _count;
+    };
+
+    TS_DEFINE_SINGLETON(SRTInit);
+
+    // Singleton constructor.
+    SRTInit::SRTInit() :
+        _mutex(),
+        _count(0)
+    {
+    }
+
+    // Called each time an SRT socket is opened.
+    void SRTInit::start()
+    {
+        ts::GuardMutex lock(_mutex);
+        if (_count++ == 0) {
+            srt_startup();
+        }
+    }
+
+    // Called each time an SRT socket is closed.
+    void SRTInit::stop()
+    {
+        ts::GuardMutex lock(_mutex);
+        if (_count > 0) {
+            if (--_count == 0) {
+                srt_cleanup();
+            }
+        }
+    }
+}
 
 
 //----------------------------------------------------------------------------
@@ -300,19 +368,19 @@ public:
      Guts();
 
      bool send(const void* data, size_t size, const SocketAddress& dest, Report& report);
-     bool setDefaultAddress(const UString& name, Report& report);
-     bool setDefaultAddress(const SocketAddress& addr, Report& report);
-     bool setSockOpt(int optName, const char* optNameStr, const void* optval, int optlen, Report& report);
+     bool setSockOpt(int optName, const char* optNameStr, const void* optval, size_t optlen, Report& report);
      bool setSockOptPre(Report& report);
      bool setSockOptPost(Report& report);
-     int srtListen(const SocketAddress& addr, Report& report);
-     int srtConnect(const SocketAddress& addr, Report& report);
-     int srtBind(const SocketAddress& addr, Report& report);
+     bool srtListen(const SocketAddress& addr, Report& report);
+     bool srtConnect(const SocketAddress& addr, Report& report);
+     bool srtBind(const SocketAddress& addr, Report& report);
 
      // Socket working data.
-     SocketAddress default_address;
+     SocketAddress local_address;
+     SocketAddress remote_address;
      SRTSocketMode mode;
-     int           sock;
+     volatile int  sock;       // SRT socket for data transmission
+     volatile int  listener;   // Listener SRT socket when srt_listen() is used.
 
      // Socket options.
      SRT_TRANSTYPE transtype;
@@ -347,6 +415,7 @@ public:
      int32_t peer_latency;
      int32_t rcv_latency;
      bool    tlpktdrop;
+     bool    disconnected;
 };
 
 
@@ -355,9 +424,11 @@ public:
 //----------------------------------------------------------------------------
 
 ts::SRTSocket::Guts::Guts() :
-    default_address(),
-    mode(SRTSocketMode::LISTENER),
-    sock(-1),  // do not use SYS_SOCKET_INVALID, an SRT socket is not a socket, it is always an int
+    local_address(),
+    remote_address(),
+    mode(SRTSocketMode::DEFAULT),
+    sock(-1),      // do not use SYS_SOCKET_INVALID, an SRT socket is not a socket, it is always an int
+    listener(-1),  // idem
     transtype(SRTT_INVALID),
     packet_filter(),
     passphrase(),
@@ -389,7 +460,8 @@ ts::SRTSocket::Guts::Guts() :
     peer_idle_timeout(-1),
     peer_latency(-1),
     rcv_latency(-1),
-    tlpktdrop(false)
+    tlpktdrop(false),
+    disconnected(false)
 {
 }
 
@@ -402,7 +474,6 @@ ts::SRTSocket::SRTSocket() :
     _guts(new Guts)
 {
     CheckNonNull(_guts);
-    srt_startup();
 }
 
 
@@ -414,7 +485,6 @@ ts::SRTSocket::~SRTSocket(void)
 {
     if (_guts != nullptr) {
         close();
-        srt_cleanup();
         delete _guts;
         _guts = nullptr;
     }
@@ -437,98 +507,75 @@ bool ts::SRTSocket::getMessageApi() const
 
 
 //----------------------------------------------------------------------------
-// Set a default destination address and port for outgoing messages.
-// Both address and port are mandatory in socket address.
-// Return true on success, false on error.
-//----------------------------------------------------------------------------
-
-bool ts::SRTSocket::Guts::setDefaultAddress(const ts::UString& name, ts::Report& report)
-{
-    ts::SocketAddress addr;
-    return addr.resolve(name, report) && setDefaultAddress(addr, report);
-}
-
-bool ts::SRTSocket::Guts::setDefaultAddress(const ts::SocketAddress& addr, ts::Report& report)
-{
-    if (!addr.hasAddress()) {
-        report.error(u"missing IP address in UDP destination");
-        return false;
-    }
-    else if (!addr.hasPort()) {
-        report.error(u"missing port number in UDP destination");
-        return false;
-    }
-    else {
-        default_address = addr;
-        return true;
-    }
-}
-
-
-//----------------------------------------------------------------------------
 // Open the socket
 // Return true on success, false on error.
 //----------------------------------------------------------------------------
 
 bool ts::SRTSocket::open(SRTSocketMode mode,
-                         const ts::SocketAddress& local_addr,
-                         const ts::SocketAddress& remote_addr,
-                         ts::Report& report)
+                         const SocketAddress& local_address,
+                         const SocketAddress& remote_address,
+                         Report& report)
 {
-    int ret = 0;
-
-    _guts->mode = mode;
-
-#if SRT_VERSION_VALUE >= SRT_MAKE_VERSION_VALUE(1, 4, 1)
-    _guts->sock = srt_create_socket();
-#else
-    // Only supports IPv4.
-    _guts->sock = srt_socket(AF_INET, SOCK_DGRAM, 0);
-#endif
-    if (_guts->sock < 0) {
-        report.error(u"error during srt_socket(), msg: %s", {srt_getlasterror_str()});
+    // Filter already open condition.
+    if (_guts->sock >= 0) {
+        report.error(u"internal error, SRT socket already open");
         return false;
     }
 
-    if (!_guts->setSockOptPre(report)) {
-        goto fail;
+    // Initialize socket modes.
+    if (mode != SRTSocketMode::DEFAULT) {
+        _guts->mode = mode;
+        _guts->local_address = local_address;
+        _guts->remote_address = remote_address;
+    }
+    _guts->disconnected = false;
+
+    // Initialize SRT.
+    SRTInit::Instance()->start();
+
+    // Create the SRT socket.
+#if SRT_VERSION_VALUE >= SRT_MAKE_VERSION_VALUE(1, 4, 1)
+    report.debug(u"calling srt_create_socket()");
+    _guts->sock = srt_create_socket();
+#else
+    // Only supports IPv4.
+    report.debug(u"calling srt_socket()");
+    _guts->sock = srt_socket(AF_INET, SOCK_DGRAM, 0);
+#endif
+    if (_guts->sock < 0) {
+        report.error(u"error creating SRT socket: %s", {srt_getlasterror_str()});
+        SRTInit::Instance()->stop();
+        return false;
     }
 
+    // Set initial socket options.
+    bool success = _guts->setSockOptPre(report);
+
+    // Connect / setuo the SRT socket.
     switch (_guts->mode) {
         case SRTSocketMode::LISTENER:
-            ret = _guts->srtListen(local_addr, report);
-            if (ret < 0) {
-                goto fail;
-            }
-            _guts->sock = ret;
+            success = success && _guts->srtListen(_guts->local_address, report);
             break;
         case SRTSocketMode::RENDEZVOUS:
-            ret = _guts->srtBind(local_addr, report);
-            if (ret < 0) {
-                goto fail;
-            }
-            TS_FALLTHROUGH
-        case SRTSocketMode::CALLER:
-            ret = _guts->srtConnect(remote_addr, report);
-            if (ret < 0) {
-                goto fail;
-            }
+            success = success && _guts->srtBind(_guts->local_address, report) && _guts->srtConnect(_guts->remote_address, report);
             break;
+        case SRTSocketMode::CALLER:
+            success = success && _guts->srtConnect(_guts->remote_address, report);
+            break;
+        case SRTSocketMode::DEFAULT:
         case SRTSocketMode::LEN:
         default:
             report.error(u"unsupported socket mode");
-            goto fail;
+            success = false;
     }
 
-    if (!_guts->setSockOptPost(report)) {
-        goto fail;
+    // Set final socket options.
+    success = success && _guts->setSockOptPost(report);
+
+    if (!success) {
+        close(report);
     }
-
-    return true;
-
-fail:
-    close(report);
-    return false;
+    return success;
 }
 
 
@@ -536,11 +583,88 @@ fail:
 // Close the socket
 //----------------------------------------------------------------------------
 
-bool ts::SRTSocket::close(ts::Report& report)
+bool ts::SRTSocket::close(Report& report)
 {
-    if (_guts->sock >= 0) {
-        srt_close(_guts->sock);
-        _guts->sock = -1;
+    // To handle the case where close() would be called from another thread,
+    // clear the socket value first, then close.
+    const int sock = _guts->sock;
+    const int listener = _guts->listener;
+    _guts->listener = -1;
+    _guts->sock = -1;
+
+    if (sock >= 0) {
+        // Close the SRT data socket.
+        report.debug(u"calling srt_close()");
+        srt_close(sock);
+
+        // Close the SRT listener socket if there is one.
+        if (listener >= 0) {
+            report.debug(u"calling srt_close() on listener socket");
+            srt_close(listener);
+        }
+
+        // Decrement reference count to SRT library.
+        SRTInit::Instance()->stop();
+    }
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Check if the connection was disconnected by the peer.
+//----------------------------------------------------------------------------
+
+bool ts::SRTSocket::peerDisconnected() const
+{
+    return _guts->disconnected;
+}
+
+
+//----------------------------------------------------------------------------
+// Preset local and remote socket addresses in string form.
+//----------------------------------------------------------------------------
+
+bool ts::SRTSocket::setAddressesInternal(const UString& local, const UString& remote, bool reset, Report& report)
+{
+    // Reset the addresses if needed.
+    if (reset) {
+        _guts->mode = SRTSocketMode::DEFAULT;
+        _guts->local_address.clear();
+        _guts->remote_address.clear();
+    }
+
+    // Select SRT mode.
+    if (remote.empty() && local.empty()) {
+        return true;  // unmodified
+    }
+    else if (remote.empty()) {
+        _guts->mode = SRTSocketMode::LISTENER;
+    }
+    else if (local.empty()) {
+        _guts->mode = SRTSocketMode::CALLER;
+    }
+    else {
+        _guts->mode = SRTSocketMode::RENDEZVOUS;
+    }
+
+    // Resolve address strings.
+    if (!local.empty()) {
+        if (!_guts->local_address.resolve(local, report)) {
+            return false;
+        }
+        else if (!_guts->local_address.hasPort()) {
+            report.error(u"missing port number in local listener address '%s'", {local});
+            return false;
+        }
+    }
+    if (!remote.empty()) {
+        if (!_guts->remote_address.resolve(remote, report)) {
+            return false;
+        }
+        else if (!_guts->remote_address.hasAddress() || !_guts->remote_address.hasPort()) {
+            report.error(u"missing address or port in remote caller address '%s'", {remote});
+            return false;
+        }
     }
     return true;
 }
@@ -550,8 +674,13 @@ bool ts::SRTSocket::close(ts::Report& report)
 // Load command line arguments.
 //----------------------------------------------------------------------------
 
-bool ts::SRTSocket::loadArgs(ts::DuckContext& duck, ts::Args& args)
+bool ts::SRTSocket::loadArgs(DuckContext& duck, Args& args)
 {
+    // Resolve caller/listener/rendezvous addresses.
+    if (!setAddressesInternal(args.value(u"listener"), args.value(u"caller"), false, args)) {
+        return false;
+    }
+
     const UString ttype(args.value(u"transtype", u"live"));
     if (ttype != u"live" && ttype != u"file") {
         return false;
@@ -598,46 +727,42 @@ bool ts::SRTSocket::loadArgs(ts::DuckContext& duck, ts::Args& args)
 // Set/get socket option.
 //----------------------------------------------------------------------------
 
-bool ts::SRTSocket::Guts::setSockOpt(int optName, const char* optNameStr, const void* optval, int optlen, ts::Report& report)
+bool ts::SRTSocket::Guts::setSockOpt(int optName, const char* optNameStr, const void* optval, size_t optlen, Report& report)
 {
-    int ret = srt_setsockflag(sock, SRT_SOCKOPT(optName), optval, optlen);
-    if (ret < 0) {
-        report.error(u"error during srt_setsockflag(%s), msg: %s", { optNameStr, srt_getlasterror_str() });
+    if (report.debug()) {
+        report.debug(u"calling srt_setsockflag(%s, %s, %d)", {optNameStr, UString::Dump(optval, optlen, UString::SINGLE_LINE), optlen});
+    }
+    if (srt_setsockflag(sock, SRT_SOCKOPT(optName), optval, int(optlen)) < 0) {
+        report.error(u"error during srt_setsockflag(%s): %s", {optNameStr, srt_getlasterror_str()});
         return false;
     }
     return true;
 }
 
-bool ts::SRTSocket::getSockOpt(int optName, const char* optNameStr, void* optval, int& optlen, ts::Report& report) const
+bool ts::SRTSocket::getSockOpt(int optName, const char* optNameStr, void* optval, int& optlen, Report& report) const
 {
-    int ret = srt_getsockflag(_guts->sock, SRT_SOCKOPT(optName), optval, &optlen);
-    if (ret < 0) {
-        report.error(u"error during srt_getsockflag(%s), msg: %s", { optNameStr, srt_getlasterror_str() });
+    report.debug(u"calling srt_getsockflag(%s, ..., %d)", {optNameStr, optlen});
+    if (srt_getsockflag(_guts->sock, SRT_SOCKOPT(optName), optval, &optlen) < 0) {
+        report.error(u"error during srt_getsockflag(%s): %s", {optNameStr, srt_getlasterror_str()});
         return false;
     }
     return true;
 }
 
-bool ts::SRTSocket::Guts::setSockOptPre(ts::Report& report)
+bool ts::SRTSocket::Guts::setSockOptPre(Report& report)
 {
-    const int yes     = 1;
-    const int msgapi  = messageapi ? 1 : 0;
-#if SRT_VERSION_VALUE >= SRT_MAKE_VERSION_VALUE(1, 4, 0)
-    const int encrypt = enforce_encryption ? 1 : 0;
-#endif
-    const int nakrep  = nakreport ? 1 : 0;
-    const int pktdrop = tlpktdrop ? 1 : 0;
+    const bool yes = true;
 
     if ((mode != SRTSocketMode::CALLER && !setSockOpt(SRTO_SENDER, "SRTO_SENDER", &yes, sizeof(yes), report)) ||
         (transtype != SRTT_INVALID && !setSockOpt(SRTO_TRANSTYPE, "SRTO_TRANSTYPE", &transtype, sizeof(transtype), report)) ||
-        (!setSockOpt(SRTO_MESSAGEAPI, "SRTO_MESSAGEAPI", &msgapi, sizeof(msgapi), report)) ||
+        (!setSockOpt(SRTO_MESSAGEAPI, "SRTO_MESSAGEAPI", &messageapi, sizeof(messageapi), report)) ||
         (conn_timeout >= 0 && !setSockOpt(SRTO_CONNTIMEO, "SRTO_CONNTIMEO", &conn_timeout, sizeof(conn_timeout), report)) ||
         (mode == SRTSocketMode::RENDEZVOUS && !setSockOpt(SRTO_RENDEZVOUS, "SRTO_RENDEZVOUS", &yes, sizeof(yes), report)) ||
         (ffs > 0 && !setSockOpt(SRTO_FC, "SRTO_FC", &ffs, sizeof(ffs), report)) ||
         (iptos >= 0 && !setSockOpt(SRTO_IPTOS, "SRTO_IPTOS", &iptos, sizeof(iptos), report)) ||
         (ipttl > 0 && !setSockOpt(SRTO_IPTTL, "SRTO_IPTTL", &ipttl, sizeof(ipttl), report)) ||
 #if SRT_VERSION_VALUE >= SRT_MAKE_VERSION_VALUE(1, 4, 0)
-        (enforce_encryption && !setSockOpt(SRTO_ENFORCEDENCRYPTION, "SRTO_ENFORCEDENCRYPTION", &encrypt, sizeof(encrypt), report)) ||
+        (enforce_encryption && !setSockOpt(SRTO_ENFORCEDENCRYPTION, "SRTO_ENFORCEDENCRYPTION", &enforce_encryption, sizeof(enforce_encryption), report)) ||
 #endif
         (kmrefreshrate >= 0 && !setSockOpt(SRTO_KMREFRESHRATE, "SRTO_KMREFRESHRATE", &kmrefreshrate, sizeof(kmrefreshrate), report)) ||
         (kmpreannounce > 0 && !setSockOpt(SRTO_KMPREANNOUNCE, "SRTO_KMPREANNOUNCE", &kmpreannounce, sizeof(kmpreannounce), report)) ||
@@ -647,7 +772,7 @@ bool ts::SRTSocket::Guts::setSockOptPre(ts::Report& report)
         (max_bw >= 0 && !setSockOpt(SRTO_MAXBW, "SRTO_MAXBW", &max_bw, sizeof(max_bw), report)) ||
         (min_version > 0 && !setSockOpt(SRTO_MINVERSION, "SRTO_MINVERSION", &min_version, sizeof(min_version), report)) ||
         (mss >= 0 && !setSockOpt(SRTO_MSS, "SRTO_MSS", &mss, sizeof(mss), report)) ||
-        (nakreport && !setSockOpt(SRTO_NAKREPORT, "SRTO_NAKREPORT", &nakrep, sizeof(nakrep), report)) ||
+        (nakreport && !setSockOpt(SRTO_NAKREPORT, "SRTO_NAKREPORT", &nakreport, sizeof(nakreport), report)) ||
 #if SRT_VERSION_VALUE >= SRT_MAKE_VERSION_VALUE(1, 4, 0)
         (!packet_filter.empty() && !setSockOpt(SRTO_PACKETFILTER, "SRTO_PACKETFILTER", packet_filter.c_str(), int(packet_filter.size()), report)) ||
 #endif
@@ -662,7 +787,7 @@ bool ts::SRTSocket::Guts::setSockOptPre(ts::Report& report)
         (rcvbuf > 0 && !setSockOpt(SRTO_RCVBUF, "SRTO_RCVBUF", &rcvbuf, sizeof(rcvbuf), report)) ||
         (rcv_latency > 0 && !setSockOpt(SRTO_RCVLATENCY, "SRTO_RCVLATENCY", &rcv_latency, sizeof(rcv_latency), report)) ||
         (sndbuf > 0 && !setSockOpt(SRTO_SNDBUF, "SRTO_SNDBUF", &sndbuf, sizeof(sndbuf), report)) ||
-        (tlpktdrop && !setSockOpt(SRTO_TLPKTDROP, "SRTO_TLPKTDROP", &pktdrop, sizeof(pktdrop), report)))
+        (tlpktdrop && !setSockOpt(SRTO_TLPKTDROP, "SRTO_TLPKTDROP", &tlpktdrop, sizeof(tlpktdrop), report)))
     {
         return false;
     }
@@ -677,7 +802,7 @@ bool ts::SRTSocket::Guts::setSockOptPre(ts::Report& report)
     return true;
 }
 
-bool ts::SRTSocket::Guts::setSockOptPost(ts::Report& report)
+bool ts::SRTSocket::Guts::setSockOptPost(Report& report)
 {
     if (max_bw == 0 && (
         (input_bw >= 0 && !setSockOpt(SRTO_INPUTBW, "SRTO_INPUTBW", &input_bw, sizeof(input_bw), report)) ||
@@ -689,87 +814,119 @@ bool ts::SRTSocket::Guts::setSockOptPost(ts::Report& report)
     return true;
 }
 
-int ts::SRTSocket::Guts::srtListen(const ts::SocketAddress& addr, ts::Report& report)
+bool ts::SRTSocket::Guts::srtListen(const SocketAddress& addr, Report& report)
 {
-    int ret, reuse = 1, peer_addr_len;
-    ::sockaddr sock_addr, peer_addr;
-    addr.copy(sock_addr);
-
-    ret = setSockOpt(SRTO_REUSEADDR, "SRTO_REUSEADDR", &reuse, sizeof(reuse), report);
-    if (ret < 0) {
-        // Error handling if needed
+    // The SRT socket will become the listener socket, check that there is none.
+    if (listener >= 0) {
+        report.error(u"internal error, SRT listener socket already set");
     }
 
-    ret = srt_bind(sock, &sock_addr, sizeof(sock_addr));
-    if (ret) {
-        report.error(u"error during srt_bind(), msg: %s", { srt_getlasterror_str() });
-        return -1;
+    bool reuse = true;
+    if (!setSockOpt(SRTO_REUSEADDR, "SRTO_REUSEADDR", &reuse, sizeof(reuse), report)) {
+        return false;
+    }
+
+    ::sockaddr sock_addr;
+    addr.copy(sock_addr);
+    report.debug(u"calling srt_bind(%s)", {addr});
+    if (srt_bind(sock, &sock_addr, sizeof(sock_addr)) < 0) {
+        report.error(u"error during srt_bind(): %s", {srt_getlasterror_str()});
+        return false;
     }
 
     // Second parameter is the number of simultaneous connection accepted. For now we only accept one.
-    ret = srt_listen(sock, 1);
-    if (ret) {
-        report.error(u"error during srt_listen(), msg: %s", { srt_getlasterror_str() });
-        return -1;
+    report.debug(u"calling srt_listen()");
+    if (srt_listen(sock, 1) < 0) {
+        report.error(u"error during srt_listen(): %s", {srt_getlasterror_str()});
+        return false;
     }
 
-    ret = srt_accept(sock, &peer_addr, &peer_addr_len);
-    if (ret < 0) {
-        report.error(u"error during srt_accept(), msg: %s", { srt_getlasterror_str() });
-        return -1;
+    // The original SRT socket becomes the listener SRT socket.
+    ::sockaddr peer_addr;
+    int peer_addr_len = sizeof(peer_addr);
+    report.debug(u"calling srt_accept()");
+    int data_sock = srt_accept(sock, &peer_addr, &peer_addr_len);
+    if (data_sock < 0) {
+        report.error(u"error during srt_accept(): %s", {srt_getlasterror_str()});
+        return false;
     }
 
+    // Now keep the two SRT sockets in the context.
+    listener = sock;
+    sock = data_sock;
+
+    // In listener mode, keep the address of the remote peer.
     SocketAddress p_addr(peer_addr);
-    if (!setDefaultAddress(p_addr, report)) {
-        srt_close(ret);
-        return -1;
+    report.debug(u"connected to %s", {p_addr});
+    if (mode == SRTSocketMode::LISTENER) {
+        remote_address = p_addr;
     }
-
-    return ret;
+    return true;
 }
 
-int ts::SRTSocket::Guts::srtConnect(const ts::SocketAddress& addr, ts::Report& report)
+bool ts::SRTSocket::Guts::srtConnect(const SocketAddress& addr, Report& report)
 {
-    int ret;
     ::sockaddr sock_addr;
     addr.copy(sock_addr);
 
-    ret = srt_connect(sock, &sock_addr, sizeof(sock_addr));
-    if (ret < 0) {
-        report.error(u"error during srt_connect, msg: %s", { srt_getlasterror_str() });
+    report.debug(u"calling srt_connect(%s)", {addr});
+    if (srt_connect(sock, &sock_addr, sizeof(sock_addr)) < 0) {
+        const int err = srt_getlasterror(&errno);
+        std::string err_str(srt_strerror(err, errno));
+        if (err == SRT_ECONNREJ) {
+            err_str.append(", reject reason: ");
+            err_str.append(srt_rejectreason_str(srt_getrejectreason(sock)));
+        }
+        report.error(u"error during srt_connect: %s", {err_str});
+        return false;
     }
-
-    return ret;
+    else {
+        return true;
+    }
 }
 
-int ts::SRTSocket::Guts::srtBind(const ts::SocketAddress& addr, ts::Report& report)
+bool ts::SRTSocket::Guts::srtBind(const SocketAddress& addr, Report& report)
 {
-    int ret;
     ::sockaddr sock_addr;
     addr.copy(sock_addr);
 
-    ret = srt_bind(sock, &sock_addr, sizeof(sock_addr));
-    if (ret < 0) {
-        report.error(u"error during srt_bind, msg: %s", { srt_getlasterror_str() });
+    report.debug(u"calling srt_bind(%s)", {addr});
+    if (srt_bind(sock, &sock_addr, sizeof(sock_addr)) < 0) {
+        report.error(u"error during srt_bind: %s", {srt_getlasterror_str()});
+        return false;
     }
-
-    return ret;
+    else {
+        return true;
+    }
 }
+
 
 //----------------------------------------------------------------------------
 // Send a message to a destination address and port.
 //----------------------------------------------------------------------------
 
-bool ts::SRTSocket::send(const void* data, size_t size, ts::Report& report)
+bool ts::SRTSocket::send(const void* data, size_t size, Report& report)
 {
-    return _guts->send(data, size, _guts->default_address, report);
+    return _guts->send(data, size, _guts->remote_address, report);
 }
 
-bool ts::SRTSocket::Guts::send(const void* data, size_t size, const ts::SocketAddress& dest, ts::Report& report)
+bool ts::SRTSocket::Guts::send(const void* data, size_t size, const SocketAddress& dest, Report& report)
 {
-    int ret = srt_send(sock, reinterpret_cast<const char*>(data), int(size));
+    // If socket was disconnected or aborted, silently fail.
+    if (disconnected || sock < 0) {
+        return false;
+    }
+
+    const int ret = srt_send(sock, reinterpret_cast<const char*>(data), int(size));
     if (ret < 0) {
-        report.error(u"error during srt_send(), msg: %s", { srt_getlasterror_str() });
+        // Differentiate peer disconnection (aka "end of file") and actual errors.
+        if (srt_getlasterror(nullptr) == SRT_ECONNLOST) {
+            disconnected = true;
+        }
+        else if (sock >= 0) {
+            // Do not display error if the socket was closed in the meantime (sock < 0).
+            report.error(u"error during srt_send(): %s", {srt_getlasterror_str()});
+        }
         return false;
     }
     return true;
@@ -781,25 +938,42 @@ bool ts::SRTSocket::Guts::send(const void* data, size_t size, const ts::SocketAd
 // Return true on success, false on error.
 //----------------------------------------------------------------------------
 
-bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, ts::Report& report)
+bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, Report& report)
 {
     MicroSecond timestamp = 0; // unused
     return receive(data, max_size, ret_size, timestamp, report);
 }
 
-bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, MicroSecond& timestamp, ts::Report& report)
+bool ts::SRTSocket::receive(void* data, size_t max_size, size_t& ret_size, MicroSecond& timestamp, Report& report)
 {
+    ret_size = 0;
+    timestamp = -1;
+
+    // If socket was disconnected or aborted, silently fail.
+    if (_guts->disconnected || _guts->sock < 0) {
+        return false;
+    }
+
     // Message data
     ::SRT_MSGCTRL ctrl;
     TS_ZERO(ctrl);
 
     const int ret = srt_recvmsg2(_guts->sock, reinterpret_cast<char*>(data), int(max_size), &ctrl);
     if (ret < 0) {
-        report.error(u"error during srt_recv(), msg: %s", { srt_getlasterror_str() });
+        // Differentiate peer disconnection (aka "end of file") and actual errors.
+        if (srt_getlasterror(nullptr) == SRT_ECONNLOST) {
+            _guts->disconnected = true;
+        }
+        else if (_guts->sock >= 0) {
+            // Do not display error if the socket was closed in the meantime (sock < 0).
+            report.error(u"error during srt_recv(): %s", {srt_getlasterror_str()});
+        }
         return false;
     }
     ret_size = size_t(ret);
-    timestamp = ctrl.srctime == 0 ? -1 : MicroSecond(ctrl.srctime);
+    if (ctrl.srctime != 0) {
+        timestamp = MicroSecond(ctrl.srctime);
+    }
     return true;
 }
 

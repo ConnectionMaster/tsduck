@@ -133,25 +133,32 @@ Section "Tools & Plugins" SectionTools
     ; Work on "all users" context, not current user.
     SetShellVarContext all
 
-    ; Delete obsolete files from previous versions.
+    ; Delete obsolete configuration files from previous versions.
     Delete "$INSTDIR\bin\tsgentab.exe"
     Delete "$INSTDIR\bin\tsgentab*.dll"
     Delete "$INSTDIR\bin\tsduck.xml"
     Delete "$INSTDIR\bin\tsduck.channels.xml"
     Delete "$INSTDIR\bin\tsduck.dvb.names"
+
+    ; Delete obsolete plugins from previous versions.
+    ; Maintenance: also update src/tsplugins/Makefile
     Delete "$INSTDIR\bin\tsplugin_dektec.dll"
     Delete "$INSTDIR\bin\tsplugin_drop.dll"
     Delete "$INSTDIR\bin\tsplugin_file.dll"
     Delete "$INSTDIR\bin\tsplugin_fork.dll"
     Delete "$INSTDIR\bin\tsplugin_hls.dll"
+    Delete "$INSTDIR\bin\tsplugin_http.dll"
     Delete "$INSTDIR\bin\tsplugin_ip.dll"
     Delete "$INSTDIR\bin\tsplugin_null.dll"
+    Delete "$INSTDIR\bin\tsplugin_psi.dll"
+    Delete "$INSTDIR\bin\tsplugin_skip.dll"
     Delete "$INSTDIR\bin\tsplugin_srt.dll"
+    Delete "$INSTDIR\bin\tsplugin_tables.dll"
 
     ; Create folder for binaries
     CreateDirectory "$INSTDIR\bin"
     SetOutPath "$INSTDIR\bin"
-    File /x *_static.exe "${BinDir}\ts*.exe"
+    File /x *_static.exe /x tsprofiling.exe "${BinDir}\ts*.exe"
     !ifdef NoTeletext
         Delete "$INSTDIR\bin\tsplugin_teletext.dll"
         File /x tsplugin_teletext.dll "${BinDir}\ts*.dll"
@@ -191,10 +198,14 @@ Section /o "Python Bindings" SectionPython
     ; Work on "all users" context, not current user.
     SetShellVarContext all
 
+    ; Delete obsolete files from previous versions.
+    RMDir /r "$INSTDIR\python\ts"
+
     ; Python files.
-    CreateDirectory "$INSTDIR\python\ts"
-    SetOutPath "$INSTDIR\python\ts"
-    File "${PythonDir}\ts\*.py"
+    CreateDirectory "$INSTDIR\python"
+    SetOutPath "$INSTDIR\python"
+    File "${PythonDir}\tsduck.py"
+    File "${PythonDir}\ts.py"
 
 SectionEnd
 
@@ -217,7 +228,7 @@ SectionEnd
 
 ; Installation of development environment for third-party applications
 ; --------------------------------------------------------------------
-Section /o "Development" SectionDevelopment
+Section /o "C++ Development" SectionDevelopment
     ; Unselected by default (/o).
 
     ; Work on "all users" context, not current user.

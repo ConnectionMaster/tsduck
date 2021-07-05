@@ -27,7 +27,7 @@
 //
 //----------------------------------------------------------------------------
 //
-//  TSUnit test suite for tsPlatform.h and tsMemory.h
+//  TSUnit test suite for tsPlatform.h, tsRotate.h and tsMemory.h
 //
 //----------------------------------------------------------------------------
 
@@ -37,7 +37,6 @@
 #include "tsVersion.h"
 #include "tsVersionInfo.h"
 #include "tsunit.h"
-TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------

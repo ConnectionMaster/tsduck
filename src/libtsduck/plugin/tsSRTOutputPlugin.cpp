@@ -36,28 +36,43 @@ TS_REGISTER_OUTPUT_PLUGIN(u"srt", ts::SRTOutputPlugin);
 // A dummy storage value to force inclusion of this module when using the static library.
 const int ts::SRTOutputPlugin::REFERENCE = 0;
 
-#define MAX_PKT_MESSAGE_MODE 7
-
 
 //----------------------------------------------------------------------------
 // Output constructor
 //----------------------------------------------------------------------------
 
 ts::SRTOutputPlugin::SRTOutputPlugin(TSP* tsp_) :
-    OutputPlugin(tsp_, u"Send TS packets using Secure Reliable Transport (SRT)", u"[options] address:port"),
-    _local_addr(),
-    _remote_addr(),
-    _pkt_count(0),
-    _sock(),
-    _mode(SRTSocketMode::LISTENER)
+    AbstractDatagramOutputPlugin(tsp_, u"Send TS packets using Secure Reliable Transport (SRT)", u"[options] [address:port]", NONE),
+    _multiple(false),
+    _restart_delay(0),
+    _sock()
 {
     _sock.defineArgs(*this);
 
-    option(u"", 0, STRING, 1, 1);
-    help(u"", u"Specify listening IPv4 and port.");
+    option(u"multiple", 'm');
+    help(u"multiple",
+         u"When the receiver peer disconnects, wait for another one and continue.");
 
-    option(u"rendezvous", 0, ts::Args::STRING);
-    help(u"rendezvous", u"address:port", u"Specify remote address and port for rendez-vous mode.");
+    option(u"restart-delay", 0, UNSIGNED);
+    help(u"restart-delay", u"milliseconds",
+         u"With --multiple, wait the specified number of milliseconds before restarting.");
+
+    // These options are legacy, now use --listener and/or --caller.
+    option(u"", 0, STRING, 0, 1);
+    help(u"" , u"Local [address:]port. This is a legacy parameter, now use --listener.");
+
+    option(u"rendezvous", 0, STRING);
+    help(u"rendezvous", u"address:port", u"Remote address and port. This is a legacy option, now use --caller.");
+}
+
+
+//----------------------------------------------------------------------------
+// Simple virtual methods.
+//----------------------------------------------------------------------------
+
+bool ts::SRTOutputPlugin::isRealTime()
+{
+    return true;
 }
 
 
@@ -65,27 +80,13 @@ ts::SRTOutputPlugin::SRTOutputPlugin(TSP* tsp_) :
 // Output command line options method
 //----------------------------------------------------------------------------
 
-bool ts::SRTOutputPlugin::getOptions(void)
+bool ts::SRTOutputPlugin::getOptions()
 {
-    const UString bind_addr(value( u""));
-    if (bind_addr.empty() || !_local_addr.resolve(bind_addr)) {
-        tsp->error(u"Invalid local address and port: %s", {bind_addr});
-        return false;
-    }
-
-    const UString remote(value(u"rendezvous"));
-    if (remote.empty()) {
-        _mode = SRTSocketMode::LISTENER;
-    }
-    else {
-        _mode = SRTSocketMode::RENDEZVOUS;
-        if (!_remote_addr.resolve(remote)) {
-            tsp->error(u"Invalid remote address and port: %s", {remote});
-            return false;
-        }
-    }
-
-    return _sock.loadArgs(duck, *this);
+    _multiple = present(u"multiple");
+    getIntValue(_restart_delay, u"restart-delay", 0);
+    return _sock.setAddresses(value(u""), value(u"rendezvous"), *tsp) &&
+           _sock.loadArgs(duck, *this) &&
+           AbstractDatagramOutputPlugin::getOptions();
 }
 
 
@@ -93,16 +94,10 @@ bool ts::SRTOutputPlugin::getOptions(void)
 // Output start method
 //----------------------------------------------------------------------------
 
-bool ts::SRTOutputPlugin::start(void)
+bool ts::SRTOutputPlugin::start()
 {
-    if (!_sock.open(_mode, _local_addr, _remote_addr, *tsp)) {
-        _sock.close(*tsp);
-        return false;
-    }
-
-    // Other states.
-    _pkt_count = 0;
-    return true;
+    // Call superclass first, then initialize SRT socket.
+    return AbstractDatagramOutputPlugin::start() && _sock.open(*tsp);
 }
 
 
@@ -110,32 +105,44 @@ bool ts::SRTOutputPlugin::start(void)
 // Output stop method
 //----------------------------------------------------------------------------
 
-bool ts::SRTOutputPlugin::stop(void)
+bool ts::SRTOutputPlugin::stop()
 {
+    // Call superclass first, then close SRT socket.
+    AbstractDatagramOutputPlugin::stop();
     _sock.close(*tsp);
     return true;
 }
 
 
 //----------------------------------------------------------------------------
-// Output method
+// Implementation of AbstractDatagramOutputPlugin: send one datagram.
 //----------------------------------------------------------------------------
 
-bool ts::SRTOutputPlugin::send(const ts::TSPacket* pkt, const ts::TSPacketMetadata* pkt_data, size_t packet_count)
+bool ts::SRTOutputPlugin::sendDatagram(const void* address, size_t size)
 {
-    bool status = false;
-    size_t tmp = packet_count;
-    const ts::TSPacket* tmp_pkt = pkt;
-
-    while (tmp > 0) {
-        const size_t to_send = (_sock.getMessageApi() && tmp > MAX_PKT_MESSAGE_MODE) ? MAX_PKT_MESSAGE_MODE : tmp;
-        status = _sock.send(tmp_pkt, to_send * PKT_SIZE, *tsp);
-        if (!status) {
-            break;
+    // Loop on restart with multiple sessions.
+    for (;;) {
+        // Send the datagram.
+        if (_sock.send(address, size, *tsp)) {
+            return true;
         }
-        tmp -= to_send;
-        tmp_pkt += to_send;
-        _pkt_count += to_send;
+        // Send error.
+        if (!_sock.peerDisconnected()) {
+            // Actual error, not a clean disconnection from the receiver, do not retry, even with --multiple.
+            return false;
+        }
+        tsp->verbose(u"receiver disconnected%s", {_multiple ? u", waiting for another one" : u""});
+        if (!_multiple) {
+            // No multiple sessions, terminate here.
+            return false;
+        }
+        // Multiple sessions, close socket and re-open to acquire another receiver.
+        stop();
+        if (_restart_delay > 0) {
+            SleepThread(_restart_delay);
+        }
+        if (!start()) {
+            return false;
+        }
     }
-    return status;
 }
