@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 
 #pragma once
 #include "tsUString.h"
-#include "tsVariable.h"
 #include "tsStringifyInterface.h"
 #include "tsTS.h"
 
@@ -49,17 +27,18 @@ namespace ts {
     //!
     class TSDUCKDLL Service: public StringifyInterface
     {
+        TS_RULE_OF_FIVE(Service, override = default);
     public:
         //!
         //! Default constructor.
         //!
-        Service();
+        Service() = default;
 
         //!
         //! Constructor using a service id.
         //! @param [in] id Service id.
         //!
-        Service(uint16_t id);
+        Service(uint16_t id) : _id(id) {}
 
         //!
         //! Constructor using a string description.
@@ -67,12 +46,7 @@ namespace ts {
         //! If the string evaluates to an integer (decimal or hexa),
         //! this is a service id, otherwise this is a service name.
         //!
-        Service(const UString& desc);
-
-        //!
-        //! Destructor.
-        //!
-        virtual ~Service() override;
+        Service(const UString& desc) { set(desc); }
 
         //!
         //! Reset using a string description.
@@ -113,17 +87,18 @@ namespace ts {
         //! @param fullname Explanatory description of the property.
         //! @hideinitializer
         //!
-#define SERVICE_PROPERTY(type,suffix,field,defvalue,fullname)      \
-        /** Check if the fullname is present.                   */ \
-        /** @return True if the fullname is present.            */ \
-        bool has##suffix() const {return field.set();}             \
-        /** Clear the fullname.                                 */ \
-        void clear##suffix()                                       \
-            {_modified = _modified || field.set(); field.clear();} \
-        /** Get the fullname.                                   */ \
-        /** @return The fullname or defvalue if unset.          */ \
-        type get##suffix() const                                   \
-            {return field.set() ? field.value() : type(defvalue);}
+#define SERVICE_PROPERTY(type,suffix,field,defvalue,fullname)       \
+    private:                                                        \
+        std::optional<type> field {};                               \
+    public:                                                         \
+        /** Check if the fullname is present.                   */  \
+        /** @return True if the fullname is present.            */  \
+        bool has##suffix() const { return field.has_value(); }      \
+        /** Clear the fullname.                                 */  \
+        void clear##suffix() { _modified = _modified || bool(field); field.reset(); } \
+        /** Get the fullname.                                   */  \
+        /** @return The fullname or defvalue if unset.          */  \
+        type get##suffix() const { return field.value_or(defvalue); }
 
         //!
         //! Define an integer service property accessors, class internal use only.
@@ -134,17 +109,15 @@ namespace ts {
         //! @param fullname Explanatory description of the property.
         //! @hideinitializer
         //!
-#define SERVICE_PROPERTY_INT(type,suffix,field,defvalue,fullname)     \
-        SERVICE_PROPERTY(type, suffix, field, defvalue, fullname)     \
-        /** Set the fullname.                                      */ \
-        /** @param [in] value The fullname.                        */ \
-        void set##suffix(type value)                                  \
-            {_modified = _modified || field != value; field = value;} \
-        /** Check if the fullname has a given value.               */ \
-        /** @param [in] value The fullname to check.               */ \
-        /** @return True if the fullname is equal to @a value.     */ \
-        bool has##suffix(type value) const                            \
-            {return field.set() && field == value;}
+#define SERVICE_PROPERTY_INT(type,suffix,field,defvalue,fullname)      \
+        SERVICE_PROPERTY(type, suffix, field, defvalue, fullname)      \
+        /** Set the fullname.                                      */  \
+        /** @param [in] value The fullname.                        */  \
+        void set##suffix(type value) { _modified = _modified || field != value; field = value; } \
+        /** Check if the fullname has a given value.               */  \
+        /** @param [in] value The fullname to check.               */  \
+        /** @return True if the fullname is equal to @a value.     */  \
+        bool has##suffix(type value) const { return field == value; }
 
         //!
         //! Define a string service property accessors, class internal use only.
@@ -153,18 +126,16 @@ namespace ts {
         //! @param fullname Explanatory description of the property.
         //! @hideinitializer
         //!
-#define SERVICE_PROPERTY_STRING(suffix,field,fullname)                \
-        SERVICE_PROPERTY(UString, suffix, field, UString(), fullname) \
-        /** Set the fullname.                                      */ \
-        /** @param [in] value The fullname.                        */ \
-        void set##suffix(const UString& value)                        \
-            {_modified = _modified || field != value; field = value;} \
-        /** Check if the fullname has a given value.               */ \
-        /** @param [in] value The fullname to check.               */ \
-        /** @return True if the fullname is similar to @a value,   */ \
-        /** case insensitive and ignoring blanks.                  */ \
-        bool has##suffix(const UString& value) const                  \
-            {return field.set() && value.similar(field.value());}
+#define SERVICE_PROPERTY_STRING(suffix,field,fullname)                 \
+        SERVICE_PROPERTY(UString, suffix, field, UString(), fullname)  \
+        /** Set the fullname.                                      */  \
+        /** @param [in] value The fullname.                        */  \
+        void set##suffix(const UString& value) { _modified = _modified || field != value; field = value; } \
+        /** Check if the fullname has a given value.               */  \
+        /** @param [in] value The fullname to check.               */  \
+        /** @return True if the fullname is similar to @a value,   */  \
+        /** case insensitive and ignoring blanks.                  */  \
+        bool has##suffix(const UString& value) const { return value.similar(field.value_or(UString())); }
 
         SERVICE_PROPERTY_INT(uint16_t, Id,            _id,             0,        Service Id)
         SERVICE_PROPERTY_INT(uint16_t, TSId,          _tsid,           0,        Transport Stream Id)
@@ -179,6 +150,7 @@ namespace ts {
         SERVICE_PROPERTY_INT(bool,     CAControlled,  _ca_controlled,  false,    CA-controlled (as declared in the SDT))
         SERVICE_PROPERTY_INT(uint16_t, MajorIdATSC,   _major_id_atsc,  0,        ATSC major id (as declared in TVCT or CVCT))
         SERVICE_PROPERTY_INT(uint16_t, MinorIdATSC,   _minor_id_atsc,  0,        ATSC major id (as declared in TVCT or CVCT))
+        SERVICE_PROPERTY_INT(bool,     Hidden,        _hidden,         false,    Service is hidden to end-user)
 
         SERVICE_PROPERTY_STRING(Name,     _name,     Service Name)
         SERVICE_PROPERTY_STRING(Provider, _provider, Provider Name)
@@ -205,8 +177,9 @@ namespace ts {
             CA           = 0x0400,  //!< CA-controlled (as declared in the SDT).
             RUNNING      = 0x0800,  //!< Running status (as declared in the SDT).
             TYPE_ATSC    = 0x1000,  //!< ATSC service type (as defined in TVCT or CVCT).
-            MAJORID_ATSC = 0x2000,  //!< ATSC major id (as declared in TVCT or CVCT)).
-            MINORID_ATSC = 0x4000,  //!< ATSC minor id (as declared in TVCT or CVCT)).
+            MAJORID_ATSC = 0x2000,  //!< ATSC major id (as declared in TVCT or CVCT).
+            MINORID_ATSC = 0x4000,  //!< ATSC minor id (as declared in TVCT or CVCT).
+            HIDDEN       = 0x8000,  //!< Service is hidden to end-user.
         };
 
         //!
@@ -300,28 +273,172 @@ namespace ts {
         }
 
     private:
-        bool               _modified;
-        Variable<uint16_t> _id;
-        Variable<uint16_t> _tsid;
-        Variable<uint16_t> _onid;
-        Variable<PID>      _pmt_pid;
-        Variable<uint16_t> _lcn;
-        Variable<uint8_t>  _type_dvb;
-        Variable<uint8_t>  _type_atsc;
-        Variable<UString>  _name;
-        Variable<UString>  _provider;
-        Variable<bool>     _eits_present;
-        Variable<bool>     _eitpf_present;
-        Variable<bool>     _ca_controlled;
-        Variable<uint8_t>  _running_status;
-        Variable<uint16_t> _major_id_atsc;
-        Variable<uint16_t> _minor_id_atsc;
+        bool _modified = false;
     };
 
     // Containers
-    typedef std::vector<Service> ServiceVector;  //!< Vector of DVB services.
-    typedef std::list<Service> ServiceList;      //!< List of DVB services.
-    typedef std::set<Service> ServiceSet;        //!< Set of DVB services.
+    using ServiceVector = std::vector<Service>;  //!< Vector of DVB services.
+    using ServiceList = std::list<Service>;      //!< List of DVB services.
+    using ServiceSet = std::set<Service>;        //!< Set of DVB services.
 }
 
-#include "tsServiceTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Display a container of services.
+template <class ITERATOR>
+std::ostream& ts::Service::Display(std::ostream& strm,
+                                   const UString& margin,
+                                   const ITERATOR& begin,
+                                   const ITERATOR& end,
+                                   bool header)
+{
+    // Some header
+    const UString h_name(u"Name");
+    const UString h_provider(u"Provider");
+
+    // List fields which are present
+    uint32_t fields = 0;
+    size_t name_width = h_name.width();
+    size_t provider_width = h_provider.width();
+    size_t count = 0;
+    for (ITERATOR it = begin; it != end; ++it) {
+        count++;
+        fields |= it->getFields();
+        if (it->_name.has_value()) {
+            name_width = std::max(name_width, it->_name.value().width());
+            fields |= NAME;
+        }
+        if (it->_provider.has_value()) {
+            provider_width = std::max(provider_width, it->_provider.value().width());
+            fields |= PROVIDER;
+        }
+    }
+
+    // Empty container: nothing to display
+    if (count == 0) {
+        return strm;
+    }
+
+    // Display header: LCN NAME PROVIDER ID TSID ONID TYPE PMT_PID
+    if (header) {
+        strm << margin;
+        if (fields & LCN) {
+            strm << "LCN ";
+        }
+        if (fields & NAME) {
+            strm << h_name.toJustifiedLeft(name_width + 1);
+        }
+        if (fields & PROVIDER) {
+            strm << h_provider.toJustifiedLeft(provider_width + 1);
+        }
+        if (fields & ID) {
+            strm << "ServId ";
+        }
+        if (fields & TSID) {
+            strm << "TSId   ";
+        }
+        if (fields & ONID) {
+            strm << "ONetId ";
+        }
+        if (fields & (TYPE_DVB | TYPE_ATSC)) {
+            strm << "Type ";
+        }
+        if (fields & PMT_PID) {
+            strm << "PMTPID";
+        }
+        strm << std::endl << margin;
+        if (fields & LCN) {
+            strm << "--- ";
+        }
+        if (fields & NAME) {
+            strm << UString().toJustifiedLeft(name_width, '-') << " ";
+        }
+        if (fields & PROVIDER) {
+            strm << UString().toJustifiedLeft(provider_width, '-') << " ";
+        }
+        if (fields & ID) {
+            strm << "------ ";
+        }
+        if (fields & TSID) {
+            strm << "------ ";
+        }
+        if (fields & ONID) {
+            strm << "------ ";
+        }
+        if (fields & (TYPE_DVB | TYPE_ATSC)) {
+            strm << "---- ";
+        }
+        if (fields & PMT_PID) {
+            strm << "------";
+        }
+        strm << std::endl;
+    }
+
+    // Display all elements
+    for (ITERATOR it = begin; it != end; ++it) {
+        strm << margin;
+        if (fields & LCN) {
+            if (it->_lcn.has_value()) {
+                strm << UString::Format(u"%3d ", it->_lcn.value());
+            }
+            else {
+                strm << "    ";
+            }
+        }
+        if (fields & NAME) {
+            strm << it->getName().toJustifiedLeft(name_width + 1);
+        }
+        if (fields & PROVIDER) {
+            strm << it->getProvider().toJustifiedLeft(provider_width + 1);
+        }
+        if (fields & ID) {
+            if (it->_id.has_value()) {
+                strm << UString::Format(u"0x%04X ", it->_id.value());
+            }
+            else {
+                strm << "       ";
+            }
+        }
+        if (fields & TSID) {
+            if (it->_tsid.has_value()) {
+                strm << UString::Format(u"0x%04X ", it->_tsid.value());
+            }
+            else {
+                strm << "       ";
+            }
+        }
+        if (fields & ONID) {
+            if (it->_onid.has_value()) {
+                strm << UString::Format(u"0x%04X ", it->_onid.value());
+            }
+            else {
+                strm << "       ";
+            }
+        }
+        if (fields & (TYPE_DVB | TYPE_ATSC)) {
+            if (it->_type_dvb.has_value()) {
+                strm << UString::Format(u"0x%02X ", it->_type_dvb.value());
+            }
+            else if (it->_type_atsc.has_value()) {
+                strm << UString::Format(u"0x%02X ", it->_type_atsc.value());
+            }
+            else {
+                strm << "     ";
+            }
+        }
+        if (fields & PMT_PID) {
+            if (it->_pmt_pid.has_value()) {
+                strm << UString::Format(u"0x%04X ", it->_pmt_pid.value());
+            }
+            else {
+                strm << "      ";
+            }
+        }
+        strm << std::endl;
+    }
+
+    return strm;
+}

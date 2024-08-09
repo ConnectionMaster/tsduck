@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -37,9 +16,9 @@
 
 // We test our algorithms on elements of type 'Id'
 namespace {
-    typedef int Id;
-    typedef std::set<Id> IdSet;
-    typedef std::set<IdSet> SetOfIdSet;
+    using Id = int;
+    using IdSet = std::set<Id>;
+    using SetOfIdSet = std::set<IdSet>;
 }
 
 
@@ -49,33 +28,10 @@ namespace {
 
 class AlgorithmTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testEnumerateCombinations();
-
-    TSUNIT_TEST_BEGIN(AlgorithmTest);
-    TSUNIT_TEST(testEnumerateCombinations);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(EnumerateCombinations);
 };
 
 TSUNIT_REGISTER(AlgorithmTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void AlgorithmTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void AlgorithmTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -87,11 +43,10 @@ namespace {
     std::ostream& operator<< (std::ostream& strm, const IdSet& s)
     {
         strm << "{";
-        for (auto it = s.begin(); it != s.end(); ++it) {
-            if (it != s.begin()) {
-                strm << ", ";
-            }
-            strm << *it;
+        bool first = true;
+        for (auto it : s) {
+            strm << (first ? "" : ", ") << it;
+            first = false;
         }
         return strm << "}";
     }
@@ -144,7 +99,7 @@ namespace {
 }
 
 // Test cases
-void AlgorithmTest::testEnumerateCombinations()
+TSUNIT_DEFINE_TEST(EnumerateCombinations)
 {
     IdSet values;            // set of all values
     IdSet fixed;             // set of fixed values in all expected combinations.

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -42,12 +21,13 @@
 
 ts::xml::Document::Document(Report& report) :
     Node(report, 1),
-    _tweaks()
+    StringifyInterface() // required on old gcc 8.5 and below (gcc bug)
 {
 }
 
 ts::xml::Document::Document(const Document& other) :
     Node(other),
+    StringifyInterface(), // required on old gcc 8.5 and below (gcc bug)
     _tweaks(other._tweaks)
 {
 }
@@ -118,7 +98,7 @@ bool ts::xml::Document::load(std::istream& strm)
     return parser.loadStream(strm) && parseNode(parser, nullptr);
 }
 
-bool ts::xml::Document::load(const UString& fileName, bool search, bool stdInputIfEmpty)
+bool ts::xml::Document::load(const UString& fileName, bool search)
 {
     // Specific case of inline XML content, when the string is not the name of a file but directly an XML content.
     if (IsInlineXML(fileName)) {
@@ -126,7 +106,7 @@ bool ts::xml::Document::load(const UString& fileName, bool search, bool stdInput
     }
 
     // Specific case of the standard input.
-    if (stdInputIfEmpty && (fileName.empty() || fileName == u"-")) {
+    if (fileName.empty() || fileName == u"-") {
         return load(std::cin);
     }
 
@@ -135,13 +115,13 @@ bool ts::xml::Document::load(const UString& fileName, bool search, bool stdInput
 
     // Eliminate non-existent files.
     if (actualFileName.empty()) {
-        report().error(u"file not found: %s", {fileName});
+        report().error(u"file not found: %s", fileName);
         return false;
     }
 
     // Parse the document from the file.
     TextParser parser(report());
-    report().debug(u"loading XML file %s", {actualFileName});
+    report().debug(u"loading XML file %s", actualFileName);
     return parser.loadFile(actualFileName) && parseNode(parser, nullptr);
 }
 
@@ -187,7 +167,7 @@ bool ts::xml::Document::parseNode(TextParser& parser, const Node* parent)
 
     // We must have reached the end of document.
     if (!parser.eof()) {
-        report().error(u"line %d: trailing character sequence, invalid XML document", {parser.lineNumber()});
+        report().error(u"line %d: trailing character sequence, invalid XML document", parser.lineNumber());
         return false;
     }
 
@@ -216,7 +196,7 @@ bool ts::xml::Document::parseNode(TextParser& parser, const Node* parent)
 
     // Verify that there is no additional children.
     if (child != nullptr) {
-        report().error(u"line %d: trailing %s, invalid XML document, need one single root element", {child->lineNumber(), child->typeName()});
+        report().error(u"line %d: trailing %s, invalid XML document, need one single root element", child->lineNumber(), child->typeName());
         return false;
     }
 
@@ -229,12 +209,12 @@ bool ts::xml::Document::parseNode(TextParser& parser, const Node* parent)
 // Save an XML file.
 //----------------------------------------------------------------------------
 
-bool ts::xml::Document::save(const UString& fileName, size_t indent, bool stdOutputIfEmpty)
+bool ts::xml::Document::save(const fs::path& fileName, size_t indent)
 {
     TextFormatter out(report());
     out.setIndentSize(indent);
 
-    if (stdOutputIfEmpty && (fileName.empty() || fileName == u"-")) {
+    if (fileName.empty() || fileName == u"-") {
         out.setStream(std::cout);
     }
     else if (!out.setFile(fileName)) {

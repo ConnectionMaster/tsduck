@@ -1,36 +1,15 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPSIRepository.h"
 #include "tsDuckContext.h"
-#include "tsVersionInfo.h"
 #include "tsAlgorithm.h"
+#include "tsCerrReport.h"
 #include "tsNames.h"
 
 TS_DEFINE_SINGLETON(ts::PSIRepository);
@@ -40,25 +19,11 @@ TS_DEFINE_SINGLETON(ts::PSIRepository);
 // Constructors.
 //----------------------------------------------------------------------------
 
-ts::PSIRepository::PSIRepository() :
-    _tables(),
-    _descriptors(),
-    _tableNames(),
-    _descriptorNames(),
-    _descriptorTablesIds(),
-    _casIdDescriptorDisplays(),
-    _xmlModelFiles()
+ts::PSIRepository::PSIRepository()
 {
 }
 
-ts::PSIRepository::TableDescription::TableDescription() :
-    standards(Standards::NONE),
-    minCAS(CASID_NULL),
-    maxCAS(CASID_NULL),
-    factory(nullptr),
-    display(nullptr),
-    log(nullptr),
-    pids()
+ts::PSIRepository::TableDescription::TableDescription()
 {
     for (size_t i = 0; i < pids.size(); ++i) {
         pids[i] = PID_NULL;
@@ -95,14 +60,14 @@ bool ts::PSIRepository::TableDescription::hasPID(PID pid) const
 
 void ts::PSIRepository::TableDescription::addPIDs(std::initializer_list<PID> morePIDs)
 {
-    for (auto it = morePIDs.begin(); it != morePIDs.end(); ++it) {
-        if (*it != PID_NULL) {
+    for (auto it : morePIDs) {
+        if (it != PID_NULL) {
             size_t i = 0;
-            while (i < pids.size() && pids[i] != PID_NULL && pids[i] != *it) {
+            while (i < pids.size() && pids[i] != PID_NULL && pids[i] != it) {
                 ++i;
             }
             if (i < pids.size()) {
-                pids[i] = *it;
+                pids[i] = it;
             }
         }
     }
@@ -186,8 +151,8 @@ FUNCTION ts::PSIRepository::getDescriptorFunction(const EDID& edid, TID tid, FUN
 
 ts::PSIRepository::RegisterXML::RegisterXML(const UString& filename)
 {
-    CERR.debug(u"registering XML file %s", {filename});
-    PSIRepository::Instance()->_xmlModelFiles.push_back(filename);
+    CERR.debug(u"registering XML file %s", filename);
+    PSIRepository::Instance()._xmlModelFiles.push_back(filename);
 }
 
 
@@ -205,12 +170,12 @@ ts::PSIRepository::RegisterTable::RegisterTable(TableFactory factory,
                                                 uint16_t minCAS,
                                                 uint16_t maxCAS)
 {
-    CERR.log(2, u"registering table <%s>", {xmlName});
-    PSIRepository* const repo = PSIRepository::Instance();
+    CERR.log(2, u"registering table <%s>", xmlName);
+    PSIRepository& repo(PSIRepository::Instance());
 
     // XML names are recorded independently.
     if (!xmlName.empty()) {
-        repo->_tableNames.insert(std::make_pair(xmlName, factory));
+        repo._tableNames.insert(std::make_pair(xmlName, factory));
     }
 
     // Build a table description for this table.
@@ -225,8 +190,8 @@ ts::PSIRepository::RegisterTable::RegisterTable(TableFactory factory,
 
     // Store a copy of the table description for each table id.
     // This is a multimap, distinct definitions for the same table id accumulate.
-    for (auto it = tids.begin(); it != tids.end(); ++it) {
-        PSIRepository::Instance()->_tables.insert(std::make_pair(*it, desc));
+    for (auto it : tids) {
+        repo._tables.insert(std::make_pair(it, desc));
     }
 }
 
@@ -254,23 +219,23 @@ ts::PSIRepository::RegisterDescriptor::RegisterDescriptor(DescriptorFactory fact
                                                           const UString& xmlNameLegacy)
 {
     registerXML(factory, edid, xmlName, xmlNameLegacy);
-    PSIRepository::Instance()->_descriptors.insert(std::make_pair(edid, DescriptorDescription(factory, displayFunction)));
+    PSIRepository::Instance()._descriptors.insert(std::make_pair(edid, DescriptorDescription(factory, displayFunction)));
 }
 
 void ts::PSIRepository::RegisterDescriptor::registerXML(DescriptorFactory factory, const EDID& edid, const UString& xmlName, const UString& xmlNameLegacy)
 {
-    PSIRepository* const repo = PSIRepository::Instance();
+    PSIRepository& repo(PSIRepository::Instance());
 
     if (!xmlName.empty()) {
-        repo->_descriptorNames.insert(std::make_pair(xmlName, factory));
+        repo._descriptorNames.insert(std::make_pair(xmlName, factory));
         if (edid.isTableSpecific()) {
-            repo->_descriptorTablesIds.insert(std::make_pair(xmlName, edid.tableId()));
+            repo._descriptorTablesIds.insert(std::make_pair(xmlName, edid.tableId()));
         }
     }
     if (!xmlNameLegacy.empty()) {
-        repo->_descriptorNames.insert(std::make_pair(xmlNameLegacy, factory));
+        repo._descriptorNames.insert(std::make_pair(xmlNameLegacy, factory));
         if (edid.isTableSpecific()) {
-            repo->_descriptorTablesIds.insert(std::make_pair(xmlNameLegacy, edid.tableId()));
+            repo._descriptorTablesIds.insert(std::make_pair(xmlNameLegacy, edid.tableId()));
         }
     }
 }
@@ -278,9 +243,9 @@ void ts::PSIRepository::RegisterDescriptor::registerXML(DescriptorFactory factor
 ts::PSIRepository::RegisterDescriptor::RegisterDescriptor(DisplayCADescriptorFunction displayFunction, uint16_t minCAS, uint16_t maxCAS)
 {
     if (displayFunction != nullptr) {
-        PSIRepository* const repo = PSIRepository::Instance();
+        PSIRepository& repo(PSIRepository::Instance());
         do {
-            repo->_casIdDescriptorDisplays.insert(std::make_pair(minCAS, displayFunction));
+            repo._casIdDescriptorDisplays.insert(std::make_pair(minCAS, displayFunction));
         } while (minCAS++ < maxCAS);
     }
 }
@@ -414,11 +379,11 @@ void ts::PSIRepository::getRegisteredTableIds(std::vector<TID>& ids) const
 {
     ids.clear();
     TID previous = TID_NULL;
-    for (auto it = _tables.begin(); it != _tables.end(); ++it) {
+    for (const auto& it : _tables) {
         // This is a multimap, the same key can be reused, use it once only.
-        if (it->first != previous) {
-            ids.push_back(it->first);
-            previous = it->first;
+        if (it.first != previous) {
+            ids.push_back(it.first);
+            previous = it.first;
         }
     }
 }
@@ -426,19 +391,19 @@ void ts::PSIRepository::getRegisteredTableIds(std::vector<TID>& ids) const
 void ts::PSIRepository::getRegisteredDescriptorIds(std::vector<EDID>& ids) const
 {
     ids.clear();
-    for (auto it = _descriptors.begin(); it != _descriptors.end(); ++it) {
-        ids.push_back(it->first);
+    for (const auto& it : _descriptors) {
+        ids.push_back(it.first);
     }
 }
 
 void ts::PSIRepository::getRegisteredTableNames(UStringList& names) const
 {
-    names = MapKeys(_tableNames);
+    names = MapKeysList(_tableNames);
 }
 
 void ts::PSIRepository::getRegisteredDescriptorNames(UStringList& names) const
 {
-    names = MapKeys(_descriptorNames);
+    names = MapKeysList(_descriptorNames);
 }
 
 void ts::PSIRepository::getRegisteredTablesModels(UStringList& names) const

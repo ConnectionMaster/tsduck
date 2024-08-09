@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,8 +12,6 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsCASFamily.h"
-#include "tsSafePtr.h"
 #include "tsTS.h"
 
 namespace ts {
@@ -54,6 +31,7 @@ namespace ts {
     //!
     class TSDUCKDLL TablesLoggerFilterInterface
     {
+        TS_INTERFACE(TablesLoggerFilterInterface);
     public:
         //!
         //! Define section filtering command line options in an Args.
@@ -72,6 +50,12 @@ namespace ts {
         virtual bool loadFilterOptions(DuckContext& duck, Args& args, PIDSet& initial_pids) = 0;
 
         //!
+        //! Reset context, if filtering restarts from the beginning for instance.
+        //! @return True on success, false on error in argument line.
+        //!
+        virtual bool reset() = 0;
+
+        //!
         //! Check if a specific section must be filtered and displayed.
         //! @param [in,out] duck TSDuck context.
         //! @param [in] section The section to check.
@@ -81,20 +65,15 @@ namespace ts {
         //! A section is actually displayed if all section filters returned true.
         //!
         virtual bool filterSection(DuckContext& duck, const Section& section, uint16_t cas, PIDSet& more_pids) = 0;
-
-        //!
-        //! Virtual destructor.
-        //!
-        virtual ~TablesLoggerFilterInterface();
     };
 
     //!
     //! A safe pointer to TablesLogger section filter (not thread-safe).
     //!
-    typedef SafePtr<TablesLoggerFilterInterface> TablesLoggerFilterPtr;
+    using TablesLoggerFilterPtr = std::shared_ptr<TablesLoggerFilterInterface>;
 
     //!
     //! A vector of safe pointers to TablesLogger section filters.
     //!
-    typedef std::vector<TablesLoggerFilterPtr> TablesLoggerFilterVector;
+    using TablesLoggerFilterVector = std::vector<TablesLoggerFilterPtr>;
 }

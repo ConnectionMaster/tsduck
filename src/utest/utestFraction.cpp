@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,60 +20,28 @@
 
 class FractionTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testConstructor();
-    void testDouble();
-    void testAbs();
-    void testMin();
-    void testMax();
-    void testProper();
-    void testComparison();
-    void testArithmetics();
-    void testToString();
-    void testFromString();
-
-    TSUNIT_TEST_BEGIN(FractionTest);
-    TSUNIT_TEST(testConstructor);
-    TSUNIT_TEST(testDouble);
-    TSUNIT_TEST(testAbs);
-    TSUNIT_TEST(testMin);
-    TSUNIT_TEST(testMax);
-    TSUNIT_TEST(testProper);
-    TSUNIT_TEST(testComparison);
-    TSUNIT_TEST(testArithmetics);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST(testFromString);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Constructor);
+    TSUNIT_DECLARE_TEST(Double);
+    TSUNIT_DECLARE_TEST(Abs);
+    TSUNIT_DECLARE_TEST(Min);
+    TSUNIT_DECLARE_TEST(Max);
+    TSUNIT_DECLARE_TEST(Proper);
+    TSUNIT_DECLARE_TEST(Comparison);
+    TSUNIT_DECLARE_TEST(Arithmetics);
+    TSUNIT_DECLARE_TEST(ToString);
+    TSUNIT_DECLARE_TEST(FromString);
 };
 
 TSUNIT_REGISTER(FractionTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void FractionTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void FractionTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void FractionTest::testConstructor()
+TSUNIT_DEFINE_TEST(Constructor)
 {
-    typedef ts::Fraction<int16_t> Frac;
+    using Frac = ts::Fraction<int16_t>;
 
     Frac a1;
     TSUNIT_EQUAL(0, a1.toInt());
@@ -132,7 +79,7 @@ void FractionTest::testConstructor()
     TSUNIT_EQUAL(1, a1.denominator());
 }
 
-void FractionTest::testDouble()
+TSUNIT_DEFINE_TEST(Double)
 {
     TSUNIT_EQUAL(0.0, ts::Fraction<int>(0).toDouble());
     TSUNIT_EQUAL(-2.0, ts::Fraction<int>(4, -2).toDouble());
@@ -140,10 +87,10 @@ void FractionTest::testDouble()
     TSUNIT_EQUAL(2.5, ts::Fraction<int>(-100, -40).toDouble());
 }
 
-void FractionTest::testAbs()
+TSUNIT_DEFINE_TEST(Abs)
 {
-    typedef ts::Fraction<int32_t> SF;
-    typedef ts::Fraction<uint32_t> UF;
+    using SF = ts::Fraction<int32_t>;
+    using UF = ts::Fraction<uint32_t>;
 
     const UF a1(23, 7);
     const SF a2(45, 6);
@@ -157,9 +104,9 @@ void FractionTest::testAbs()
     TSUNIT_EQUAL(2, a3.abs().denominator());
 }
 
-void FractionTest::testMin()
+TSUNIT_DEFINE_TEST(Min)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     Frac a1(Frac(1, 2).min(Frac(2, 3)));
     TSUNIT_EQUAL(1, a1.numerator());
@@ -170,9 +117,9 @@ void FractionTest::testMin()
     TSUNIT_EQUAL(3, a1.denominator());
 }
 
-void FractionTest::testMax()
+TSUNIT_DEFINE_TEST(Max)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     Frac a1(Frac(1, 2).max(Frac(2, 3)));
     TSUNIT_EQUAL(2, a1.numerator());
@@ -183,9 +130,9 @@ void FractionTest::testMax()
     TSUNIT_EQUAL(2, a1.denominator());
 }
 
-void FractionTest::testProper()
+TSUNIT_DEFINE_TEST(Proper)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     Frac a1(Frac(28, 6));
     TSUNIT_EQUAL(4, a1.proper());
@@ -198,9 +145,9 @@ void FractionTest::testProper()
     TSUNIT_EQUAL(3, a1.denominator());
 }
 
-void FractionTest::testComparison()
+TSUNIT_DEFINE_TEST(Comparison)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     TSUNIT_ASSERT(Frac(1, 2) == Frac(1, 2));
     TSUNIT_ASSERT(Frac(-1, 2) == Frac(1, -2));
@@ -239,9 +186,9 @@ void FractionTest::testComparison()
     TSUNIT_ASSERT(2 <= Frac(5, 2));
 }
 
-void FractionTest::testArithmetics()
+TSUNIT_DEFINE_TEST(Arithmetics)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     Frac a1;
     TSUNIT_EQUAL(0, a1.numerator());
@@ -344,16 +291,16 @@ void FractionTest::testArithmetics()
     TSUNIT_EQUAL(15, a1.denominator());
 }
 
-void FractionTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
     TSUNIT_EQUAL(u"12,345", Frac(12345).toString());
     TSUNIT_EQUAL(u"12,345/4", Frac(12345, 4).toString());
     TSUNIT_EQUAL(u"0", Frac().toString());
     TSUNIT_EQUAL(u"-1/2", Frac(1, -2).toString());
 }
 
-void FractionTest::testFromString()
+TSUNIT_DEFINE_TEST(FromString)
 {
     ts::Fraction<int32_t> a;
 

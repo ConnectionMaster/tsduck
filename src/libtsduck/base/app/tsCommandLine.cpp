@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -36,11 +15,6 @@
 
 ts::CommandLine::CommandLine(Report& report) :
     _report(report),
-    _shell(),
-    _process_redirections(false),
-    _cmd_id_alloc(0),
-    _cmd_enum(),
-    _commands(),
     _predefined(*this)
 {
 }
@@ -65,8 +39,8 @@ bool ts::CommandLine::processRedirections(bool on)
 void ts::CommandLine::setShell(const UString& shell)
 {
     _shell = shell;
-    for (auto it = _commands.begin(); it != _commands.end(); ++it) {
-        it->second.args.setShell(_shell);
+    for (auto& it : _commands) {
+        it.second.args.setShell(_shell);
     }
 }
 
@@ -79,9 +53,9 @@ void ts::CommandLine::setCommandLineHandlerImpl(CommandLineHandler* handler, Com
 {
     if (name.empty()) {
         // Set all commands.
-        for (auto it = _commands.begin(); it != _commands.end(); ++it) {
-            it->second.handler = handler;
-            it->second.method = method;
+        for (auto& it : _commands) {
+            it.second.handler = handler;
+            it.second.method = method;
         }
     }
     else {
@@ -118,7 +92,7 @@ ts::Args* ts::CommandLine::commandImpl(CommandLineHandler* handler, CommandLineM
     cmd.args.setSyntax(syntax);
     cmd.args.setAppName(name);
     cmd.args.setShell(_shell);
-    cmd.args.redirectReport(&_report);
+    cmd.args.delegateReport(&_report);
 
     // Enforce flags to avoid exiting the application on special events (error or help).
     cmd.args.setFlags(flags |
@@ -198,20 +172,20 @@ ts::CommandStatus ts::CommandLine::processCommand(const UString& name, const USt
     // Analyze and process command.
     CommandStatus status = CommandStatus::SUCCESS;
     Cmd& cmd(_commands[cmd_id]);
-    cmd.args.redirectReport(log);
+    cmd.args.delegateReport(log);
 
     if (!cmd.args.analyze(cmd.name, arguments, _process_redirections)) {
         status = CommandStatus::ERROR;
     }
     else if (cmd.handler == nullptr || cmd.method == nullptr) {
-        log->error(u"no command handler for command %s", {cmd.name});
+        log->error(u"no command handler for command %s", cmd.name);
         status = CommandStatus::ERROR;
     }
     else {
         status = (cmd.handler->*cmd.method)(cmd.name, cmd.args);
     }
 
-    cmd.args.redirectReport(&_report);
+    cmd.args.delegateReport(&_report);
     return status;
 }
 
@@ -241,7 +215,7 @@ ts::CommandStatus ts::CommandLine::processCommandFiles(const UStringVector& file
 
 ts::CommandStatus ts::CommandLine::processCommandFile(const UString& file_name, bool exit_on_error, Report* redirect)
 {
-    _report.debug(u"executing commands from %s", {file_name});
+    _report.debug(u"executing commands from %s", file_name);
 
     if (file_name.empty() || file_name == u"-") {
         // Execute an interactive session.
@@ -251,7 +225,7 @@ ts::CommandStatus ts::CommandLine::processCommandFile(const UString& file_name, 
         // Load all text lines from the file.
         ts::UStringVector lines;
         if (!UString::Load(lines, file_name)) {
-            (redirect == nullptr ? _report : *redirect).error(u"error loading %s", {file_name});
+            (redirect == nullptr ? _report : *redirect).error(u"error loading %s", file_name);
             return CommandStatus::ERROR;
         }
         return processCommands(lines, exit_on_error, redirect);
@@ -331,8 +305,8 @@ void ts::CommandLine::getSortedCmd(std::vector<const Cmd*>& cmds) const
     _cmd_enum.getAllNames(names);
     std::sort(names.begin(), names.end());
 
-    for (auto it1 = names.begin(); it1 != names.end(); ++it1) {
-        const auto it2 = _commands.find(_cmd_enum.value(*it1));
+    for (const auto& it1 : names) {
+        const auto it2 = _commands.find(_cmd_enum.value(it1));
         if (it2 != _commands.end()) {
             cmds.push_back(&it2->second);
         }

@@ -1,37 +1,16 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
 #include "tsTuner.h"
 #include "tsTunerDevice.h"
 #include "tsTunerEmulator.h"
-#include "tsNullReport.h"
 #include "tsDuckContext.h"
+#include "tsFatal.h"
 
 
 //-----------------------------------------------------------------------------
@@ -43,7 +22,6 @@
 ts::Tuner::Tuner(DuckContext& duck) :
     TunerBase(duck),
     _device(new TunerDevice(duck)),
-    _emulator(nullptr),
     _current(_device)
 {
     CheckNonNull(_device);
@@ -192,7 +170,7 @@ bool ts::Tuner::getCurrentTuning(ModulationArgs& params, bool reset_unknown)
     return _current->getCurrentTuning(params, reset_unknown);
 }
 
-void ts::Tuner::setSignalTimeout(MilliSecond t)
+void ts::Tuner::setSignalTimeout(cn::milliseconds t)
 {
     return _current->setSignalTimeout(t);
 }
@@ -202,17 +180,17 @@ void ts::Tuner::setSignalTimeoutSilent(bool silent)
     return _current->setSignalTimeoutSilent(silent);
 }
 
-bool ts::Tuner::setReceiveTimeout(MilliSecond t)
+bool ts::Tuner::setReceiveTimeout(cn::milliseconds t)
 {
     return _current->setReceiveTimeout(t);
 }
 
-ts::MilliSecond ts::Tuner::receiveTimeout() const
+cn::milliseconds ts::Tuner::receiveTimeout() const
 {
     return _current->receiveTimeout();
 }
 
-void ts::Tuner::setSignalPoll(MilliSecond t)
+void ts::Tuner::setSignalPoll(cn::milliseconds t)
 {
     return _current->setSignalPoll(t);
 }

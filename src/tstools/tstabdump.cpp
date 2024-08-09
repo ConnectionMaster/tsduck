@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,13 +12,12 @@
 
 #include "tsMain.h"
 #include "tsDuckContext.h"
+#include "tsDuckProtocol.h"
 #include "tsTime.h"
 #include "tsSectionFile.h"
 #include "tsTablesDisplay.h"
 #include "tsUDPReceiver.h"
 #include "tsTablesLogger.h"
-#include "tsCASFamily.h"
-#include "tsSection.h"
 #include "tsIPProtocols.h"
 #include "tsSysUtils.h"
 #include "tsPagerArgs.h"
@@ -57,27 +35,21 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        ts::DuckContext   duck;              // TSDuck execution context.
-        ts::TablesDisplay display;           // Options about displaying tables
-        ts::PagerArgs     pager;             // Output paging options.
-        ts::UDPReceiver   udp;               // Options about receiving UDP tables
-        ts::UStringVector infiles;           // Input file names
-        size_t            max_tables;        // Max number of tables to dump.
-        size_t            max_invalid_udp;   // Max number of invalid UDP messages before giving up.
-        bool              no_encapsulation;  // Raw sections in UDP messages.
+        ts::DuckContext       duck {this};               // TSDuck execution context.
+        ts::TablesDisplay     display {duck};            // Options about displaying tables
+        ts::PagerArgs         pager {true, true};        // Output paging options.
+        ts::UDPReceiverArgs   udp {};                    // Options about receiving UDP tables
+        ts::duck::Protocol    duck_protocol {};          // To analyze incoming UDP messages
+        std::vector<fs::path> infiles {};                // Input file names
+        ts::CRC32::Validation crc_validation = ts::CRC32::CHECK;  // Validation of CRC32 in input sections
+        size_t                max_tables = 0;            // Max number of tables to dump.
+        size_t                max_invalid_udp = 16;      // Max number of invalid UDP messages before giving up.
+        bool                  no_encapsulation = false;  // Raw sections in UDP messages.
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"Dump PSI/SI tables, as saved by tstables", u"[options] [filename ...]"),
-    duck(this),
-    display(duck),
-    pager(true, true),
-    udp(*this),
-    infiles(),
-    max_tables(0),
-    max_invalid_udp(16),
-    no_encapsulation(false)
+    Args(u"Dump PSI/SI tables, as saved by tstables", u"[options] [filename ...]")
 {
     duck.defineArgsForCAS(*this);
     duck.defineArgsForPDS(*this);
@@ -86,7 +58,7 @@ Options::Options(int argc, char *argv[]) :
     duck.defineArgsForCharset(*this);
     pager.defineArgs(*this);
     display.defineArgs(*this);
-    udp.defineArgs(*this, false, false, false);
+    udp.defineArgs(*this, false, false);
 
     option(u"", 0, FILENAME);
     help(u"",
@@ -94,6 +66,11 @@ Options::Options(int argc, char *argv[]) :
          u"file and without --ip-udp, the binary tables are read from the standard input.\n\n"
          u"With --ip-udp, no file shall be specified. Binary sections and tables are "
          u"received over UDP/IP as sent by the utility 'tstables' or the plugin 'tables'.");
+
+    option(u"ignore-crc32");
+    help(u"ignore-crc32",
+         u"Do not check CRC32 of input sections. "
+         u"This can be used to analyze sections with incorrect CRC32 but otherwise correct.");
 
     option(u"max-tables", 'x', UNSIGNED);
     help(u"max-tables",
@@ -112,11 +89,12 @@ Options::Options(int argc, char *argv[]) :
     display.loadArgs(duck, *this);
     udp.loadArgs(duck, *this);
 
-    getValues(infiles, u"");
+    getPathValues(infiles, u"");
     max_tables = intValue<size_t>(u"max-tables", std::numeric_limits<size_t>::max());
     no_encapsulation = present(u"no-encapsulation");
+    crc_validation = present(u"ignore-crc32") ? ts::CRC32::IGNORE : ts::CRC32::CHECK;
 
-    if (!infiles.empty() && udp.receiverSpecified()) {
+    if (!infiles.empty() && udp.destination.hasPort()) {
         error(u"specify input files or --ip-udp, but not both");
     }
 
@@ -125,14 +103,16 @@ Options::Options(int argc, char *argv[]) :
 
 
 //----------------------------------------------------------------------------
-//  Dump sections from UDP. Return true on success.
+// Dump sections from UDP. Return true on success.
 //----------------------------------------------------------------------------
 
 namespace {
     bool DumpUDP(Options& opt)
     {
         // Initialize UDP receiver.
-        if (!opt.udp.open(opt)) {
+        ts::UDPReceiver sock(opt);
+        sock.setParameters(opt.udp);
+        if (!sock.open(opt)) {
             return false;
         }
 
@@ -152,13 +132,13 @@ namespace {
 
             // Wait for a UDP message
             size_t insize = 0;
-            ok = opt.udp.receive(packet.data(), packet.size(), insize, sender, destination, nullptr, opt);
+            ok = sock.receive(packet.data(), packet.size(), insize, sender, destination, nullptr, opt);
 
             // Check packet.
             assert(insize <= packet.size());
             if (ok) {
                 // Analyze sections in the packet.
-                if (ts::TablesLogger::AnalyzeUDPMessage(packet.data(), insize, opt.no_encapsulation, sections, timestamp)) {
+                if (ts::TablesLogger::AnalyzeUDPMessage(opt.duck_protocol, packet.data(), insize, opt.no_encapsulation, sections, timestamp)) {
 
                     // Valid message, reset the number of consecutive invalid messages.
                     invalid_msg = 0;
@@ -174,7 +154,7 @@ namespace {
                     else {
                         // Complete table not available, dump as individual sections.
                         for (auto it = sections.begin(); opt.max_tables > 0 && it != sections.end(); ++it) {
-                            if (!it->isNull()) {
+                            if (*it != nullptr) {
                                 opt.display.displaySection(**it);
                                 opt.display.out() << std::endl;
                                 opt.max_tables--;
@@ -184,7 +164,7 @@ namespace {
                 }
                 else {
                     // Cannot analyze UDP message, invalid message.
-                    opt.error(u"invalid section in UDP packet (%s)", {opt.no_encapsulation ? u"raw sections, no encapsulation" : u"TLV messages"});
+                    opt.error(u"invalid section in UDP packet (%s)", opt.no_encapsulation ? u"raw sections, no encapsulation" : u"TLV messages");
                     if (++invalid_msg >= opt.max_invalid_udp) {
                         opt.error(u"received too many consecutive invalid messages, giving up");
                         ok = false;
@@ -194,7 +174,7 @@ namespace {
         }
 
         // Terminate UDP reception.
-        ok = opt.udp.close(opt) && ok;
+        ok = sock.close(opt) && ok;
         return ok;
     }
 }
@@ -215,6 +195,7 @@ namespace {
         // Load all sections
         bool ok = false;
         ts::SectionFile file(opt.duck);
+        file.setCRCValidation(opt.crc_validation);
 
         if (file_name.empty()) {
             // no input file specified, use standard input
@@ -241,7 +222,7 @@ namespace {
 
 
 //----------------------------------------------------------------------------
-//  Program entry point
+// Program entry point
 //----------------------------------------------------------------------------
 
 int MainCode(int argc, char *argv[])
@@ -252,15 +233,15 @@ int MainCode(int argc, char *argv[])
 
     // Dump files or network packets.
     opt.pager.output(opt) << std::endl;
-    if (opt.udp.receiverSpecified()) {
+    if (opt.udp.destination.hasPort()) {
         ok = DumpUDP(opt);
     }
     else if (opt.infiles.size() == 0) {
         ok = DumpFile(opt, u"");
     }
     else {
-        for (auto it = opt.infiles.begin(); it != opt.infiles.end(); ++it) {
-            ok = DumpFile(opt, *it) && ok;
+        for (const auto& it : opt.infiles) {
+            ok = DumpFile(opt, it) && ok;
         }
     }
 

@@ -1,42 +1,21 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsUserInterrupt.h"
-#include "tsStaticInstance.h"
+#include "tsSingleton.h"
 #include "tsSysUtils.h"
 
 ts::UserInterrupt* volatile ts::UserInterrupt::_active_instance = nullptr;
 
 // A local mutex to avoid multiple activations.
-TS_STATIC_INSTANCE(ts::Mutex, (), ActivationMutex)
+TS_STATIC_INSTANCE(std::recursive_mutex, (), ActivationMutex);
 
-// On UNIX platforms, we use a semaphore (sem_t). On MacOS, the address of the
+// On UNIX platforms, we use a semaphore (sem_t). On macOS, the address of the
 // semaphore is returned by sem_open. On other UNIX, the semaphore instance is
 // initialized by sem_init.
 #if defined(TS_UNIX)
@@ -47,8 +26,8 @@ TS_STATIC_INSTANCE(ts::Mutex, (), ActivationMutex)
     #endif
 #endif
 
-// On macOS, sigaction(2) uses the flag named SA_RESETHAND instead of SA_ONESHOT.
-#if defined(TS_MAC) && !defined(SA_ONESHOT)
+// On BSD, sigaction(2) uses the flag named SA_RESETHAND instead of SA_ONESHOT.
+#if (defined(TS_MAC) || defined(TS_BSD)) && !defined(SA_ONESHOT)
     #define SA_ONESHOT SA_RESETHAND
 #endif
 
@@ -75,7 +54,7 @@ void ts::UserInterrupt::sysHandler(int sig)
 
     if (::sem_post(SEM_PARAM(ui)) < 0) {
         ::perror("sem_post error in SIGINT handler");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 }
 #endif
@@ -93,7 +72,7 @@ void ts::UserInterrupt::main()
         // Wait for the semaphore to be signaled
         if (::sem_wait(SEM_PARAM(this)) < 0 && errno != EINTR) {
             ::perror("sem_wait");
-            ::exit(EXIT_FAILURE);
+            std::exit(EXIT_FAILURE);
         }
         if (_got_sigint != 0) {
             _got_sigint = 0;
@@ -164,19 +143,12 @@ ts::UserInterrupt::UserInterrupt(InterruptHandler* handler, bool one_shot, bool 
 #if defined(TS_UNIX)
     // stack size: 16 kB, maximum priority
     Thread(ThreadAttributes().setStackSize(16 * 1024).setPriority(ThreadAttributes::GetMaximumPriority())),
-    _terminate(0),
-    _got_sigint(0),
 #if defined(TS_MAC)
-    _sem_name(UString::Format(u"tsduck-%d-%d", {getpid(), ptrdiff_t(this)}).toUTF8()),
-    _sem_address(SEM_FAILED),
-#else
-    _sem_instance(),
+    _sem_name(UString::Format(u"tsduck-%d-%d", getpid(), ptrdiff_t(this)).toUTF8()),
 #endif
 #endif
     _handler(handler),
-    _one_shot(one_shot),
-    _active(false),
-    _interrupted(false)
+    _one_shot(one_shot)
 {
     if (auto_activate) {
         activate();
@@ -202,13 +174,11 @@ ts::UserInterrupt::~UserInterrupt()
 
 void ts::UserInterrupt::activate()
 {
-    // If already active...
+    // Ensure that there is only one active instance at a time
+    std::lock_guard<std::recursive_mutex> lock(ActivationMutex::Instance());
     if (_active) {
         return;
     }
-
-    // Ensure that there is only one active instance at a time
-    GuardMutex lock(ActivationMutex::Instance());
     if (_active_instance != nullptr) {
         return;
     }
@@ -218,7 +188,7 @@ void ts::UserInterrupt::activate()
     // Install the console interrupt handler
     if (::SetConsoleCtrlHandler(sysHandler, true) == 0) {
         // Failure
-        const SysErrorCode err = LastSysErrorCode();
+        const int err = LastSysErrorCode();
         std::cerr << "* Error establishing console interrupt handler: " << SysErrorCodeMessage(err) << std::endl;
         return;
     }
@@ -234,12 +204,12 @@ void ts::UserInterrupt::activate()
     _sem_address = ::sem_open(_sem_name.c_str(), O_CREAT, 0700, 0);
     if (_sem_address == SEM_FAILED || _sem_address == nullptr) {
         ::perror("Error initializing SIGINT semaphore");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 #else
     if (::sem_init(&_sem_instance, 0, 0) < 0) {
         ::perror("Error initializing SIGINT semaphore");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 #endif
 
@@ -255,7 +225,7 @@ void ts::UserInterrupt::activate()
     // Catch SIGINT (user ctlr-C), SIGQUIT (quit) and SIGTERM (terminate, kill command).
     if (::sigaction(SIGINT, &act, nullptr) < 0 || ::sigaction(SIGQUIT, &act, nullptr) < 0 || ::sigaction(SIGTERM, &act, nullptr) < 0) {
         ::perror("Error setting interrupt signal handler");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
     // Start the monitor thread
@@ -264,7 +234,6 @@ void ts::UserInterrupt::activate()
 #endif
 
     // Now active
-
     _active_instance = this;
     _active = true;
 }
@@ -277,16 +246,10 @@ void ts::UserInterrupt::activate()
 void ts::UserInterrupt::deactivate()
 {
     // Deactivate only if active.
-    GuardMutex lock(ActivationMutex::Instance());
+    std::lock_guard<std::recursive_mutex> lock(ActivationMutex::Instance());
     if (!_active) {
         return;
     }
-
-    // CID 158209 (#1 of 1): Side effect in assertion (ASSERT_SIDE_EFFECT)
-    // assert_side_effect: Argument ts::UserInterrupt::_active_instance of assert() has a side effect because the
-    // variable is volatile. The containing function might work differently in a non-debug build.
-    // ==> False positive, there is no side effect here, even with volatile data.
-    // coverity[ASSERT_SIDE_EFFECT]
     assert(_active_instance == this);
 
 #if defined(TS_WINDOWS)
@@ -311,14 +274,14 @@ void ts::UserInterrupt::deactivate()
 
     if (::sigaction(SIGINT, &act, nullptr) < 0 || ::sigaction(SIGQUIT, &act, nullptr) < 0 || ::sigaction(SIGTERM, &act, nullptr) < 0) {
         ::perror("Error resetting interrupt signal handler");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
     // Signal the semaphore to unlock the monitor thread
     _terminate = 1;
     if (::sem_post(SEM_PARAM(this)) < 0) {
         ::perror("sem_post error in SIGINT handler");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
     // Wait for the monitor thread to terminate
@@ -328,16 +291,16 @@ void ts::UserInterrupt::deactivate()
 #if defined(TS_MAC)
     if (::sem_close(_sem_address) < 0) {
         ::perror("sem_close error on SIGINT semaphore");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     if (::sem_unlink(_sem_name.c_str()) < 0) {
         ::perror("sem_unlink error on SIGINT semaphore");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 #else
     if (::sem_destroy(&_sem_instance) < 0) {
         ::perror("Error destroying SIGINT semaphore");
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 #endif
 #endif

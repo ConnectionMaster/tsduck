@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
@@ -73,7 +52,7 @@ bool ts::EnumerateDevicesByClass(const ::CLSID& clsid, std::vector <ComPtr <::IM
 
     // Loop on all enumerated providers.
     ComPtr <::IMoniker> moniker;
-    while (enum_monikers->Next(1, moniker.creator(), NULL) == S_OK) {
+    while (enum_monikers->Next(1, moniker.creator(), nullptr) == S_OK) {
         monikers.push_back(moniker);
     }
 
@@ -92,9 +71,9 @@ namespace {
         if (ts::ComSuccess(hr, message, report)) {
             cname = ts::ToString(name);
         }
-        if (name != NULL) {
+        if (name != nullptr) {
             ::SysFreeString(name);
-            name = NULL;
+            name = nullptr;
         }
         return cname;
     }
@@ -106,7 +85,7 @@ ts::UString ts::GetTuningSpaceFriendlyName(::ITuningSpace* tspace, Report& repor
         return UString();
     }
     else {
-        ::BSTR name = NULL;
+        ::BSTR name = nullptr;
         return ToStringAndFree(tspace->get_FriendlyName(&name), name, u"ITuningSpace::get_FriendlyName", report);
     }
 }
@@ -117,7 +96,7 @@ ts::UString ts::GetTuningSpaceUniqueName(::ITuningSpace* tspace, Report& report)
         return UString();
     }
     else {
-        ::BSTR name = NULL;
+        ::BSTR name = nullptr;
         return ToStringAndFree(tspace->get_UniqueName(&name), name, u"ITuningSpace::get_UniqueName", report);
     }
 }
@@ -128,7 +107,7 @@ ts::UString ts::GetTuningSpaceClass(::ITuningSpace* tspace, Report& report)
         return UString();
     }
     else {
-        ::BSTR name = NULL;
+        ::BSTR name = nullptr;
         return ToStringAndFree(tspace->get_CLSID(&name), name, u"ITuningSpace::get_CLSID", report);
     }
 }
@@ -140,7 +119,7 @@ ts::UString ts::GetTuningSpaceNetworkType(::ITuningSpace* tspace, Report& report
     }
 
     // Get network type as a string.
-    ::BSTR name = NULL;
+    ::BSTR name = nullptr;
     const UString type(ToStringAndFree(tspace->get_NetworkType(&name), name, u"ITuningSpace::get_NetworkType", report));
 
     // If the string looks like a GUID, try to find another way.
@@ -307,7 +286,7 @@ bool ts::CreateTuneRequest(DuckContext& duck, ComPtr<::ITuneRequest>& request, :
 
 bool ts::CreateLocator(DuckContext& duck, ComPtr<::IDigitalLocator>& locator, const ModulationArgs& params)
 {
-    const DeliverySystem delsys = params.delivery_system.value(DS_UNDEFINED);
+    const DeliverySystem delsys = params.delivery_system.value_or(DS_UNDEFINED);
     const TunerType ttype = TunerTypeOf(delsys);
 
     // Create the locator depending on the type.
@@ -326,7 +305,7 @@ bool ts::CreateLocator(DuckContext& duck, ComPtr<::IDigitalLocator>& locator, co
         case TT_ISDB_C:
         case TT_UNDEFINED:
         default:
-            duck.report().error(u"cannot convert %s parameters to DirectShow tuning parameters", {DeliverySystemEnum.name(delsys)});
+            duck.report().error(u"cannot convert %s parameters to DirectShow tuning parameters", DeliverySystemEnum.name(delsys));
             return false;
     }
 }
@@ -356,7 +335,7 @@ bool ts::CreateLocatorDVBT(DuckContext& duck, ComPtr<::IDigitalLocator>& locator
         !PUT(loc, LPInnerFECRate, ::BinaryConvolutionCodeRate(params.fec_lp.value())) ||
         !PUT(loc, Mode, ::TransmissionMode(params.transmission_mode.value())) ||
         !PUT(loc, HAlpha, ::HierarchyAlpha(params.hierarchy.value())) ||
-        (params.plp.set() && params.plp != PLP_DISABLE && !PUT(loc, PhysicalLayerPipeId, long(params.plp.value()))))
+        (params.plp.has_value() && params.plp != PLP_DISABLE && !PUT(loc, PhysicalLayerPipeId, long(params.plp.value()))))
     {
         return false;
     }
@@ -410,7 +389,7 @@ bool ts::CreateLocatorDVBS(DuckContext& duck, ComPtr<::IDigitalLocator>& locator
     // Specify DiSEqC satellite number.
     // Note however that most drivers ignore it...
     ::LNB_Source source = ::BDA_LNB_SOURCE_NOT_SET;
-    switch (params.satellite_number.value(0)) {
+    switch (params.satellite_number.value_or(0)) {
         case 0:  source = ::BDA_LNB_SOURCE_A; break;
         case 1:  source = ::BDA_LNB_SOURCE_B; break;
         case 2:  source = ::BDA_LNB_SOURCE_C; break;
@@ -512,7 +491,7 @@ bool ts::CreateLocatorATSC(DuckContext& duck, ComPtr<::IDigitalLocator>& locator
     // we need to take the frequency and map it to the corresponding HF channel
     // using the global HF band region.
 
-    const uint64_t freq = params.frequency.value(0);
+    const uint64_t freq = params.frequency.value_or(0);
     long physical_channel = 0;
     if (uhf->inBand(freq)) {
         physical_channel = uhf->channelNumber(freq);
@@ -521,11 +500,11 @@ bool ts::CreateLocatorATSC(DuckContext& duck, ComPtr<::IDigitalLocator>& locator
         physical_channel = vhf->channelNumber(freq);
     }
     else {
-        duck.report().error(u"frequency %'d Hz is in neither the UHF nor VHF band", {freq});
+        duck.report().error(u"frequency %'d Hz is in neither the UHF nor VHF band", freq);
         return false;
     }
 
-    duck.report().debug(u"mapped frequency %'d to physical channel %d", {freq, physical_channel});
+    duck.report().debug(u"mapped frequency %'d to physical channel %d", freq, physical_channel);
 
     if (loc.isNull() ||
         !CheckModVar(params.inversion, u"spectral inversion", SpectralInversionEnum, duck.report()) ||

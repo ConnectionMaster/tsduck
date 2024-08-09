@@ -1,47 +1,28 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  Root makefile for the TSDuck project.
 #
 #  Additional options which can be defined:
 #
-#  - NOTEST     : Do not build unitary tests.
-#  - NODEKTEC   : No Dektec device support, remove dependency to DTAPI.
-#  - NOHIDES    : No HiDes device support.
-#  - NOVATEK    : No Vatek-based device support.
-#  - NOCURL     : No HTTP support, remove dependency to libcurl.
-#  - NOPCSC     : No smartcard support, remove dependency to pcsc-lite.
-#  - NOSRT      : No SRT support, remove dependency to libsrt.
-#  - NORIST     : No RIST support, remove dependency to librist.
-#  - NOEDITLINE : No interactive line editing, remove dependency to libedit.
-#  - NOTELETEXT : No Teletext support, remove teletext handling code.
-#  - NOGITHUB   : No version check, no download, no upgrade from GitHub.
+#  - NOTEST      : Do not build unitary tests.
+#  - NOSTATIC    : Do not build the static library and the static tests.
+#  - NODEKTEC    : No Dektec device support, remove dependency to DTAPI.
+#  - NOHIDES     : No HiDes device support.
+#  - NOVATEK     : No Vatek-based device support.
+#  - NOCURL      : No HTTP support, remove dependency to libcurl.
+#  - NOPCSC      : No smartcard support, remove dependency to pcsc-lite.
+#  - NOSRT       : No SRT support, remove dependency to libsrt.
+#  - NORIST      : No RIST support, remove dependency to librist.
+#  - NOEDITLINE  : No interactive line editing, remove dependency to libedit.
+#  - NOGITHUB    : No version check, no download, no upgrade from GitHub.
+#  - NOHWACCEL   : Disable hardware acceleration such as crypto instructions.
+#  - NOPCSTD     : Remove the std=c++17 flag from libtsduck's pkg-config file.
+#  - NODEPRECATE : Do not flag legacy methods as deprecated.
+#  - VERBOSE     : Display full commands. Can be abbreviated as V.
 #
 #  Options to define the representation of bitrates:
 #
@@ -67,9 +48,16 @@ test-all: test test-suite
 
 # Build and run unitary tests.
 
-.PHONY: test
-test: default
+.PHONY: test test-static test-shared
+test test-static test-shared: default
 	@$(MAKE) -C src/utest $@
+
+# Build and run unitary tests under valgrind control.
+
+.PHONY: valgrind valgrind-shared valgrind-static
+valgrind valgrind-shared valgrind-static:
+	@$(MAKE) DEBUG=true
+	@$(MAKE) DEBUG=true -C src/utest $@
 
 # Execute the TSDuck test suite from a sibling directory, if present.
 
@@ -127,9 +115,13 @@ m32:
 
 # Generate the documentation.
 
-.PHONY: doxygen
-doxygen:
-	@doc/build-doxygen.sh
+DOC_TARGETS = doxygen docs docs-html docs-pdf \
+    userguide userguide-html userguide-pdf open-userguide open-userguide-html open-userguide-pdf \
+    devguide devguide-html devguide-pdf open-devguide open-devguide-html open-devguide-pdf
+
+.PHONY: $(DOC_TARGETS)
+$(DOC_TARGETS):
+	@$(MAKE) -C doc $@
 
 # Cleanup utilities
 
@@ -154,127 +146,19 @@ show-version: default
 .PHONY: install install-tools install-devel
 install install-tools install-devel:
 	@$(MAKE) NOTEST=true -C src $@
+	@$(MAKE) NOTEST=true -C doc $@
 
-# Build the source tarball for distribution.
-
-VERSION := $(shell $(SCRIPTSDIR)/get-version-from-sources.sh)
-DISTRO  := $(shell $(SCRIPTSDIR)/get-version-from-sources.sh --distro)
-TARNAME = tsduck-$(VERSION)
-TARFILE = $(INSTALLERDIR)/$(TARNAME).tgz
-TMPROOT = $(INSTALLERDIR)/tmp
-
-.PHONY: tarball
-tarball:
-	rm -rf $(TMPROOT)
-	mkdir -p $(TMPROOT)/$(TARNAME)
-	tar -cpf - sample/sample-*/japanese-tables.bin \
-	    $(patsubst %,--exclude '%',.git $(if $(NOTELETEXT),tsTeletextDemux.* tsTeletextPlugin.*) $(shell cat .gitignore)) \
-	    . | tar -C $(TMPROOT)/$(TARNAME) -xpf -
-	$(if $(NOTELETEXT),$(SED) -i -e '/TeletextDemux/d' -e '/TeletextPlugin/d' $(TMPROOT)/$(TARNAME)/src/libtsduck/tsduck.h)
-	$(MAKE) -C $(TMPROOT)/$(TARNAME) distclean
-	tar -C $(TMPROOT) -czf $(TARFILE) -p --owner=0 --group=0 $(TARNAME)
-	rm -rf $(TMPROOT)
-
-# Installer target: rpm or deb.
-
-INSTALLER_TYPE = $(if $(wildcard /etc/*fedora* /etc/*redhat*),rpm,$(if $(wildcard /etc/*debian*),deb))
+# Build installer packages.
 
 .PHONY: installer install-installer
-installer: $(INSTALLER_TYPE)
-install-installer: install-$(INSTALLER_TYPE)
-
-# User's RPM build area.
-
-RPMBUILDROOT ?= $(HOME)/rpmbuild
-$(RPMBUILDROOT):
-	rpmdev-setuptree
-
-# RPM package building (Red Hat, Fedora, CentOS, Alma Linux, Rocky Linux, Oracle Linux, etc.)
-# The build will take place elsewhere, reuse local Dektec Linux SDK if present.
-
-RPMBUILD ?= rpmbuild
-RPMBUILDFLAGS = -ba --clean $(if $(M32),--target $(MAIN_ARCH) -D 'mflags M32=true') $(RPMBUILDFLAGS_EXTRA)
-RPM_ARCH = $(shell uname -m)
-
-.PHONY: rpm rpm32
-rpm: tarball $(RPMBUILDROOT)
-	cp -f $(TARFILE) $(RPMBUILDROOT)/SOURCES/
-	DTAPI_ORIGIN="$(shell $(SCRIPTSDIR)/dtapi-config.sh --tarball)" \
-	  VATEK_SRC_ORIGIN="$(shell $(SCRIPTSDIR)/vatek-config.sh --src-tarball)" \
-	  VATEK_BIN_ORIGIN="$(shell $(SCRIPTSDIR)/vatek-config.sh --bin-tarball)" \
-	  $(RPMBUILD) $(RPMBUILDFLAGS) \
-	      -D 'version $(shell $(SCRIPTSDIR)/get-version-from-sources.sh --main)' \
-	      -D 'commit $(shell $(SCRIPTSDIR)/get-version-from-sources.sh --commit)' \
-	      -D 'distro $(DISTRO)' \
-	      -D '_smp_mflags $(MAKEFLAGS_SMP)' \
-	      $(if $(NOSRT),-D 'nosrt 1') \
-	      $(if $(NORIST),-D 'norist 1') \
-	      $(if $(NOPCSC),-D 'nopcsc 1') \
-	      $(if $(NOCURL),-D 'nocurl 1') \
-	      $(if $(NOEDITLINE),-D 'noeditline 1') \
-	      $(if $(NOVATEK),-D 'novatek 1') \
-	      $(SCRIPTSDIR)/tsduck.spec
-	cp -uf $(RPMBUILDROOT)/RPMS/*/tsduck-$(VERSION)$(DISTRO).*.rpm $(INSTALLERDIR)
-	cp -uf $(RPMBUILDROOT)/RPMS/*/tsduck-devel-$(VERSION)$(DISTRO).*.rpm $(INSTALLERDIR)
-	cp -uf $(RPMBUILDROOT)/SRPMS/tsduck-$(VERSION)$(DISTRO).src.rpm $(INSTALLERDIR)
-rpm32:
-	$(MAKE) rpm M32=true
-
-install-rpm:
-	$(SUDO) rpm -Uvh $(INSTALLERDIR)/tsduck-$(VERSION)$(DISTRO).$(RPM_ARCH).rpm $(INSTALLERDIR)/tsduck-devel-$(VERSION)$(DISTRO).$(RPM_ARCH).rpm
-
-# DEB package building (Debian, Ubuntu, Linux Mint, Raspbian, etc.)
-# Make deb-dev depend on deb-tools to force serialization in case of -j.
-
-DEB_ARCH = $(shell dpkg-architecture -qDEB_BUILD_ARCH)
-
-.PHONY: deb deb-tools deb-dev
-deb: deb-tools deb-dev
-
-deb-tools:
-	rm -rf $(TMPROOT)
-	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true
-	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true install-tools SYSROOT=$(TMPROOT)
-	install -d -m 755 $(TMPROOT)$(SYSPREFIX)/share/doc/tsduck
-	install -m 644 CHANGELOG.txt LICENSE.txt OTHERS.txt doc/tsduck.pdf $(TMPROOT)$(SYSPREFIX)/share/doc/tsduck
-	mkdir $(TMPROOT)/DEBIAN
-	sed -e 's/{{VERSION}}/$(VERSION)$(DISTRO)/g' \
-	    -e 's/{{ARCH}}/$(DEB_ARCH)/g' \
-	    $(if $(NOSRT),-e '/libsrt/d') \
-	    $(if $(NORIST),-e '/librist/d') \
-	    $(if $(NOPCSC),-e '/libpcsc/d') \
-	    $(if $(NOCURL),-e '/libcurl/d') \
-	    $(if $(NOEDITLINE),-e '/libedit/d') \
-	    $(if $(NOVATEK),-e '/libusb/d') \
-	    $(SCRIPTSDIR)/tsduck.control >$(TMPROOT)/DEBIAN/control
-	dpkg-deb --build --root-owner-group $(TMPROOT) $(INSTALLERDIR)
-	rm -rf $(TMPROOT)
-
-deb-dev: deb-tools
-	rm -rf $(TMPROOT)
-	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true
-	$(MAKE) $(MAKEFLAGS_SMP) NOTEST=true install-devel SYSROOT=$(TMPROOT)
-	mkdir $(TMPROOT)/DEBIAN
-	sed -e 's/{{VERSION}}/$(VERSION)$(DISTRO)/g' \
-	    -e 's/{{ARCH}}/$(shell dpkg-architecture -qDEB_BUILD_ARCH)/g' \
-	    $(if $(NOSRT),-e '/libsrt/d') \
-	    $(if $(NORIST),-e '/librist/d') \
-	    $(if $(NOPCSC),-e '/libpcsc/d') \
-	    $(if $(NOCURL),-e '/libcurl/d') \
-	    $(if $(NOEDITLINE),-e '/libedit/d') \
-	    $(if $(NOVATEK),-e '/libusb/d') \
-	    $(SCRIPTSDIR)/tsduck-dev.control >$(TMPROOT)/DEBIAN/control
-	dpkg-deb --build --root-owner-group $(TMPROOT) $(INSTALLERDIR)
-	rm -rf $(TMPROOT)
-
-install-deb:
-	$(SUDO) dpkg -i $(INSTALLERDIR)/tsduck_$(VERSION)$(DISTRO)_$(DEB_ARCH).deb $(INSTALLERDIR)/tsduck-dev_$(VERSION)$(DISTRO)_$(DEB_ARCH).deb
+installer install-installer:
+	@$(MAKE) -C pkg $@
 
 # Install Git hooks.
 
 .PHONY: git-hooks
 git-hooks:
-	@$(SCRIPTSDIR)/git-hook-update.sh
+	@$(PYTHON) $(SCRIPTSDIR)/git-hook-update.py
 
 # Count lines of code: Run cloc on the source code tree starting at current directory.
 
@@ -296,7 +180,7 @@ COVERITY_SOURCES = src
 coverity:
 	rm -rf $(COVERITY_DIR)
 	$(COVERITY) --dir $(COVERITY_DIR) $(MAKE) -C $(COVERITY_SOURCES)
-	tar czf $(COVERITY_DIR).tgz $(COVERITY_DIR)
+	$(TAR) czf $(COVERITY_DIR).tgz $(COVERITY_DIR)
 
 # Static code analysis: Run cppcheck on the source code tree.
 # In debug mode, the diagnostics are more aggressive but may be false positive.

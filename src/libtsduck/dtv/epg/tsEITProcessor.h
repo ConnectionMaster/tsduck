@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -38,7 +17,6 @@
 #include "tsTSPacket.h"
 #include "tsService.h"
 #include "tsTransportStreamId.h"
-#include "tsReport.h"
 
 namespace ts {
     //!
@@ -215,7 +193,7 @@ namespace ts {
         //! @param [in] offset The number of milliseconds to add to each start time. Can be negative.
         //! @param [in] date_only If true, update the date field only, do not modify the hour/minute/second.
         //!
-        void addStartTimeOffet(MilliSecond offset, bool date_only = false);
+        void addStartTimeOffet(cn::milliseconds offset, bool date_only = false);
 
         //!
         //! Set the maximum number of buffered sections.
@@ -262,18 +240,18 @@ namespace ts {
 
     private:
         DuckContext&          _duck;
-        PIDSet                _input_pids;
-        PID                   _output_pid;
-        MilliSecond           _start_time_offset;
-        bool                  _date_only;
-        size_t                _max_buffered_sections;
+        PIDSet                _input_pids {};
+        PID                   _output_pid = PID_NULL;
+        cn::milliseconds      _start_time_offset {};
+        bool                  _date_only = false;
+        size_t                _max_buffered_sections {DEFAULT_BUFFERED_SECTIONS};
         SectionDemux          _demux;
         Packetizer            _packetizer;
-        std::list<SectionPtr> _sections;
-        std::set<TID>         _removed_tids;
-        std::list<Service>    _removed;
-        std::list<Service>    _kept;
-        std::list<std::pair<Service,Service>> _renamed;
+        std::list<SectionPtr> _sections {};
+        std::set<TID>         _removed_tids {};
+        std::list<Service>    _removed {};
+        std::list<Service>    _kept {};
+        std::list<std::pair<Service,Service>> _renamed {};
 
         // Check if a service matches a DVB triplet.
         // The service must have at least a service id or transport id.

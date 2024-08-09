@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -48,19 +27,18 @@
 namespace ts {
     class PlayPlugin: public OutputPlugin
     {
-        TS_NOBUILD_NOCOPY(PlayPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PlayPlugin);
     public:
         // Implementation of plugin API
-        PlayPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
         virtual bool isRealTime() override {return true;}
         virtual bool send(const TSPacket*, const TSPacketMetadata*, size_t) override;
 
     private:
-        bool       _use_mplayer;
-        bool       _use_xine;
-        TSForkPipe _pipe;
+        bool       _use_mplayer = false;
+        bool       _use_xine = false;
+        TSForkPipe _pipe {};
 
         // Search a file in a search path. Return true is found
         bool searchInPath(UString& result, const UStringVector& path, const UString& name);
@@ -75,10 +53,7 @@ TS_REGISTER_OUTPUT_PLUGIN(u"play", ts::PlayPlugin);
 //----------------------------------------------------------------------------
 
 ts::PlayPlugin::PlayPlugin(TSP* tsp_) :
-    OutputPlugin(tsp_, u"Play output TS on any supported media player in the system", u"[options]"),
-    _use_mplayer(false),
-    _use_xine(false),
-    _pipe()
+    OutputPlugin(tsp_, u"Play output TS on any supported media player in the system", u"[options]")
 {
 #if !defined(TS_WINDOWS)
 
@@ -102,7 +77,7 @@ ts::PlayPlugin::PlayPlugin(TSP* tsp_) :
 
 bool ts::PlayPlugin::stop()
 {
-    return _pipe.close(*tsp);
+    return _pipe.close(*this);
 }
 
 
@@ -112,7 +87,7 @@ bool ts::PlayPlugin::stop()
 
 bool ts::PlayPlugin::send(const TSPacket* buffer, const TSPacketMetadata* pkt_data, size_t packet_count)
 {
-    return _pipe.writePackets(buffer, pkt_data, packet_count, *tsp);
+    return _pipe.writePackets(buffer, pkt_data, packet_count, *this);
 }
 
 
@@ -124,9 +99,9 @@ bool ts::PlayPlugin::searchInPath(UString& result, const UStringVector& path, co
 {
     for (const auto& file : path) {
         if (!file.empty()) {
-            result = file + PathSeparator + name;
-            tsp->debug(u"looking for %s", {result});
-            if (FileExists(result)) {
+            result = file + fs::path::preferred_separator + name;
+            debug(u"looking for %s", result);
+            if (fs::exists(result)) {
                 return true;
             }
         }
@@ -146,7 +121,7 @@ bool ts::PlayPlugin::start()
     _use_mplayer = present(u"mplayer");
     _use_xine = present(u"xine");
     if (_use_mplayer && _use_xine) {
-        tsp->error(u"--mplayer (-m) and --xine (-x) are mutually exclusive");
+        error(u"--mplayer (-m) and --xine (-x) are mutually exclusive");
         return false;
     }
 #endif
@@ -154,15 +129,14 @@ bool ts::PlayPlugin::start()
     // Command to execute will be built here
     UString command;
 
-#if defined(TS_WINDOWS)
-
-    // On Windows, VLC is the only known media player that can read an MPEG
-    // transport stream on its standard input. Try to locate vlc.exe using
-    // various means.
-
     // Get environment path
     UStringVector search_path;
-    GetEnvironmentPath(search_path, TS_COMMAND_PATH);
+    GetEnvironmentPath(search_path, PATH_ENVIRONMENT_VARIABLE);
+
+#if defined(TS_WINDOWS)
+
+    // On Windows, VLC is the only known media player that can read an MPEG transport stream on its standard input.
+    // Try to locate vlc.exe using various means.
 
     // Look into some registry location
     UString ent = Registry::GetValue(u"HKLM\\SOFTWARE\\VideoLAN\\VLC", u"InstallDir");
@@ -185,18 +159,18 @@ bool ts::PlayPlugin::start()
         command = u"\"" + exec + u"\" -";
     }
     else {
-        tsp->error(u"VLC not found, install VideoLAN VLC media player, see http://www.videolan.org/vlc/");
+        error(u"VLC not found, install VideoLAN VLC media player, see http://www.videolan.org/vlc/");
         return false;
     }
 
 #else // UNIX
 
-    // Get environment path.
-    UStringVector search_path;
-    GetEnvironmentPath(search_path, TS_COMMAND_PATH);
-
-    // On macOS, additional applications are installed on /usr/local because of system integrity protection.
+    // On macOS, additional applications are installed outside /usr because of system integrity protection.
 #if defined(TS_MAC)
+    // On Apple Silicon Mac's, Homebrew is installed in /opt/homebrew.
+    #if defined(TS_ARM64)
+        search_path.push_back(u"/opt/homebrew/bin");
+    #endif
     search_path.push_back(u"/usr/local/bin");
 #endif
 
@@ -222,19 +196,19 @@ bool ts::PlayPlugin::start()
     if (_use_mplayer) {
         opts = mplayer_opts;
         if (!searchInPath(exec, search_path, mplayer_exec)) {
-            tsp->error(u"mplayer not found in PATH");
+            error(u"mplayer not found in PATH");
             return false;
         }
     }
     else if (_use_xine) {
         opts = xine_opts;
         if (!searchInPath(exec, search_path, xine_exec)) {
-            tsp->error(u"xine not found in PATH");
+            error(u"xine not found in PATH");
             return false;
         }
     }
 #if defined(TS_MAC)
-    else if (FileExists(mac_vlc_exec)) {
+    else if (fs::exists(mac_vlc_exec)) {
         exec = mac_vlc_exec;
         opts = vlc_opts;
     }
@@ -249,7 +223,7 @@ bool ts::PlayPlugin::start()
         opts = xine_opts;
     }
     else {
-        tsp->error(u"no supported media player was found");
+        error(u"no supported media player was found");
         return false;
     }
 
@@ -258,7 +232,7 @@ bool ts::PlayPlugin::start()
 #endif
 
     // Create pipe & process
-    tsp->verbose(u"using media player command: %s", {command});
+    verbose(u"using media player command: %s", command);
     _pipe.setIgnoreAbort(false);
-    return _pipe.open(command, ForkPipe::SYNCHRONOUS, PIPE_BUFFER_SIZE, *tsp, ForkPipe::KEEP_BOTH, ForkPipe::STDIN_PIPE);
+    return _pipe.open(command, ForkPipe::SYNCHRONOUS, PIPE_BUFFER_SIZE, *this, ForkPipe::KEEP_BOTH, ForkPipe::STDIN_PIPE);
 }

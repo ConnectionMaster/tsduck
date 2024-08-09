@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -46,70 +25,13 @@
 
 
 //----------------------------------------------------------------------------
-// Default constructor.
+// Constructors and destructors.
 //----------------------------------------------------------------------------
 
 ts::TSFile::TSFile() :
-    TSPacketStream(TSPacketFormat::AUTODETECT, this, this),
-    _filename(),
-    _repeat(0),
-    _counter(0),
-    _start_offset(0),
-    _open_null(0),
-    _close_null(0),
-    _open_null_read(0),
-    _close_null_read(0),
-    _is_open(false),
-    _flags(NONE),
-    _severity(Severity::Error),
-    _at_eof(false),
-    _aborted(false),
-    _rewindable(false),
-    _regular(false),
-    _std_inout(false),
-#if defined(TS_WINDOWS)
-    _handle(INVALID_HANDLE_VALUE)
-#else
-    _fd(-1)
-#endif
+    TSPacketStream(TSPacketFormat::AUTODETECT, this, this)
 {
 }
-
-
-//----------------------------------------------------------------------------
-// Copy constructor.
-//----------------------------------------------------------------------------
-
-ts::TSFile::TSFile(const TSFile& other) :
-    TSPacketStream(other.packetFormat(), this, this),
-    _filename(other._filename),
-    _repeat(other._repeat),
-    _counter(0),
-    _start_offset(other._start_offset),
-    _open_null(other._open_null),
-    _close_null(other._close_null),
-    _open_null_read(0),
-    _close_null_read(0),
-    _is_open(false),
-    _flags(NONE),
-    _severity(other._severity),
-    _at_eof(false),
-    _aborted(false),
-    _rewindable(false),
-    _regular(false),
-    _std_inout(other._std_inout),
-#if defined(TS_WINDOWS)
-    _handle(INVALID_HANDLE_VALUE)
-#else
-    _fd(-1)
-#endif
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Move constructor.
-//----------------------------------------------------------------------------
 
 ts::TSFile::TSFile(TSFile&& other) noexcept :
     TSPacketStream(other.packetFormat(), this, this),
@@ -144,11 +66,6 @@ ts::TSFile::TSFile(TSFile&& other) noexcept :
 #endif
 }
 
-
-//----------------------------------------------------------------------------
-// Destructor
-//----------------------------------------------------------------------------
-
 ts::TSFile::~TSFile()
 {
     if (_is_open) {
@@ -164,7 +81,7 @@ ts::TSFile::~TSFile()
 ts::UString ts::TSFile::getDisplayFileName() const
 {
     if (!_std_inout) {
-        return _filename;
+        return UString(_filename);
     }
     else if ((_flags & READ) != 0) {
         return u"standard input";
@@ -193,7 +110,7 @@ void ts::TSFile::setStuffing(size_t initial, size_t final)
 // Open file for read in a rewindable mode.
 //----------------------------------------------------------------------------
 
-bool ts::TSFile::openRead(const UString& filename, uint64_t start_offset, Report& report, TSPacketFormat format)
+bool ts::TSFile::openRead(const fs::path& filename, uint64_t start_offset, Report& report, TSPacketFormat format)
 {
     if (_is_open) {
         report.log(_severity, u"already open");
@@ -216,7 +133,7 @@ bool ts::TSFile::openRead(const UString& filename, uint64_t start_offset, Report
 // Open file for read with optional repetition.
 //----------------------------------------------------------------------------
 
-bool ts::TSFile::openRead(const UString& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format)
+bool ts::TSFile::openRead(const fs::path& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format)
 {
     if (_is_open) {
         report.log(_severity, u"already open");
@@ -239,7 +156,7 @@ bool ts::TSFile::openRead(const UString& filename, size_t repeat_count, uint64_t
 // Open file, generic form.
 //----------------------------------------------------------------------------
 
-bool ts::TSFile::open(const UString& filename, OpenFlags flags, Report& report, TSPacketFormat format)
+bool ts::TSFile::open(const fs::path& filename, OpenFlags flags, Report& report, TSPacketFormat format)
 {
     // Enforce WRITE if APPEND is specified.
     if ((flags & APPEND) != 0) {
@@ -294,7 +211,7 @@ bool ts::TSFile::openInternal(bool reopen, Report& report)
             return false;
         }
         else {
-            report.debug(u"closing and reopening %s", {_filename});
+            report.debug(u"closing and reopening %s", _filename);
         }
     }
 
@@ -332,17 +249,17 @@ bool ts::TSFile::openInternal(bool reopen, Report& report)
     }
 
     if (!_std_inout) {
-        // Actual file name, open it.
-        _handle = ::CreateFileW(_filename.wc_str(), access, shared, NULL, winflags, attrib, NULL);
+        // Actual file name, open it. On Windows, fs::path uses 16-bit wchar_t.
+        _handle = ::CreateFileW(_filename.c_str(), access, shared, nullptr, winflags, attrib, nullptr);
         if (_handle == INVALID_HANDLE_VALUE) {
-            const SysErrorCode err = LastSysErrorCode();
-            report.log(_severity, u"cannot open %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+            const int err = LastSysErrorCode();
+            report.log(_severity, u"cannot open %s: %s", getDisplayFileName(), SysErrorCodeMessage(err));
             return false;
         }
         // Move to end of file if --append
-        if (append_access && ::SetFilePointer(_handle, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER) {
-            const SysErrorCode err = LastSysErrorCode();
-            report.log(_severity, u"cannot append to %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+        if (append_access && ::SetFilePointer(_handle, 0, nullptr, FILE_END) == INVALID_SET_FILE_POINTER) {
+            const int err = LastSysErrorCode();
+            report.log(_severity, u"cannot append to %s: %s", getDisplayFileName(), SysErrorCodeMessage(err));
             ::CloseHandle(_handle);
             return false;
         }
@@ -373,9 +290,9 @@ bool ts::TSFile::openInternal(bool reopen, Report& report)
     if (_start_offset != 0) {
         // In Win32, LARGE_INTEGER is a 64-bit structure, not an integer type
         ::LARGE_INTEGER offset(*(::LARGE_INTEGER*)(&_start_offset));
-        if (::SetFilePointerEx(_handle, offset, NULL, FILE_BEGIN) == 0) {
-            const SysErrorCode err = LastSysErrorCode();
-            report.log(_severity, u"error seeking file %s: %s", {_filename, SysErrorCodeMessage(err)});
+        if (::SetFilePointerEx(_handle, offset, nullptr, FILE_BEGIN) == 0) {
+            const int err = LastSysErrorCode();
+            report.log(_severity, u"error seeking file %s: %s", _filename, SysErrorCodeMessage(err));
             if (!_filename.empty()) {
                 ::CloseHandle(_handle);
             }
@@ -417,30 +334,27 @@ bool ts::TSFile::openInternal(bool reopen, Report& report)
     }
     else {
         // Open a named file.
-        if ((_fd = ::open(_filename.toUTF8().c_str(), uflags, mode)) < 0) {
-            const SysErrorCode err = LastSysErrorCode();
-            report.log(_severity, u"cannot open file %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+        if ((_fd = ::open(_filename.c_str(), uflags, mode)) < 0) {
+            report.log(_severity, u"cannot open file %s: %s", getDisplayFileName(), SysErrorCodeMessage());
             return false;
         }
         // Move to end of file if --append.
         if (append_access && ::lseek(_fd, 0, SEEK_END) == off_t(-1)) {
-            const SysErrorCode err = LastSysErrorCode();
-            report.log (_severity, u"error seeking at end of file %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+            report.log(_severity, u"error seeking at end of %s: %s", getDisplayFileName(), SysErrorCodeMessage());
             ::close(_fd);
             return false;
         }
         if (temporary) {
             // Immediately delete the file. It is removed from the directory.
             // It remains accessible as long as the file is open and is deleted on close.
-            ::unlink(_filename.toUTF8().c_str());
+            ::unlink(_filename.c_str());
         }
     }
 
     // Check if this is a regular file.
-    struct stat st;
+    struct stat st {};
     if (::fstat(_fd, &st) < 0) {
-        const SysErrorCode err = LastSysErrorCode();
-        report.log(_severity, u"cannot stat input file %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+        report.log(_severity, u"cannot stat input file %s: %s", getDisplayFileName(), SysErrorCodeMessage());
         if (!_std_inout) {
             ::close(_fd);
         }
@@ -458,8 +372,7 @@ bool ts::TSFile::openInternal(bool reopen, Report& report)
 
     // If an initial offset is specified, move here
     if (_start_offset != 0 && ::lseek(_fd, off_t(_start_offset), SEEK_SET) == off_t(-1)) {
-        const SysErrorCode err = LastSysErrorCode();
-        report.log (_severity, u"error seeking input file %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+        report.log(_severity, u"error seeking input file %s: %s", getDisplayFileName(), SysErrorCodeMessage());
         if (!_std_inout) {
             ::close(_fd);
         }
@@ -507,7 +420,7 @@ bool ts::TSFile::seekCheck(Report& report)
     }
     else {
         // We need to seek but we can't.
-        report.log(_severity, u"input file %s is not a regular file, cannot %s", {getDisplayFileName(), _repeat != 1 ? u"repeat" : u"specify start offset"});
+        report.log(_severity, u"input file %s is not a regular file, cannot %s", getDisplayFileName(), _repeat != 1 ? u"repeat" : u"specify start offset");
         return false;
     }
 }
@@ -524,18 +437,17 @@ bool ts::TSFile::seekInternal(uint64_t index, Report& report)
         return openInternal(true, report);
     }
 
-    report.debug(u"seeking %s at offset %'d", {_filename, _start_offset + index});
+    report.debug(u"seeking %s at offset %'d", _filename, _start_offset + index);
 
 #if defined(TS_WINDOWS)
     // In Win32, LARGE_INTEGER is a 64-bit structure, not an integer type
     uint64_t where = _start_offset + index;
     ::LARGE_INTEGER offset(*(::LARGE_INTEGER*)(&where));
-    if (::SetFilePointerEx(_handle, offset, NULL, FILE_BEGIN) == 0) {
+    if (::SetFilePointerEx(_handle, offset, nullptr, FILE_BEGIN) == 0) {
 #else
     if (::lseek(_fd, off_t(_start_offset + index), SEEK_SET) == off_t(-1)) {
 #endif
-        const SysErrorCode err = LastSysErrorCode();
-        report.log(_severity, u"error seeking file %s: %s", {getDisplayFileName(), SysErrorCodeMessage(err)});
+        report.log(_severity, u"error seeking file %s: %s", getDisplayFileName(), SysErrorCodeMessage());
         return false;
     }
     else {
@@ -556,7 +468,7 @@ bool ts::TSFile::seek(PacketCounter packet_index, Report& report)
         return false;
     }
     else if (!_rewindable) {
-        report.log(_severity, u"file %s is not rewindable", {getDisplayFileName()});
+        report.log(_severity, u"file %s is not rewindable", getDisplayFileName());
         return false;
     }
     else {
@@ -614,7 +526,7 @@ bool ts::TSFile::readStreamPartial(void* buffer, size_t request_size, size_t& re
     read_size = 0;
 
     if (!_is_open) {
-        report.error(u"%s is not open", {getDisplayFileName()});
+        report.error(u"%s is not open", getDisplayFileName());
         return false;
     }
     if (_at_eof) {
@@ -630,7 +542,7 @@ bool ts::TSFile::readStreamPartial(void* buffer, size_t request_size, size_t& re
 
     // Windows implementation
     ::DWORD insize = 0;
-    if (::ReadFile(_handle, buffer, ::DWORD(request_size), &insize, NULL)) {
+    if (::ReadFile(_handle, buffer, ::DWORD(request_size), &insize, nullptr)) {
         // Normal case: some data were read
         assert(size_t(insize) <= request_size);
         read_size = size_t(insize);
@@ -639,11 +551,11 @@ bool ts::TSFile::readStreamPartial(void* buffer, size_t request_size, size_t& re
     }
     else {
         // Error case.
-        const SysErrorCode error_code = LastSysErrorCode();
-        _at_eof = _at_eof || error_code == ERROR_HANDLE_EOF || error_code == ERROR_BROKEN_PIPE;
+        const int errcode = LastSysErrorCode();
+        _at_eof = _at_eof || errcode == ERROR_HANDLE_EOF || errcode == ERROR_BROKEN_PIPE;
         if (!_at_eof) {
             // Actual error, not an EOF.
-            report.error(u"error reading from %s: %s", {getDisplayFileName(), SysErrorCodeMessage(error_code)});
+            report.error(u"error reading from %s: %s", getDisplayFileName(), SysErrorCodeMessage(errcode));
         }
         return false;
     }
@@ -664,13 +576,10 @@ bool ts::TSFile::readStreamPartial(void* buffer, size_t request_size, size_t& re
             read_size = size_t(insize);
             return true;
         }
-        else {
-            const SysErrorCode error_code = LastSysErrorCode();
-            if (error_code != EINTR) {
-                // Actual error (not an interrupt)
-                report.error(u"error reading from %s: %s", {getDisplayFileName(), SysErrorCodeMessage(error_code)});
-                return false;
-            }
+        else if (errno != EINTR) {
+            // Actual error (not an interrupt)
+            report.log(_severity, u"error reading %s: %s", getDisplayFileName(), SysErrorCodeMessage());
+            return false;
         }
     }
 
@@ -690,7 +599,7 @@ size_t ts::TSFile::readPackets(TSPacket* buffer, TSPacketMetadata* metadata, siz
     // Initial artificial stuffing.
     if (_open_null_read > 0 && max_packets > 0) {
         const size_t count = std::min(max_packets, _open_null_read);
-        report.debug(u"reading %d starting null packets", {count});
+        report.debug(u"reading %d starting null packets", count);
         readStuffing(buffer, metadata, count, report);
         _total_read += count;
         ret_count += count;
@@ -728,7 +637,7 @@ size_t ts::TSFile::readPackets(TSPacket* buffer, TSPacketMetadata* metadata, siz
     // Final artificial stuffing.
     if (_at_eof && _close_null_read > 0 && max_packets > 0) {
         const size_t count = std::min(max_packets, _close_null_read);
-        report.debug(u"reading %d stopping null packets", {count});
+        report.debug(u"reading %d stopping null packets", count);
         readStuffing(buffer, metadata, count, report);
         _total_read += count;
         ret_count += count;
@@ -746,7 +655,6 @@ size_t ts::TSFile::readPackets(TSPacket* buffer, TSPacketMetadata* metadata, siz
 bool ts::TSFile::writeStream(const void* buffer, size_t data_size, size_t& written_size, Report& report)
 {
     written_size = 0;
-    SysErrorCode error_code = SYS_SUCCESS;
 
 #if defined(TS_WINDOWS)
 
@@ -754,17 +662,18 @@ bool ts::TSFile::writeStream(const void* buffer, size_t data_size, size_t& writt
     const char* data = reinterpret_cast<const char*>(buffer);
     ::DWORD remain = ::DWORD(data_size);
     ::DWORD outsize = 0;
+    ::DWORD errcode = ERROR_SUCCESS;
 
     // Loop on write until everything is gone
     while (remain > 0) {
-        if (::WriteFile(_handle, data, remain, &outsize, NULL) != 0)  {
+        if (::WriteFile(_handle, data, remain, &outsize, nullptr) != 0)  {
             // Normal case, some data were written
             outsize = std::min(outsize, remain);
             data += outsize;
             remain -= outsize;
             written_size += size_t(outsize);
         }
-        else if ((error_code = LastSysErrorCode()) == ERROR_BROKEN_PIPE || error_code == ERROR_NO_DATA) {
+        else if ((errcode = ::GetLastError()) == ERROR_BROKEN_PIPE || errcode == ERROR_NO_DATA) {
             // Broken pipe: error state but don't report error.
             // Note that ERROR_NO_DATA (= 232) means "the pipe is being closed"
             // and this is the actual error code which is returned when the pipe
@@ -773,7 +682,7 @@ bool ts::TSFile::writeStream(const void* buffer, size_t data_size, size_t& writt
         }
         else {
             // Write error
-            report.log(_severity, u"error writing %s: %s (%d)", {getDisplayFileName(), SysErrorCodeMessage(error_code), error_code});
+            report.log(_severity, u"error writing %s: %s", getDisplayFileName(), SysErrorCodeMessage(errcode));
             return false;
         }
     }
@@ -796,11 +705,10 @@ bool ts::TSFile::writeStream(const void* buffer, size_t data_size, size_t& writt
             remain -= outsize;
             written_size += size_t(outsize);
         }
-        else if ((error_code = LastSysErrorCode()) != EINTR) {
-            // Actual error (not an interrupt)
-            // Don't report error on broken pipe.
-            if (error_code != EPIPE) {
-                report.log(_severity, u"error writing %s: %s (%d)", {getDisplayFileName(), SysErrorCodeMessage(error_code), error_code});
+        else if (errno != EINTR) {
+            // Actual error (not an interrupt). Don't report error on broken pipe.
+            if (errno != EPIPE) {
+                report.log(_severity, u"error writing %s: %s", getDisplayFileName(), SysErrorCodeMessage());
             }
             return false;
         }

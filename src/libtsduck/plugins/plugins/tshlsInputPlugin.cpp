@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -41,28 +20,7 @@ TS_REGISTER_INPUT_PLUGIN(u"hls", ts::hls::InputPlugin);
 //----------------------------------------------------------------------------
 
 ts::hls::InputPlugin::InputPlugin(TSP* tsp_) :
-    AbstractHTTPInputPlugin(tsp_, u"Receive HTTP Live Streaming (HLS) media", u"[options] url"),
-    _url(),
-    _minRate(0),
-    _maxRate(0),
-    _minWidth(0),
-    _maxWidth(0),
-    _minHeight(0),
-    _maxHeight(0),
-    _startSegment(0),
-    _listVariants(false),
-    _lowestRate(false),
-    _highestRate(false),
-    _lowestRes(false),
-    _highestRes(false),
-    _maxSegmentCount(0),
-    _altSelection(false),
-    _altType(),
-    _altName(),
-    _altGroupId(),
-    _altLanguage(),
-    _segmentCount(0),
-    _playlist()
+    AbstractHTTPInputPlugin(tsp_, u"Receive HTTP Live Streaming (HLS) media", u"[options] url")
 {
     option(u"", 0, STRING, 1, 1);
     help(u"",
@@ -220,14 +178,14 @@ bool ts::hls::InputPlugin::getOptions()
     if (present(u"live")) {
         // With live streams, start at the last segment.
         if (_startSegment != 0) {
-            tsp->error(u"--live and --start-segment are mutually exclusive");
+            error(u"--live and --start-segment are mutually exclusive");
             return false;
         }
         _startSegment = -1;
     }
 
     if (!_url.isValid()) {
-        tsp->error(u"invalid URL");
+        error(u"invalid URL");
         return false;
     }
 
@@ -236,15 +194,15 @@ bool ts::hls::InputPlugin::getOptions()
     const bool multiSelect = _minRate > 0 || _maxRate > 0 || _minWidth > 0 || _maxWidth > 0 || _minHeight > 0 || _maxHeight > 0;
 
     if (singleSelect > 1) {
-        tsp->error(u"specify only one of --lowest-bitrate, --highest-bitrate, --lowest-resolution, --highest-resolution");
+        error(u"specify only one of --lowest-bitrate, --highest-bitrate, --lowest-resolution, --highest-resolution");
         return false;
     }
     if (singleSelect > 0 && multiSelect) {
-        tsp->error(u"incompatible combination of stream selection options");
+        error(u"incompatible combination of stream selection options");
         return false;
     }
     if (_altSelection && (singleSelect > 0 || multiSelect)) {
-        tsp->error(u"--alt-* options and incompatible with main stream selection options");
+        error(u"--alt-* options and incompatible with main stream selection options");
         return false;
     }
 
@@ -264,13 +222,13 @@ bool ts::hls::InputPlugin::start()
 {
     // Load the HLS playlist, can be a master playlist or a media playlist.
     _playlist.clear();
-    if (!_playlist.loadURL(_url.toString(), false, webArgs, hls::PlayListType::UNKNOWN, *tsp)) {
+    if (!_playlist.loadURL(_url.toString(), false, webArgs, hls::PlayListType::UNKNOWN, *this)) {
         return false;
     }
 
     // In the case of a master play list, select one media playlist.
     if (_playlist.type() == hls::PlayListType::MASTER) {
-        tsp->verbose(u"downloaded %s", {_playlist});
+        verbose(u"downloaded %s", _playlist);
 
         // Get a copy of the master playlist. The media playlist will be loaded in _playlist.
         PlayList master(_playlist);
@@ -278,12 +236,12 @@ bool ts::hls::InputPlugin::start()
         // List all variants when requested.
         if (_listVariants) {
             for (size_t i = 0; i < master.playListCount(); ++i) {
-                tsp->info(master.playList(i).toString());
+                info(master.playList(i).toString());
             }
             if (master.altPlayListCount() > 0) {
-                tsp->info(u"%s alternative rendition contents:", {master.altPlayListCount()});
+                info(u"%s alternative rendition contents:", master.altPlayListCount());
                 for (size_t i = 0; i < master.altPlayListCount(); ++i) {
-                    tsp->info(master.altPlayList(i).toString());
+                    info(master.altPlayList(i).toString());
                 }
             }
         }
@@ -294,13 +252,13 @@ bool ts::hls::InputPlugin::start()
             _playlist.clear();
             const size_t index = master.selectAltPlayList(_altType, _altName, _altGroupId, _altLanguage);
             if (index == NPOS) {
-                tsp->error(u"no alternative rendition media playlist found with selected criteria");
+                error(u"no alternative rendition media playlist found with selected criteria");
                 return false;
             }
             else {
                 assert(index < master.altPlayListCount());
-                tsp->verbose(u"selected playlist: %s", {master.altPlayList(index)});
-                if (!_playlist.loadURL(master.altPlayList(index).urlString(), false, webArgs, hls::PlayListType::UNKNOWN, *tsp)) {
+                verbose(u"selected playlist: %s", master.altPlayList(index));
+                if (!_playlist.loadURL(master.altPlayList(index).urlString(), false, webArgs, hls::PlayListType::UNKNOWN, *this)) {
                     return false;
                 }
             }
@@ -326,20 +284,20 @@ bool ts::hls::InputPlugin::start()
                     index = master.selectPlayList(_minRate, _maxRate, _minWidth, _maxWidth, _minHeight, _maxHeight);
                 }
                 if (index == NPOS) {
-                    tsp->error(u"could not find a matching stream in master playlist");
+                    error(u"could not find a matching stream in master playlist");
                     return false;
                 }
                 assert(index < master.playListCount());
-                tsp->verbose(u"selected playlist: %s", {master.playList(index)});
+                verbose(u"selected playlist: %s", master.playList(index));
                 const UString nextURL(master.playList(index).urlString());
 
                 // Download selected media playlist.
                 _playlist.clear();
-                if (_playlist.loadURL(nextURL, false, webArgs, hls::PlayListType::UNKNOWN, *tsp)) {
+                if (_playlist.loadURL(nextURL, false, webArgs, hls::PlayListType::UNKNOWN, *this)) {
                     break; // media playlist loaded
                 }
                 else if (master.playListCount() == 1) {
-                    tsp->error(u"no more media playlist to try, giving up");
+                    error(u"no more media playlist to try, giving up");
                     return false;
                 }
                 else {
@@ -352,21 +310,21 @@ bool ts::hls::InputPlugin::start()
 
     // Now, we must have a media playlist.
     if (!_playlist.isMedia()) {
-        tsp->error(u"invalid HLS playlist type, expected a media playlist");
+        error(u"invalid HLS playlist type, expected a media playlist");
         return false;
     }
-    tsp->verbose(u"downloaded %s", {_playlist});
+    verbose(u"downloaded %s", _playlist);
 
     // Manage the number of media segments and starting point.
     size_t segCount = _playlist.segmentCount();
     if (segCount == 0) {
-        tsp->error(u"empty HLS media playlist");
+        error(u"empty HLS media playlist");
         return false;
     }
     else if (_startSegment > 0) {
         // Start index from the start of playlist.
         if (segCount + 1 < size_t(_startSegment)) {
-            tsp->warning(u"playlist has only %d segments, starting at last one", {segCount});
+            warning(u"playlist has only %d segments, starting at last one", segCount);
             segCount = 1;
         }
         else {
@@ -377,7 +335,7 @@ bool ts::hls::InputPlugin::start()
     else if (_startSegment < 0) {
         // Start index from the end of playlist.
         if (segCount < size_t(- _startSegment)) {
-            tsp->warning(u"playlist has only %d segments, starting at first one", {segCount});
+            warning(u"playlist has only %d segments, starting at first one", segCount);
         }
         else {
             // Remaining number of segments to play.
@@ -388,7 +346,7 @@ bool ts::hls::InputPlugin::start()
     // If the start point is not the first segment, then drop unused initial segments.
     while (_playlist.segmentCount() > segCount) {
         _playlist.popFirstSegment();
-        tsp->debug(u"dropped initial segment, %d remaining segments", {_playlist.segmentCount()});
+        debug(u"dropped initial segment, %d remaining segments", _playlist.segmentCount());
     }
 
     _segmentCount = 0;
@@ -431,7 +389,7 @@ bool ts::hls::InputPlugin::openURL(WebRequest& request)
     if (!completed && _playlist.segmentCount() < 2 && _playlist.isUpdatable()) {
 
         // Reload the playlist, ignore errors, continue to play next segments.
-        _playlist.reload(false, webArgs, *tsp);
+        _playlist.reload(false, webArgs, *this);
 
         // If the playlist is still empty, this means that we have read all segments before the server
         // could produce new segments. For live streams, this is possible because new segments
@@ -440,9 +398,9 @@ bool ts::hls::InputPlugin::openURL(WebRequest& request)
 
         while (_playlist.segmentCount() == 0 && Time::CurrentUTC() <= _playlist.terminationUTC() && !tsp->aborting()) {
             // The wait between two retries is half the target duration of a segment, with a minimum of 2 seconds.
-            SleepThread(std::max<MilliSecond>(2000, (MilliSecPerSec * _playlist.targetDuration()) / 2));
+            std::this_thread::sleep_for(std::max(cn::seconds(2), _playlist.targetDuration() / 2));
             // This time, we stop on reload error.
-            if (!_playlist.reload(false, webArgs, *tsp)) {
+            if (!_playlist.reload(false, webArgs, *this)) {
                 break;
             }
         }
@@ -452,7 +410,7 @@ bool ts::hls::InputPlugin::openURL(WebRequest& request)
     }
 
     if (completed) {
-        tsp->verbose(u"HLS playlist completed");
+        verbose(u"HLS playlist completed");
         return false;
     }
 
@@ -462,7 +420,7 @@ bool ts::hls::InputPlugin::openURL(WebRequest& request)
     _segmentCount++;
 
     // Open the segment.
-    tsp->debug(u"downloading segment %s", {seg.urlString()});
+    debug(u"downloading segment %s", seg.urlString());
     request.enableCookies(webArgs.cookiesFile);
     return request.open(seg.urlString());
 }

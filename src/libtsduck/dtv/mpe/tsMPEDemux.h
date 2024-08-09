@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -58,7 +37,7 @@ namespace ts {
         //!
         //! Explicit reference to superclass.
         //!
-        typedef AbstractDemux SuperClass;
+        using SuperClass = AbstractDemux;
 
         //!
         //! Constructor.
@@ -98,8 +77,8 @@ namespace ts {
         virtual void handleSection(SectionDemux& demux, const Section& section) override;
 
         // Keep a map of all PMT's per service id.
-        typedef SafePtr<PMT> PMTPtr;
-        typedef std::map<uint16_t, PMTPtr> PMTMap;
+        using PMTPtr = std::shared_ptr<PMT>;
+        using PMTMap = std::map<uint16_t, PMTPtr>;
 
         // We record here all MPE PID's from the IP/MAC Notification Table (INT).
         // In the INT, an MPE PID is defined by a 16-bit service id and an 8-bit component tag.
@@ -122,11 +101,11 @@ namespace ts {
         void processMPEDiscovery(const PMT& pmt, PID pid);
 
         // Private members:
-        MPEHandlerInterface* _handler;    // Application-defined handler
-        SectionDemux         _psi_demux;  // Demux for PSI parsing.
-        uint16_t             _ts_id;      // Current transport stream id.
-        PMTMap               _pmts;       // Map of all PMT's in the TS.
-        PIDSet               _new_pids;   // New MPE PID's which where signalled to the application.
-        std::set<uint32_t>   _int_tags;   // Set of service_id / component_tag from the INT.
+        MPEHandlerInterface* _handler = nullptr; // Application-defined handler
+        SectionDemux         _psi_demux;         // Demux for PSI parsing.
+        uint16_t             _ts_id = 0;         // Current transport stream id.
+        PMTMap               _pmts {};           // Map of all PMT's in the TS.
+        PIDSet               _new_pids {};       // New MPE PID's which where signalled to the application.
+        std::set<uint32_t>   _int_tags {};       // Set of service_id / component_tag from the INT.
     };
 }

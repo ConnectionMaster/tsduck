@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -54,33 +33,32 @@ ts::Descriptor::Descriptor(const ByteBlock& bb) :
 ts::Descriptor::Descriptor(DID tag, const void* data, size_t size) :
     _data(size < 256 ? new ByteBlock(size + 2) : nullptr)
 {
-    if (!_data.isNull()) {
+    if (_data != nullptr) {
         (*_data)[0] = tag;
         (*_data)[1] = uint8_t(size);
-        ::memcpy(_data->data() + 2, data, size);
+        MemCopy(_data->data() + 2, data, size);
     }
 }
 
 ts::Descriptor::Descriptor(DID tag, const ByteBlock& data) :
     _data(data.size() < 256 ? new ByteBlock(2) : nullptr)
 {
-    if (!_data.isNull()) {
+    if (_data != nullptr) {
         (*_data)[0] = tag;
         (*_data)[1] = uint8_t(data.size());
         _data->append(data);
     }
 }
 
-ts::Descriptor::Descriptor(const ByteBlockPtr& bbp, ShareMode mode) :
-    _data(nullptr)
+ts::Descriptor::Descriptor(const ByteBlockPtr& bbp, ShareMode mode)
 {
-    if (!bbp.isNull() && bbp->size() >= 2 && bbp->size() < 258 && (*bbp)[1] == bbp->size() - 2) {
+    if (bbp != nullptr && bbp->size() >= 2 && bbp->size() < 258 && (*bbp)[1] == bbp->size() - 2) {
         switch (mode) {
             case ShareMode::SHARE:
                 _data = bbp;
                 break;
             case ShareMode::COPY:
-                _data = new ByteBlock(*bbp);
+                _data = std::make_shared<ByteBlock>(*bbp);
                 break;
             default:
                 // should not get there
@@ -89,15 +67,14 @@ ts::Descriptor::Descriptor(const ByteBlockPtr& bbp, ShareMode mode) :
     }
 }
 
-ts::Descriptor::Descriptor(const Descriptor& desc, ShareMode mode) :
-    _data(nullptr)
+ts::Descriptor::Descriptor(const Descriptor& desc, ShareMode mode)
 {
     switch (mode) {
         case ShareMode::SHARE:
             _data = desc._data;
             break;
         case ShareMode::COPY:
-            _data = new ByteBlock(*desc._data);
+            _data = std::make_shared<ByteBlock>(*desc._data);
             break;
         default:
             // should not get there
@@ -134,7 +111,7 @@ ts::Descriptor& ts::Descriptor::operator=(Descriptor&& desc) noexcept
 ts::Descriptor& ts::Descriptor::copy(const Descriptor& desc)
 {
     if (&desc != this) {
-        _data = new ByteBlock(*desc._data);
+        _data = std::make_shared<ByteBlock>(*desc._data);
     }
     return *this;
 }
@@ -187,9 +164,9 @@ void ts::Descriptor::replacePayload(const void* addr, size_t size)
 {
     if (size > 255) {
         // Payload size too long, invalidate descriptor
-        _data.clear();
+        _data.reset();
     }
-    else if (!_data.isNull()) {
+    else if (_data != nullptr) {
         assert(_data->size() >= 2);
         // Erase previous payload
         _data->erase(2, _data->size() - 2);
@@ -211,15 +188,15 @@ void ts::Descriptor::resizePayload(size_t new_size)
 {
     if (new_size > 255) {
         // Payload size too long, invalidate descriptor
-        _data.clear();
+        _data.reset();
     }
-    else if (!_data.isNull()) {
+    else if (_data != nullptr) {
         assert(_data->size() >= 2);
         size_t old_size = _data->size() - 2;
         _data->resize (new_size + 2);
         // If payload extended, zero additional bytes
         if (new_size > old_size) {
-            Zero(_data->data() + 2 + old_size, new_size - old_size);
+            MemZero(_data->data() + 2 + old_size, new_size - old_size);
         }
         // Adjust descriptor size
         (*_data)[1] = uint8_t (_data->size() - 2);
@@ -234,8 +211,8 @@ void ts::Descriptor::resizePayload(size_t new_size)
 bool ts::Descriptor::operator== (const Descriptor& desc) const
 {
     return _data == desc._data ||
-        (_data.isNull() && desc._data.isNull()) ||
-        (!_data.isNull() && !desc._data.isNull() && *_data == *desc._data);
+        (_data == nullptr && desc._data == nullptr) ||
+        (_data != nullptr && desc._data != nullptr && *_data == *desc._data);
 }
 
 
@@ -251,11 +228,11 @@ ts::AbstractDescriptorPtr ts::Descriptor::deserialize(DuckContext& duck, PDS pds
 ts::AbstractDescriptorPtr ts::Descriptor::deserialize(DuckContext& duck, PDS pds, TID tid) const
 {
     // Do we know how to deserialize this descriptor?
-    PSIRepository::DescriptorFactory fac = PSIRepository::Instance()->getDescriptorFactory(edid(pds), tid);
+    PSIRepository::DescriptorFactory fac = PSIRepository::Instance().getDescriptorFactory(edid(pds), tid);
     if (fac != nullptr) {
         // We know how to deserialize it.
         AbstractDescriptorPtr dp(fac());
-        if (!dp.isNull()) {
+        if (dp != nullptr) {
             // Deserialize from binary to object.
             dp->deserialize(duck, *this);
             if (dp->isValid()) {
@@ -285,7 +262,7 @@ ts::xml::Element* ts::Descriptor::toXML(DuckContext& duck, xml::Element* parent,
     // Try to generate a specialized XML structure.
     if (!forceGeneric) {
         const AbstractDescriptorPtr dp(deserialize(duck, pds, tid));
-        if (!dp.isNull()) {
+        if (dp != nullptr) {
             // Serialize from object to XML.
             node = dp->toXML(duck, parent);
         }
@@ -317,23 +294,23 @@ bool ts::Descriptor::fromXML(DuckContext& duck, const xml::Element* node, TID ti
     }
 
     // If the table is specified and the XML descriptor is not allowed in this table, this is an error.
-    if (!PSIRepository::Instance()->isDescriptorAllowed(node->name(), tid)) {
-        node->report().error(u"<%s>, line %d, is not allowed here, must be in %s", {
+    if (!PSIRepository::Instance().isDescriptorAllowed(node->name(), tid)) {
+        node->report().error(u"<%s>, line %d, is not allowed here, must be in %s",
                              node->name(),
                              node->lineNumber(),
-                             PSIRepository::Instance()->descriptorTables(duck, node->name())});
+                             PSIRepository::Instance().descriptorTables(duck, node->name()));
         return false;
     }
 
     // Try to get the descriptor factory for that kind of XML tag.
-    const PSIRepository::DescriptorFactory fac = PSIRepository::Instance()->getDescriptorFactory(node->name());
+    const PSIRepository::DescriptorFactory fac = PSIRepository::Instance().getDescriptorFactory(node->name());
     if (fac != nullptr) {
         // Create a descriptor instance of the right type.
         AbstractDescriptorPtr desc = fac();
-        if (!desc.isNull()) {
+        if (desc != nullptr) {
             desc->fromXML(duck, node);
         }
-        if (!desc.isNull() && desc->isValid()) {
+        if (desc != nullptr && desc->isValid()) {
             // Serialize the descriptor.
             desc->serialize(duck, *this);
         }
@@ -347,14 +324,14 @@ bool ts::Descriptor::fromXML(DuckContext& duck, const xml::Element* node, TID ti
         ByteBlock payload;
         if (node->getIntAttribute<DID>(tag, u"tag", true, 0xFF, 0x00, 0xFF) && node->getHexaText(payload, 0, 255)) {
             // Build descriptor.
-            _data = new ByteBlock(2);
+            _data = std::make_shared<ByteBlock>(2);
             (*_data)[0] = tag;
             (*_data)[1] = uint8_t(payload.size());
             _data->append(payload);
             return true;
         }
         else {
-            node->report().error(u"<%s>, line %d, is not a valid descriptor", {node->name(), node->lineNumber()});
+            node->report().error(u"<%s>, line %d, is not a valid descriptor", node->name(), node->lineNumber());
         }
     }
 

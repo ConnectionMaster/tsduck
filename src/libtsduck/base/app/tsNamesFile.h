@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -135,7 +114,7 @@ namespace ts {
         //!
         //! Largest integer type we manage in the repository of names.
         //!
-        typedef uint64_t Value;
+        using Value = uint64_t;
 
         //!
         //! Get the complete path of the configuration file from which the names were loaded.
@@ -224,24 +203,26 @@ namespace ts {
         class ConfigEntry
         {
         public:
-            Value   last;   // Last value in the range.
-            UString name;   // Associated name.
+            Value   last = 0;  // Last value in the range.
+            UString name {};   // Associated name.
 
-            ConfigEntry(Value l = 0, const UString& n = UString());
+            ConfigEntry(Value l = 0, const UString& n = UString()) : last(l), name(n) {}
         };
 
         // Map of configuration entries, indexed by first value of the range.
-        typedef std::map<Value, ConfigEntry*> ConfigEntryMap;
+        using ConfigEntryMap = std::map<Value, ConfigEntry*>;
 
         // Description of a configuration section.
         // The name of the section is the key in a map.
         class ConfigSection
         {
+            TS_NOCOPY(ConfigSection);
         public:
-            size_t          bits;     // Number of significant bits in values of the type.
-            ConfigEntryMap  entries;  // All entries, indexed by names.
+            size_t          bits = 0;     // Number of significant bits in values of the type.
+            ConfigEntryMap  entries {};   // All entries, indexed by names.
+            UString         inherit {};   // Redirect to this section if value not found.
 
-            ConfigSection();
+            ConfigSection() = default;
             ~ConfigSection();
 
             // Check if a range is free, ie no value is defined in the range.
@@ -255,7 +236,7 @@ namespace ts {
         };
 
         // Map of configuration sections, indexed by name.
-        typedef std::map<UString, ConfigSection*> ConfigSectionMap;
+        using ConfigSectionMap = std::map<UString, ConfigSection*>;
 
         // Decode a line as "first[-last] = name". Return true on success, false on error.
         bool decodeDefinition(const UString& line, ConfigSection* section);
@@ -269,12 +250,59 @@ namespace ts {
         // Load a configuration file and merge its content into this instance.
         void loadFile(const UString& fileName);
 
+        // Get the section and name from a value, empty if not found. Section can be null.
+        void getName(const UString& sectionName, Value value, ConfigSection*& section, UString& name) const;
+
+        // Normalized section name.
+        static UString NormalizedSectionName(const UString& sectionName) { return sectionName.toTrimmed().toLower(); }
+
         // Names private fields.
-        Report&          _log;           // Error logger.
-        const UString    _configFile;    // Configuration file path.
-        size_t           _configErrors;  // Number of errors in configuration file.
-        ConfigSectionMap _sections;      // Configuration sections.
+        Report&          _log;               // Error logger.
+        const UString    _configFile;        // Configuration file path.
+        size_t           _configErrors = 0;  // Number of errors in configuration file.
+        ConfigSectionMap _sections {};       // Configuration sections.
     };
+
+    //!
+    //! Get a name from a specified section in the DTV names file.
+    //! @tparam INT An integer name.
+    //! @param [in] sectionName Name of section to search. Not case-sensitive.
+    //! @param [in] value Value to get the name for.
+    //! @param [in] flags Presentation flags.
+    //! @param [in] bits Nominal size in bits of the data, optional.
+    //! @param [in] alternateValue Display this integer value if flags ALTERNATE is set.
+    //! @return The corresponding name.
+    //!
+    template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value, int>::type = 0>
+    UString NameFromDTV(const UString& sectionName, INT value, NamesFlags flags = NamesFlags::NAME, size_t bits = 0, INT alternateValue = static_cast<INT>(0))
+    {
+        return NamesFile::Instance(NamesFile::Predefined::DTV)->nameFromSection(sectionName, NamesFile::Value(value), flags, bits, NamesFile::Value(alternateValue));
+    }
+
+    //!
+    //! Get a name from a specified section in the DTV names file, with alternate fallback value.
+    //! @tparam INT An integer name.
+    //! @param [in] sectionName Name of section to search. Not case-sensitive.
+    //! @param [in] value1 Value to get the name for.
+    //! @param [in] value2 Alternate value if no name is found for @a value1.
+    //! @param [in] flags Presentation flags.
+    //! @param [in] bits Nominal size in bits of the data, optional.
+    //! @param [in] alternateValue Display this integer value if flags ALTERNATE is set.
+    //! @return The corresponding name.
+    //!
+    template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value, int>::type = 0>
+    UString NameFromDTVWithFallback(const UString& sectionName, INT value1, INT value2, NamesFlags flags = NamesFlags::NAME, size_t bits = 0, INT alternateValue = static_cast<INT>(0))
+    {
+        return NamesFile::Instance(NamesFile::Predefined::DTV)->nameFromSectionWithFallback(sectionName, NamesFile::Value(value1), NamesFile::Value(value2), flags, bits, NamesFile::Value(alternateValue));
+    }
+
+    //!
+    //! Get the name of an OUI (IEEE-assigned Organizationally Unique Identifier), 24 bits.
+    //! @param [in] oui Organizationally Unique Identifier), 24 bits.
+    //! @param [in] flags Presentation flags.
+    //! @return The corresponding name.
+    //!
+    TSDUCKDLL UString NameFromOUI(uint32_t oui, NamesFlags flags = NamesFlags::NAME);
 }
 
 //!

@@ -1,33 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstspProcessorExecutor.h"
+#include "tsEnvironment.h"
 
 
 //----------------------------------------------------------------------------
@@ -38,7 +18,7 @@ ts::tsp::ProcessorExecutor::ProcessorExecutor(const TSProcessorArgs& options,
                                               const PluginEventHandlerRegistry& handlers,
                                               size_t plugin_index,
                                               const ThreadAttributes& attributes,
-                                              Mutex& global_mutex,
+                                              std::recursive_mutex& global_mutex,
                                               Report* report) :
 
     PluginExecutor(options, handlers, PluginType::PROCESSOR, options.plugins[plugin_index], attributes, global_mutex, report),
@@ -47,7 +27,7 @@ ts::tsp::ProcessorExecutor::ProcessorExecutor(const TSProcessorArgs& options,
 {
     if (options.log_plugin_index) {
         // Make sure that plugins display their index.
-        setLogName(UString::Format(u"%s[%d]", {pluginName(), _plugin_index}));
+        setLogName(UString::Format(u"%s[%d]", pluginName(), _plugin_index));
     }
 }
 
@@ -109,7 +89,7 @@ void ts::tsp::ProcessorExecutor::main()
 
 void ts::tsp::ProcessorExecutor::processIndividualPackets()
 {
-    TSPacketMetadata::LabelSet only_labels(_processor->getOnlyLabelOption());
+    TSPacketLabelSet only_labels(_processor->getOnlyLabelOption());
     PacketCounter passed_packets = 0;
     PacketCounter dropped_packets = 0;
     PacketCounter nullified_packets = 0;
@@ -118,7 +98,6 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
     bool bitrate_never_modified = true;
     bool input_end = false;
     bool aborted = false;
-    bool restarted = false;
 
     do {
         // Wait for packets to process
@@ -132,15 +111,6 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
         if (bitrate_never_modified) {
             output_bitrate = _tsp_bitrate;
             br_confidence = _tsp_bitrate_confidence;
-        }
-
-        // Process restart requests.
-        if (!processPendingRestart(restarted)) {
-            timeout = true; // restart error
-        }
-        else if (restarted) {
-            // Plugin was restarted, need to recheck --only-label
-            only_labels = _processor->getOnlyLabelOption();
         }
 
         // In case of abort on timeout, notify previous and next plugin, then exit.
@@ -172,6 +142,18 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
             TSPacket* const pkt = _buffer->base() + pkt_first + pkt_done;
             TSPacketMetadata* const pkt_data = _metadata->base() + pkt_first + pkt_done;
             bool got_new_bitrate = false;
+
+            // Process restart requests.
+            bool restarted = false;
+            if (!processPendingRestart(restarted)) {
+                // Restart error.
+                aborted = true;
+                break;
+            }
+            else if (restarted) {
+                // Plugin was restarted, need to recheck --only-label
+                only_labels = _processor->getOnlyLabelOption();
+            }
 
             pkt_done++;
             pkt_flush++;
@@ -222,7 +204,7 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
                         break;
                     default:
                         // Invalid status, report error and accept packet.
-                        error(u"invalid packet processing status %d", {status});
+                        error(u"invalid packet processing status %d", status);
                         break;
                 }
 
@@ -256,7 +238,7 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
     } while (!input_end && !aborted);
 
     debug(u"packet processing thread %s after %'d packets, %'d passed, %'d dropped, %'d nullified",
-          {input_end ? u"terminated" : u"aborted", pluginPackets(), passed_packets, dropped_packets, nullified_packets});
+          input_end ? u"terminated" : u"aborted", pluginPackets(), passed_packets, dropped_packets, nullified_packets);
 }
 
 
@@ -266,9 +248,9 @@ void ts::tsp::ProcessorExecutor::processIndividualPackets()
 
 void ts::tsp::ProcessorExecutor::processPacketWindows(size_t window_size)
 {
-    debug(u"packet processing window size: %'d packets", {window_size});
+    debug(u"packet processing window size: %'d packets", window_size);
 
-    TSPacketMetadata::LabelSet only_labels(_processor->getOnlyLabelOption());
+    TSPacketLabelSet only_labels(_processor->getOnlyLabelOption());
     PacketCounter passed_packets = 0;
     PacketCounter dropped_packets = 0;
     PacketCounter nullified_packets = 0;
@@ -430,5 +412,5 @@ void ts::tsp::ProcessorExecutor::processPacketWindows(size_t window_size)
     } while (!input_end && !aborted);
 
     debug(u"packet processing thread %s after %'d packets, %'d passed, %'d dropped, %'d nullified",
-          {input_end ? u"terminated" : u"aborted", pluginPackets(), passed_packets, dropped_packets, nullified_packets});
+          input_end ? u"terminated" : u"aborted", pluginPackets(), passed_packets, dropped_packets, nullified_packets);
 }

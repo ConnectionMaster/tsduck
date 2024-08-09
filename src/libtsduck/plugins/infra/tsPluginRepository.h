@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -37,7 +16,7 @@
 #include "tsProcessorPlugin.h"
 #include "tsOutputPlugin.h"
 #include "tsReport.h"
-#include "tsSingletonManager.h"
+#include "tsSingleton.h"
 #include "tsVersionInfo.h"
 
 namespace ts {
@@ -57,21 +36,21 @@ namespace ts {
         //! @param [in] tsp Associated callback to tsp.
         //! @return A new allocated object implementing ts::InputPlugin.
         //!
-        typedef InputPlugin* (*InputPluginFactory)(TSP* tsp);
+        using InputPluginFactory = InputPlugin* (*)(TSP* tsp);
 
         //!
         //! Profile of a function which creates an output plugin.
         //! @param [in] tsp Associated callback to tsp.
         //! @return A new allocated object implementing ts::OutputPlugin.
         //!
-        typedef OutputPlugin* (*OutputPluginFactory)(TSP* tsp);
+        using OutputPluginFactory = OutputPlugin* (*)(TSP* tsp);
 
         //!
         //! Profile of a function which creates a packet processor plugin.
         //! @param [in] tsp Associated callback to tsp.
         //! @return A new allocated object implementing ts::ProcessorPlugin.
         //!
-        typedef ProcessorPlugin* (*ProcessorPluginFactory)(TSP* tsp);
+        using ProcessorPluginFactory = ProcessorPlugin* (*)(TSP* tsp);
 
         //!
         //! Allow or disallow the loading of plugins from shareable objects.
@@ -233,14 +212,14 @@ namespace ts {
         };
 
     private:
-        typedef std::map<UString, InputPluginFactory>     InputMap;
-        typedef std::map<UString, ProcessorPluginFactory> ProcessorMap;
-        typedef std::map<UString, OutputPluginFactory>    OutputMap;
+        using InputMap = std::map<UString, InputPluginFactory>    ;
+        using ProcessorMap = std::map<UString, ProcessorPluginFactory>;
+        using OutputMap = std::map<UString, OutputPluginFactory>   ;
 
-        bool         _sharedLibraryAllowed;
-        InputMap     _inputPlugins;
-        ProcessorMap _processorPlugins;
-        OutputMap    _outputPlugins;
+        bool         _sharedLibraryAllowed = true;
+        InputMap     _inputPlugins {};
+        ProcessorMap _processorPlugins {};
+        OutputMap    _outputPlugins {};
 
         template<typename FACTORY>
         FACTORY getFactory(const UString& name, const UString& type, const std::map<UString,FACTORY>&, Report&);
@@ -256,7 +235,7 @@ namespace ts {
 // each because of the use of __LINE__ to create unique identifiers.
 //
 //! @cond nodoxygen
-#define _TS_PLUGIN_FACTORY(funcname,classname,suffix) namespace { ts::suffix##Plugin* funcname(ts::TSP* tsp) {return new classname(tsp);} }
+#define _TS_PLUGIN_FACTORY(funcname,classname,suffix) namespace { ts::suffix##Plugin* funcname(ts::TSP* tsp) { return new classname(tsp); } }
 #define _TS_REGISTER_PLUGIN(name,classname,suffix) \
     TS_LIBCHECK(); \
     _TS_PLUGIN_FACTORY(TS_UNIQUE_NAME(_F),classname,suffix) static ts::PluginRepository::Register TS_UNIQUE_NAME(_R)(name,&TS_UNIQUE_NAME(_F))

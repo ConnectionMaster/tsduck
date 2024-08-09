@@ -1,36 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSPacket.h"
 #include "tsPES.h"
-#include "tsNames.h"
+#include "tsNamesFile.h"
 #include "tsByteBlock.h"
+#include "tsBuffer.h"
+#include "tsNamesFile.h"
 
 
 //----------------------------------------------------------------------------
@@ -122,14 +103,14 @@ void ts::TSPacket::SanityCheck()
 void  ts::TSPacket::copyFrom(const void* source)
 {
     assert(source != nullptr);
-    ::memcpy(b, source, PKT_SIZE);
+    MemCopy(b, source, PKT_SIZE);
 }
 
 // Copy this packet content to a memory area.
 void ts::TSPacket::copyTo(void* dest) const
 {
     assert(dest != nullptr);
-    ::memcpy(dest, b, PKT_SIZE);
+    MemCopy(dest, b, PKT_SIZE);
 }
 
 // Static method to copy contiguous TS packets.
@@ -137,7 +118,7 @@ void ts::TSPacket::Copy(TSPacket* dest, const TSPacket* source, size_t count)
 {
     assert(dest != nullptr);
     assert(source != nullptr);
-    ::memcpy(dest->b, source->b, count * PKT_SIZE);
+    MemCopy(dest->b, source->b, count * PKT_SIZE);
 }
 
 // Static method to copy contiguous TS packets from raw memory.
@@ -145,7 +126,7 @@ void ts::TSPacket::Copy(TSPacket* dest, const uint8_t* source, size_t count)
 {
     assert(dest != nullptr);
     assert(source != nullptr);
-    ::memcpy(dest->b, source, count * PKT_SIZE);
+    MemCopy(dest->b, source, count * PKT_SIZE);
 }
 
 // Static method to copy contiguous TS packets into raw memory.
@@ -153,7 +134,7 @@ void ts::TSPacket::Copy(uint8_t* dest, const TSPacket* source, size_t count)
 {
     assert(dest != nullptr);
     assert(source != nullptr);
-    ::memcpy(dest, source->b, count * PKT_SIZE);
+    MemCopy(dest, source->b, count * PKT_SIZE);
 }
 
 //----------------------------------------------------------------------------
@@ -166,7 +147,7 @@ void ts::TSPacket::init(PID pid, uint8_t cc, uint8_t data)
     b[1] = uint8_t(pid >> 8) & 0x1F;
     b[2] = uint8_t(pid);
     b[3] = 0x10 | (cc & 0x0F); // no adaptation field, payload only.
-    ::memset(b + 4, data, PKT_SIZE - 4);
+    MemSet(b + 4, data, PKT_SIZE - 4);
 }
 
 //----------------------------------------------------------------------------
@@ -231,7 +212,7 @@ bool ts::TSPacket::setPayloadSize(size_t size, bool shift_payload, uint8_t pad)
         // It is always possible to shrink the payload.
         if (shift_payload) {
             // Move the payload forward.
-            ::memmove(b + PKT_SIZE - size, b + PKT_SIZE - plSize, size);
+            MemCopy(b + PKT_SIZE - size, b + PKT_SIZE - plSize, size);
         }
         if ((b[3] & 0x20) == 0) {
             // No previous adaptation field, create one.
@@ -250,7 +231,7 @@ bool ts::TSPacket::setPayloadSize(size_t size, bool shift_payload, uint8_t pad)
             --plSize; // payload has shrunk by one byte
         }
         // Fill the stuffing extension with pad byte.
-        ::memset(b + 5 + b[4], pad, plSize - size);
+        MemSet(b + 5 + b[4], pad, plSize - size);
         // Adjust AF size.
         b[4] += uint8_t(plSize - size);
         return true;
@@ -264,9 +245,9 @@ bool ts::TSPacket::setPayloadSize(size_t size, bool shift_payload, uint8_t pad)
         const size_t add = size - plSize;
         if (shift_payload) {
             // Move the payload backward.
-            ::memmove(b + PKT_SIZE - size, b + PKT_SIZE - plSize, plSize);
+            MemCopy(b + PKT_SIZE - size, b + PKT_SIZE - plSize, plSize);
             // Fill the top part of the payload with the pad byte.
-            ::memset(b + PKT_SIZE - add , pad, add);
+            MemSet(b + PKT_SIZE - add , pad, add);
         }
         b[4] -= uint8_t(add);
         return true;
@@ -582,7 +563,7 @@ bool ts::TSPacket::setPrivateData(const void* data, size_t size, bool shift_payl
         }
         // Shift rest of AF upward.
         endAF = 5 + b[4];
-        ::memmove(b + endNewData, b + offset, endAF - endNewData);
+        MemCopy(b + endNewData, b + offset, endAF - endNewData);
     }
     else {
         const size_t endPreviousData = offset + 1 + b[offset];
@@ -591,9 +572,9 @@ bool ts::TSPacket::setPrivateData(const void* data, size_t size, bool shift_payl
             // Move rest of AF downward.
             endAF = 5 + b[4];
             const size_t remove = endPreviousData - endNewData;
-            ::memmove(b + endNewData, b + endPreviousData, endAF - endPreviousData);
+            MemCopy(b + endNewData, b + endPreviousData, endAF - endPreviousData);
             // Erase freeed space (now stuffing).
-            ::memset(b + endAF - remove, 0xFF, remove);
+            MemSet(b + endAF - remove, 0xFF, remove);
         }
         else if (endNewData > endPreviousData) {
             // New private data are larger.
@@ -603,14 +584,14 @@ bool ts::TSPacket::setPrivateData(const void* data, size_t size, bool shift_payl
             }
             // Move rest of AF upward.
             endAF = 5 + b[4];
-            ::memmove(b + endNewData, b + endPreviousData, endAF - endNewData);
+            MemCopy(b + endNewData, b + endPreviousData, endAF - endNewData);
         }
     }
 
     // Finally write private data.
     b[5] |= 0x02;
     b[offset] = uint8_t(size);
-    ::memcpy(b + 1 + offset, data, size);
+    MemCopy(b + 1 + offset, data, size);
     return true;
 }
 
@@ -649,10 +630,10 @@ void ts::TSPacket::deleteFieldFromAF(size_t offset, size_t size, uint32_t flag)
         assert(4 + afSize >= offset + size); // assert end of AF >= end of field
         // Clear the field presence flag:
         b[5] &= ~flag;
-        // Shift the adaptation field down. With memmove(), the memory regions may overlap.
-        ::memmove(b + offset, b + offset + size, 4 + afSize - offset - size);
+        // Shift the adaptation field down. With MemCopy(), the memory regions may overlap.
+        MemCopy(b + offset, b + offset + size, 4 + afSize - offset - size);
         // Overwrite the last part of the AF, becoming AF stuffing.
-        ::memset(b + 4 + afSize - size, 0xFF, size);
+        MemSet(b + 4 + afSize - size, 0xFF, size);
     }
 }
 
@@ -674,7 +655,7 @@ bool ts::TSPacket::setSpliceCountdown(int8_t count, bool shift_payload)
         // Compute splicing point countdown offset.
         offset = 6 + (hasPCR() ? PCR_BYTES : 0) + (hasOPCR() ? PCR_BYTES : 0);
         // Shift the existing AF 1 byte ahead to make room for the splicing point countdown value.
-        ::memmove(b + offset + 1, b + offset, 4 + getAFSize() - offset - 1);
+        MemCopy(b + offset + 1, b + offset, 4 + getAFSize() - offset - 1);
     }
 
     // Finally write the splicing point countdown value.
@@ -755,7 +736,7 @@ bool ts::TSPacket::setPCR(const uint64_t &pcr, bool shift_payload)
         b[5] |= 0x10;  // set PCR flag
         offset = 6;    // PCR offset in packet
         // Shift the existing AF 6 bytes ahead to make room for the PCR value.
-        ::memmove(b + offset + PCR_BYTES, b + offset, 4 + getAFSize() - offset - PCR_BYTES);
+        MemCopy(b + offset + PCR_BYTES, b + offset, 4 + getAFSize() - offset - PCR_BYTES);
     }
 
     // Finally write the PCR value.
@@ -781,7 +762,7 @@ bool ts::TSPacket::setOPCR(const uint64_t &opcr, bool shift_payload)
         // Compute OPCR offset.
         offset = 6 + (hasPCR() ? PCR_BYTES : 0);
         // Shift the existing AF 6 bytes ahead to make room for the PCR value.
-        ::memmove(b + offset + PCR_BYTES, b + offset, 4 + getAFSize() - offset - PCR_BYTES);
+        MemCopy(b + offset + PCR_BYTES, b + offset, 4 + getAFSize() - offset - PCR_BYTES);
     }
 
     // Finally write the OPCR value.
@@ -876,7 +857,7 @@ bool ts::TSPacket::samePayload(const TSPacket& other) const
     }
     else {
         const size_t plsize = getPayloadSize();
-        return other.getPayloadSize() == plsize && ::memcmp(getPayload(), other.getPayload(), plsize) == 0;
+        return other.getPayloadSize() == plsize && MemEqual(getPayload(), other.getPayload(), plsize);
     }
 }
 
@@ -902,8 +883,8 @@ bool ts::TSPacket::isDuplicate(const TSPacket& other) const
     const size_t offset = hasPCR() ? 12 : 6;
     return hasPayload() &&
         getPID() != PID_NULL &&
-        ::memcmp(b, other.b, 6) == 0 &&
-        ::memcmp(b + offset, other.b + offset, PKT_SIZE - offset) == 0;
+        MemEqual(b, other.b, 6) &&
+        MemEqual(b + offset, other.b + offset, PKT_SIZE - offset);
 }
 
 
@@ -970,7 +951,7 @@ namespace {
     {
         const int64_t packets = int64_t(std::streamoff(position)) / ts::PKT_SIZE;
         if (packets > 0 && position != std::streampos(-1)) {
-            return ts::UString::Format(u" after %'d TS packets", {packets});
+            return ts::UString::Format(u" after %'d TS packets", packets);
         }
         else {
             return ts::UString();
@@ -998,18 +979,18 @@ std::istream& ts::TSPacket::read(std::istream& strm, bool check_sync, Report& re
             // Complete packet read but wrong sync byte.
             // Flawfinder: ignore: completely fooled here, std::ostream::setstate has nothing to do with PRNG.
             strm.setstate(std::ios::failbit);
-            report.error(u"synchronization lost%s, got 0x%X instead of 0x%X at start of TS packet", {AfterPackets(position), b[0], SYNC_BYTE});
+            report.error(u"synchronization lost%s, got 0x%X instead of 0x%X at start of TS packet", AfterPackets(position), b[0], SYNC_BYTE);
         }
     }
     else if (!strm.eof()) {
         // Not an EOF, actual I/O error
-        report.error(u"I/O error while reading TS packet" + AfterPackets (position));
+        report.error(u"I/O error while reading TS packet%s", AfterPackets(position));
     }
     else if (insize > 0) {
         // EOF, got partial packet.
         // Flawfinder: ignore: completely fooled here, std::ostream::setstate has nothing to do with PRNG.
         strm.setstate(std::ios::failbit);
-        report.error(u"truncated TS packet (%d bytes)%s", {insize, AfterPackets(position)});
+        report.error(u"truncated TS packet (%d bytes)%s", insize, AfterPackets(position));
     }
 
     return strm;
@@ -1022,12 +1003,33 @@ std::istream& ts::TSPacket::read(std::istream& strm, bool check_sync, Report& re
 std::ostream& ts::TSPacket::write(std::ostream& strm, Report& report) const
 {
     if (strm) {
-        strm.write(reinterpret_cast <const char*> (b), PKT_SIZE);
+        strm.write(reinterpret_cast<const char*>(b), PKT_SIZE);
         if (!strm) {
             report.error(u"error writing TS packet into binary stream");
         }
     }
     return strm;
+}
+
+//----------------------------------------------------------------------------
+// Formatting helpers
+//----------------------------------------------------------------------------
+
+namespace {
+    ts::UString timeStampsString(uint64_t pcr, uint64_t opcr)
+    {
+        ts::UString str;
+        if (pcr != ts::INVALID_PCR) {
+            str.format(u"PCR: 0x%011X", pcr);
+            if (opcr != ts::INVALID_PCR) {
+                str.append(u", ");
+            }
+        }
+        if (opcr != ts::INVALID_PCR) {
+            str.format(u"OPCR: 0x%011X", opcr);
+        }
+        return str;
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -1041,31 +1043,27 @@ std::ostream& ts::TSPacket::display(std::ostream& strm, uint32_t flags, size_t i
     // The 16 MSB contains flags specific to ts_dump_packet.
     // The 16 LSB contains flags for ts_hexa_dump.
     // Supply default dump option:
-
     if ((flags & 0xFFFF0000) == 0) {
         flags |= DUMP_RAW;
     }
 
     // Filter invalid packets
-
     if (!hasValidSync()) {
         strm << margin << "**** INVALID PACKET ****" << std::endl;
         flags = (flags & 0x0000FFFF) | DUMP_RAW;
     }
 
     // Display full packet or payload only.
-
     const size_t header_size = getHeaderSize();
     const size_t payload_size = getPayloadSize();
     const uint8_t* const display_data = (flags & DUMP_PAYLOAD) ? b + header_size : b;
     const size_t display_size = std::min((flags & DUMP_PAYLOAD) ? payload_size : PKT_SIZE, max_size);
 
     // Handle single line mode.
-
     if (flags & UString::SINGLE_LINE) {
         strm << margin;
         if (flags & DUMP_TS_HEADER) {
-            strm << UString::Format(u"PID: 0x%X, PUSI: %d, ", {getPID(), getPUSI()});
+            strm << UString::Format(u"PID: 0x%X, PUSI: %d, ", getPID(), getPUSI());
         }
         strm << UString::Dump(display_data, display_size, flags & 0x0000FFFF) << std::endl;
         return strm;
@@ -1074,49 +1072,118 @@ std::ostream& ts::TSPacket::display(std::ostream& strm, uint32_t flags, size_t i
     // Timestamps information (can be INVALID_xxx values).
     const uint64_t pcr = getPCR();
     const uint64_t opcr = getOPCR();
-    const uint64_t subpcr = pcr == INVALID_PCR ? INVALID_DTS : (pcr / SYSTEM_CLOCK_SUBFACTOR);
     const uint64_t dts = getDTS();
     const uint64_t pts = getPTS();
 
     // Display TS header
-
     if (flags & DUMP_TS_HEADER) {
         strm << margin << "---- TS Header ----" << std::endl
-             << margin << UString::Format(u"PID: %d (0x%X), header size: %d, sync: 0x%X", {getPID(), getPID(), header_size, b[0]}) << std::endl
+             << margin << UString::Format(u"PID: %n, header size: %d, sync: 0x%X", getPID(), header_size, b[0]) << std::endl
              << margin << "Error: " << getTEI() << ", unit start: " << getPUSI() << ", priority: " << getPriority() << std::endl
-             << margin << "Scrambling: " << int (getScrambling()) << ", continuity counter: " << int (getCC()) << std::endl
-             << margin << "Adaptation field: " << UString::YesNo (hasAF()) << " (" << getAFSize() << " bytes)"
-             << ", payload: " << UString::YesNo (hasPayload()) << " (" << getPayloadSize() << " bytes)" << std::endl;
-        if (hasAF()) {
+             << margin << "Scrambling: " << int(getScrambling()) << ", continuity counter: " << int(getCC()) << std::endl
+             << margin << "Adaptation field: " << UString::YesNo(hasAF()) << " (" << getAFSize() << " bytes)"
+             << ", payload: " << UString::YesNo(hasPayload()) << " (" << getPayloadSize() << " bytes)" << std::endl;
+
+        // Without explicit adaptation field analysis, just display the most important info from AF.
+        if (hasAF() && !(flags & DUMP_AF)) {
             strm << margin << "Discontinuity: " << getDiscontinuityIndicator()
                  << ", random access: " << getRandomAccessIndicator()
                  << ", ES priority: " << getESPI() << std::endl;
+            if (hasSpliceCountdown()) {
+                strm << margin << "Splice countdown: " << int(getSpliceCountdown()) << std::endl;
+            }
+            if (pcr != INVALID_PCR || opcr != INVALID_PCR) {
+                strm << margin << timeStampsString(pcr, opcr) << std::endl;
+            }
         }
-        if (hasSpliceCountdown()) {
-            strm << margin << "Splice countdown: " << int(getSpliceCountdown()) << std::endl;
+    }
+
+    // Display adaptation field.
+    size_t afsize = getAFSize();
+    if (hasAF() && (flags & DUMP_AF) && afsize > 1) {
+        strm << margin << "---- Adaptation field (" << afsize << " bytes) ----" << std::endl;
+        if (4 + afsize > PKT_SIZE) {
+            strm << margin << "*** invalid adaptation field size" << std::endl;
+            afsize = PKT_SIZE - 4;
         }
+        // Deserialization buffer over AF payload (skip initial length field).
+        Buffer buf(b + 5, afsize - 1);
+        strm << margin << "Discontinuity: " << int(buf.getBit());
+        strm << ", random access: " << int(buf.getBit());
+        strm << ", ES priority: " << int(buf.getBit()) << std::endl;
+        const bool PCR_flag = buf.getBool();
+        const bool OPCR_flag = buf.getBool();
+        const bool splicing_point_flag = buf.getBool();
+        const bool transport_private_data_flag = buf.getBool();
+        const bool adaptation_field_extension_flag = buf.getBool();
         if (pcr != INVALID_PCR || opcr != INVALID_PCR) {
-            strm << margin;
-            if (pcr != INVALID_PCR) {
-                strm << UString::Format(u"PCR: 0x%011X", {pcr});
-                if (opcr != INVALID_PCR) {
-                    strm << ", ";
+            strm << margin << timeStampsString(pcr, opcr) << std::endl;
+        }
+        if (PCR_flag) {
+            buf.skipBits(48);
+        }
+        if (OPCR_flag) {
+            buf.skipBits(48);
+        }
+        if (splicing_point_flag && buf.canReadBits(8)) {
+            strm << margin << "Splice countdown: " << int(buf.getUInt8()) << std::endl;
+        }
+        if (transport_private_data_flag && buf.canReadBits(8)) {
+            buf.pushReadSizeFromLength(8);
+            strm << margin << "Private data (" << buf.remainingReadBytes() << " bytes): " << std::endl;
+            if (buf.canRead()) {
+                strm << UString::Dump(buf.getBytes(), UString::HEXA | UString::ASCII | UString::OFFSET | UString::BPL, margin.size() + 2, 16);
+            }
+            buf.popState();
+        }
+        if (adaptation_field_extension_flag && buf.canReadBits(8)) {
+            buf.pushReadSizeFromLength(8);
+            const bool ltw_flag = buf.getBool();
+            const bool piecewise_rate_flag = buf.getBool();
+            const bool seamless_splice_flag = buf.getBool();
+            const bool af_descriptor_not_present_flag = buf.getBool();
+            buf.skipBits(4);
+            if (ltw_flag && buf.canReadBits(16)) {
+                strm << margin << "LTW valid: " << int(buf.getBit());
+                strm << ", offset: " << UString::Decimal(buf.getBits<uint16_t>(15)) << std::endl;
+            }
+            if (piecewise_rate_flag && buf.canReadBits(24)) {
+                buf.skipBits(2);
+                strm << margin << "Piecewise rate: " << UString::Decimal(buf.getBits<uint16_t>(22)) << std::endl;
+            }
+            if (seamless_splice_flag && buf.canReadBits(40)) {
+                strm << margin << "Splice type: " << buf.getBits<int>(4) << std::endl;
+                uint64_t dts_next_au = buf.getBits<uint64_t>(3) << 30;
+                buf.skipBits(1);
+                dts_next_au |= buf.getBits<uint64_t>(15) << 15;
+                buf.skipBits(1);
+                dts_next_au |= buf.getBits<uint64_t>(15);
+                buf.skipBits(1);
+                strm << UString::Format(u"DTS next AU: 0x%09X", dts_next_au) << std::endl;
+            }
+            if (!af_descriptor_not_present_flag) {
+                strm << margin << "AF descriptors (" << buf.remainingReadBytes() << " bytes): " << std::endl;
+                while (buf.canReadBytes(2)) {
+                    strm << margin << "- Tag: " << NameFromDTV(u"ts.af_descriptor_tag", buf.getUInt8(), NamesFlags::FIRST) << std::endl;
+                    const size_t len = buf.getUInt8();
+                    strm << margin << "  Length: " << len << " bytes" << std::endl
+                         << UString::Dump(buf.getBytes(len), UString::HEXA | UString::ASCII | UString::OFFSET | UString::BPL, margin.size() + 2, 16);
                 }
             }
-            if (opcr != INVALID_PCR) {
-                strm << UString::Format(u"OPCR: 0x%011X", {opcr});
-            }
-            strm << std::endl;
+            buf.popState();
+        }
+        if (buf.canRead()) {
+            strm << margin << "Stuffing (" << buf.remainingReadBytes() << " bytes): " << std::endl
+                 << UString::Dump(buf.getBytes(), UString::HEXA | UString::ASCII | UString::OFFSET | UString::BPL, margin.size() + 2, 16);
         }
     }
 
     // Display PES header
-
     if (startPES() && (flags & DUMP_PES_HEADER)) {
         uint8_t sid = b[header_size + 3];
         uint16_t length = GetUInt16(b + header_size + 4);
         strm << margin << "---- PES Header ----" << std::endl
-             << margin << "Stream id: " << names::StreamId(sid, NamesFlags::FIRST) << std::endl
+             << margin << "Stream id: " << NameFromDTV(u"pes.stream_id", sid, NamesFlags::FIRST) << std::endl
              << margin << "PES packet length: " << length;
         if (length == 0) {
             strm << " (unbounded)";
@@ -1125,29 +1192,32 @@ std::ostream& ts::TSPacket::display(std::ostream& strm, uint32_t flags, size_t i
         if (dts != INVALID_DTS || pts != INVALID_PTS) {
             strm << margin;
             if (dts != INVALID_DTS) {
-                strm << UString::Format(u"DTS: 0x%09X", {dts});
-                if (subpcr != INVALID_DTS) {
-                    strm << UString::Format(u" (PCR%+'d ms)", {((SubSecond(dts) - SubSecond(subpcr)) * MilliSecPerSec) / SYSTEM_CLOCK_SUBFREQ});
+                strm << UString::Format(u"DTS: 0x%09X", dts);
+                if (pcr != INVALID_PCR) {
+                    const cn::milliseconds delta = cn::duration_cast<cn::milliseconds>(DTS(dts)) - cn::duration_cast<cn::milliseconds>(PCR(pcr));
+                    strm << UString::Format(u" (PCR%+'!s", delta);
                 }
                 if (pts != INVALID_PTS) {
                     strm << ", ";
                 }
             }
             if (pts != INVALID_PTS) {
-                strm << UString::Format(u"PTS: 0x%09X", {pts});
-                if (dts != INVALID_DTS || subpcr != INVALID_DTS) {
+                strm << UString::Format(u"PTS: 0x%09X", pts);
+                if (dts != INVALID_DTS || pcr != INVALID_PCR) {
                     strm << " (";
                 }
                 if (dts != INVALID_DTS) {
-                    strm << UString::Format(u"DTS%+'d ms", {((SubSecond(pts) - SubSecond(dts)) * MilliSecPerSec) / SYSTEM_CLOCK_SUBFREQ});
+                    const cn::milliseconds delta = cn::duration_cast<cn::milliseconds>(PTS(pts)) - cn::duration_cast<cn::milliseconds>(DTS(dts));
+                    strm << UString::Format(u"DTS%+'!s", delta);
                 }
-                if (dts != INVALID_DTS && subpcr != INVALID_DTS) {
+                if (dts != INVALID_DTS && pcr != INVALID_PCR) {
                     strm << ", ";
                 }
-                if (subpcr != INVALID_DTS) {
-                    strm << UString::Format(u"PCR%+'d ms", {((SubSecond(pts) - SubSecond(subpcr)) * MilliSecPerSec) / SYSTEM_CLOCK_SUBFREQ});
+                if (pcr != INVALID_PCR) {
+                    const cn::milliseconds delta = cn::duration_cast<cn::milliseconds>(PTS(pts)) - cn::duration_cast<cn::milliseconds>(PCR(pcr));
+                    strm << UString::Format(u"PCR%+'!s", delta);
                 }
-                if (dts != INVALID_DTS || subpcr != INVALID_DTS) {
+                if (dts != INVALID_DTS || pcr != INVALID_PCR) {
                     strm << ")";
                 }
             }
@@ -1156,7 +1226,6 @@ std::ostream& ts::TSPacket::display(std::ostream& strm, uint32_t flags, size_t i
     }
 
     // Display full packet or payload in hexa
-
     if (flags & (DUMP_RAW | DUMP_PAYLOAD)) {
         if (flags & DUMP_RAW) {
             strm << margin << "---- Full TS Packet Content ----" << std::endl;

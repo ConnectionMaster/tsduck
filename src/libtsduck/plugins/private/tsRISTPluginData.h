@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -51,10 +30,9 @@ namespace ts {
         //!
         //! Constructor.
         //! Also define common command line arguments for RIST plugins.
-        //! @param [in,out] args Arguments to define.
-        //! @param [in,out] tsp TSP plugin handler.
+        //! @param [in,out] report Where to report errors.
         //!
-        RISTPluginData(Args* args, TSP* tsp);
+        RISTPluginData(Report& report);
 
         //!
         //! Destructor.
@@ -62,11 +40,19 @@ namespace ts {
         ~RISTPluginData() { cleanup(); }
 
         //!
-        //! Get command line options.
-        //! @param [in,out] args Arguments to load.
-        //! @return True on success, false on error.
+        //! Add command line option definitions in an Args.
+        //! @param [in,out] args Command line arguments to update.
         //!
-        bool getOptions(Args* args);
+        void defineArgs(Args& args);
+
+        //!
+        //! Load arguments from command line.
+        //! Args error indicator is set in case of incorrect arguments.
+        //! @param [in,out] duck TSDuck execution context.
+        //! @param [in,out] args Command line arguments.
+        //! @return True on success, false on error in argument line.
+        //!
+        bool loadArgs(DuckContext& duck, Args& args);
 
         //!
         //! Add all URL's as peers in the RIST context.
@@ -80,25 +66,25 @@ namespace ts {
         void cleanup();
 
         // Working data.
-        ::rist_profile          profile;  //!< RIST profile.
-        ::rist_ctx*             ctx;      //!< RIST context.
-        ::rist_logging_settings log;      //!< RIST logging settings.
+        ::rist_profile          profile = RIST_PROFILE_SIMPLE; //!< RIST profile.
+        ::rist_ctx*             ctx = nullptr;                 //!< RIST context.
+        ::rist_logging_settings log {};                        //!< RIST logging settings.
 
     private:
         // Working data.
-        TSP*     _tsp;
-        uint32_t _buffer_size;
-        int      _encryption_type;
-        UString  _secret;
-        int      _stats_interval;
-        UString  _stats_prefix;
-        IPv4SocketAddressVector          _allowed;
-        IPv4SocketAddressVector          _denied;
-        UStringVector                    _peer_urls;
-        std::vector<::rist_peer_config*> _peer_configs;
+        Report&  _report;
+        uint32_t _buffer_size = 0;
+        int      _encryption_type = 0;
+        UString  _secret {};
+        int      _stats_interval = 0;
+        UString  _stats_prefix {};
+        IPv4SocketAddressVector          _allowed {};
+        IPv4SocketAddressVector          _denied {};
+        UStringVector                    _peer_urls {};
+        std::vector<::rist_peer_config*> _peer_configs {};
 
         // Analyze a list of options containing socket addresses.
-        bool getSocketValues(Args* args, IPv4SocketAddressVector& list, const UChar* option);
+        bool getSocketValues(Args& args, IPv4SocketAddressVector& list, const UChar* option);
 
         // Convert between RIST log level and TSDuck severity.
         static int RistLogToSeverity(::rist_log_level level);

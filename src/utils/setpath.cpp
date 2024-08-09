@@ -1,41 +1,18 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
-//
-//----------------------------------------------------------------------------
-//
-//  This program is used to manipulate the system Path on Windows. it is
-//  useful to add / remove the path to an application in an installer.
-//  NSIS has the ability to do the same thing using the extension
-//  "EnvVarUpdate". However, there is a limitation in NSIS; all strings are
-//  limited to 1024 characters. This means that if the Path already contains
-//  or will contain more than 1024 characters after the update, the Path is
-//  simply emptied. This program is made to overcome this limitation. It is
-//  typically installed with the application and executed during installation
-//  and deinstallation.
+// This program is used to manipulate the system Path on Windows. it is
+// useful to add / remove the path to an application in an installer.
+// NSIS has the ability to do the same thing using the extension
+// "EnvVarUpdate". However, there is a limitation in NSIS; all strings are
+// limited to 1024 characters. This means that if the Path already contains
+// or will contain more than 1024 characters after the update, the Path is
+// simply emptied. This program is made to overcome this limitation. It is
+// typically installed with the application and executed during installation
+// and deinstallation.
 //
 //----------------------------------------------------------------------------
 
@@ -43,6 +20,8 @@
 #include "tsByteBlock.h"
 #include "tsFileUtils.h"
 #include "tsSysUtils.h"
+#include "tsSysUtils.h"
+#include "tsWinUtils.h"
 #include "tsRegistry.h"
 
 
@@ -55,7 +34,7 @@ class Options: public ts::Args
     TS_NOBUILD_NOCOPY(Options);
 public:
     Options(int argc, char *argv[]);
-    enum UpdateCommand {APPEND, PREPEND, REMOVE};
+    enum UpdateCommand {APPEND, PREPEND, REMOVE, STATUS};
     ts::UString   directory;
     ts::UString   environment;
     UpdateCommand command;
@@ -73,7 +52,7 @@ Options::Options(int argc, char *argv[]) :
     finalSeparator(false),
     dryRun(false)
 {
-    const ts::UString sep(1, ts::SearchPathSeparator);
+    const ts::UString sep(1, ts::SEARCH_PATH_SEPARATOR);
 
     option(u"", 0, Args::STRING, 1, 1);
     help(u"", u"A directory to add or remove to the system Path.");
@@ -99,13 +78,16 @@ Options::Options(int argc, char *argv[]) :
     option(u"remove", 'r');
     help(u"remove", u"Remove the directory from the system path.");
 
+    option(u"status", 's');
+    help(u"status", u"Don't update any path. Use the parameter as an integer value and display the corresponding error code.");
+
     analyze(argc, argv);
 
-    directory = value(u"");
+    getValue(directory, u"");
+    getValue(environment, u"environment", u"Path");
     initialSeparator = present(u"initial-separator");
     finalSeparator = present(u"final-separator");
     dryRun = present(u"dry-run");
-    getValue(environment, u"environment", u"Path");
 
     if (present(u"append")) {
         command = APPEND;
@@ -115,6 +97,9 @@ Options::Options(int argc, char *argv[]) :
     }
     if (present(u"remove")) {
         command = REMOVE;
+    }
+    if (present(u"status")) {
+        command = STATUS;
     }
 }
 
@@ -127,7 +112,7 @@ namespace {
     ts::UString CleanupDirectory(const ts::UString& path)
     {
         ts::UString directory(ts::VernacularFilePath(path));
-        while (!directory.empty() && directory[directory.size() - 1] == ts::PathSeparator) {
+        while (!directory.empty() && directory[directory.size() - 1] == fs::path::preferred_separator) {
             directory.resize(directory.size() - 1);
         }
         return directory;
@@ -144,18 +129,32 @@ int main(int argc, char* argv[])
     // Decode command line.
     Options opt(argc, argv);
 
+    // Specific case of displaying a Windows error code.
+    if (opt.command == Options::STATUS) {
+        std::intmax_t status = 0;
+        if (!opt.directory.toInteger(status, ts::UString::DEFAULT_THOUSANDS_SEPARATOR)) {
+            opt.fatal(u"invalid integer status value: %s", opt.directory);
+        }
+        ::DWORD status32 = ::DWORD(status & 0xFFFFFFFF);
+        if (opt.verbose()) {
+            std::cout << ts::UString::Format(u"0x%08X => ", status32);
+        }
+        std::cout << ts::WinErrorMessage(status32) << std::endl;
+        return EXIT_SUCCESS;
+    }
+
     // Get the Path value.
     ts::UString path(ts::Registry::GetValue(ts::Registry::SystemEnvironmentKey, opt.environment, opt));
     if (path.empty() && opt.environment.similar(u"Path")) {
-        opt.fatal(u"cannot get path from registry: %s\\%s", {ts::Registry::SystemEnvironmentKey, opt.environment});
+        opt.fatal(u"cannot get path from registry: %s\\%s", ts::Registry::SystemEnvironmentKey, opt.environment);
     }
     if (opt.dryRun) {
-        opt.info(u"Previous %s value: %s", {opt.environment, path});
+        opt.info(u"Previous %s value: %s", opt.environment, path);
     }
 
     // Split the Path into a list of clean directories.
     ts::UStringList dirs;
-    path.split(dirs, ts::SearchPathSeparator, true, true);
+    path.split(dirs, ts::SEARCH_PATH_SEPARATOR, true, true);
     for (auto& it : dirs) {
         it = CleanupDirectory(it);
     }
@@ -172,27 +171,28 @@ int main(int argc, char* argv[])
             dirs.push_front(opt.directory);
             break;
         case Options::REMOVE:
+        case Options::STATUS:
         default:
             // Nothing to do
             break;
     }
 
     // Rebuild the new Path.
-    path = ts::UString::Join(dirs, ts::UString(1, ts::SearchPathSeparator));
+    path = ts::UString::Join(dirs, ts::UString(1, ts::SEARCH_PATH_SEPARATOR));
     if (opt.initialSeparator) {
-        path.insert(path.begin(), ts::SearchPathSeparator);
+        path.insert(path.begin(), ts::SEARCH_PATH_SEPARATOR);
     }
     if (opt.finalSeparator) {
-        path.append(ts::SearchPathSeparator);
+        path.append(ts::SEARCH_PATH_SEPARATOR);
     }
     if (opt.dryRun) {
-        opt.info(u"New %s value: %s", {opt.environment, path});
+        opt.info(u"New %s value: %s", opt.environment, path);
     }
     else {
         // Update the Path in the registry.
         // Always set type as REG_EXPAND_SZ, in case there is a variable reference in the add path.
         if (!ts::Registry::SetValue(ts::Registry::SystemEnvironmentKey, opt.environment, path, true, opt)) {
-            opt.fatal(u"error setting path in registry: %s\\%s", {ts::Registry::SystemEnvironmentKey, opt.environment});
+            opt.fatal(u"error setting path in registry: %s\\%s", ts::Registry::SystemEnvironmentKey, opt.environment);
         }
 
         // Notify all applications that the Path was updated.

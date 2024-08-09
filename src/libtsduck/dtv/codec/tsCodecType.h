@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,8 +14,17 @@
 
 #pragma once
 #include "tsEnumeration.h"
+#include "tsNamesFile.h"
+#include "tsTS.h" // required by GCC, see comment below
 
 namespace ts {
+
+    // GCC complains that DTS shadows the global type of the same name.
+    // However this is irrelevant because CodecType is an enum class and the declared
+    // identifiers must be prefixed. ts::CodecType::DTS is an enum identifier, ts::DTS
+    // is a type, without ambiguity.
+    TS_PUSH_WARNING()
+    TS_GCC_NOWARNING(shadow)
     //!
     //! Known video, audio or data encoding formats.
     //! Commonly found in PES packets.
@@ -66,7 +54,9 @@ namespace ts {
         DTSHD,         //!< HD Digital Theater Systems audio, aka DTS++.
         TELETEXT,      //!< Teletext pages or subtitles, ETSI EN 300 706.
         DVB_SUBTITLES, //!< DVB subtitles, ETSI EN 300 743.
+        AVS3,          //!< AVS3 video (AVS is Chinese Audio Video Standards).
     };
+    TS_POP_WARNING()
 
     //!
     //! Enumeration description of ts::CodecType (display).
@@ -81,4 +71,34 @@ namespace ts {
     //! @see CodecTypeEnum
     //!
     TSDUCKDLL extern const Enumeration CodecTypeArgEnum;
+
+    //!
+    //! Check if a codec type value indicates an audio stream.
+    //! @param [in] ct Codec type.
+    //! @return True if @a ct indicates an audio stream.
+    //!
+    TSDUCKDLL bool CodecTypeIsAudio(CodecType ct);
+
+    //!
+    //! Check if a codec type value indicates a video stream.
+    //! @param [in] ct Codec type.
+    //! @return True if @a ct indicates a video stream.
+    //!
+    TSDUCKDLL bool CodecTypeIsVideo(CodecType ct);
+
+    //!
+    //! Check if a codec type value indicates a subtitle stream.
+    //! @param [in] ct Codec type.
+    //! @return True if @a ct indicates a subtitle stream.
+    //!
+    TSDUCKDLL bool CodecTypeIsSubtitles(CodecType ct);
+
+    //!
+    //! Name of AVC/HEVC/VVC access unit (aka "NALunit") type.
+    //! @param [in] codec One of AVC, HEVC, VVC.
+    //! @param [in] ut Access unit type.
+    //! @param [in] flags Presentation flags.
+    //! @return The corresponding name.
+    //!
+    TSDUCKDLL UString AccessUnitTypeName(CodecType codec, uint8_t ut, NamesFlags flags = NamesFlags::NAME);
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,10 +14,21 @@
 
 #include "tsUString.h"
 #include "tsByteBlock.h"
-#include "tsSysUtils.h"
+#include "tsEnvironment.h"
+#include "tsIntegerUtils.h"
+#include "tsSingleton.h"
+#include "tsEnumeration.h"
 
 // The UTF-8 Byte Order Mark
 const char* const ts::UString::UTF8_BOM = "\xEF\xBB\xBF";
+
+// End-of-line sequence for the operating system..
+const ts::UString ts::UString::EOL
+#if defined(TS_WINDOWS)
+    ("\r\n");
+#else
+    ("\n");
+#endif
 
 // Default separator string for groups of thousands, a comma.
 const ts::UString ts::UString::DEFAULT_THOUSANDS_SEPARATOR(1, u',');
@@ -324,31 +314,32 @@ ts::UString ts::UString::FromUTF8(const char* utf8, size_type count)
 
 ts::UString& ts::UString::assignFromUTF8(const char* utf8)
 {
-    return assignFromUTF8(utf8, utf8 == nullptr ? 0 : ::strlen(utf8));
+    return assignFromUTF8(utf8, utf8 == nullptr ? 0 : std::strlen(utf8));
 }
 
 ts::UString& ts::UString::assignFromUTF8(const char* utf8, size_type count)
 {
-    if (utf8 == nullptr) {
+    if (utf8 == nullptr || count == 0) {
         clear();
     }
     else {
         // Resize the string over the maximum size.
-        // The number of UTF-16 codes is always less than the number of UTF-8 bytes.
+        // The number of UTF-16 codes is always less than or equal to the number of UTF-8 bytes.
         resize(count);
 
         // Convert from UTF-8 directly into this object.
         const char* inStart = utf8;
-        UChar* outStart = const_cast<UChar*>(data());
-        ConvertUTF8ToUTF16(inStart, inStart + count, outStart, outStart + size());
+        UChar* out = data();
+        UChar* outStart = out;
+        ConvertUTF8ToUTF16(inStart, inStart + count, outStart, outStart + count);
 
         assert(inStart >= utf8);
         assert(inStart == utf8 + count);
-        assert(outStart >= data());
-        assert(outStart <= data() + size());
+        assert(outStart >= out);
+        assert(outStart <= out + count);
 
         // Truncate to the exact number of characters.
-        resize(outStart - data());
+        resize(outStart - out);
     }
     return *this;
 }
@@ -427,37 +418,13 @@ ts::UString ts::UString::FromWChar(const wchar_t* wstr, size_type count)
 // Convert a C++ "wide string" into this object.
 //----------------------------------------------------------------------------
 
-ts::UString& ts::UString::assignFromWChar(const wchar_t* wstr)
-{
-    return assignFromWChar(wstr, wstr == nullptr ? 0 : ::wcslen(wstr));
-}
-
 ts::UString& ts::UString::assignFromWChar(const wchar_t* wstr, size_type count)
 {
     if (wstr == nullptr) {
         clear();
     }
     else {
-#if TS_WCHAR_SIZE == 1
-        // Convert from UTF-8.
-        assignFromUTF8(reinterpret_cast<const char*>(wstr), count);
-#elif TS_WCHAR_SIZE == 2
-        // Already in UTF-16, direct binary copy.
-        resize(count);
-        ::memcpy(&(*this)[0], wstr, 2 * count);
-#else
-        // Assume that wchar_t is a full Unicode code point.
-        while (count-- > 0) {
-            const char32_t cp = *wstr++;
-            if (NeedSurrogate(cp)) {
-                append(LeadingSurrogate(cp));
-                append(TrailingSurrogate(cp));
-            }
-            else {
-                append(UChar(cp));
-            }
-        }
-#endif
+        assignFromWCharHelper<sizeof(wchar_t)>(wstr, count);
     }
     return *this;
 }
@@ -1279,7 +1246,7 @@ void ts::UString::convertToJSON()
         else {
             // Other Unicode character, use hex code.
             at(i) = REVERSE_SOLIDUS;
-            insert(i + 1, Format(u"u%04X", {uint16_t(c)}));
+            insert(i + 1, Format(u"u%04X", uint16_t(c)));
             i += 6;
         }
     }
@@ -1359,12 +1326,12 @@ ts::UString ts::UString::TristateOnOff(Tristate b)
 ts::UString ts::UString::AfterBytes(const std::streampos& position)
 {
     const int64_t bytes = int64_t(position);
-    return bytes <= 0 ? UString() : Format(u" after %'d bytes", {bytes});
+    return bytes <= 0 ? UString() : Format(u" after %'d bytes", bytes);
 }
 
 ts::UString ts::UString::HumanSize(int64_t value, const UString& units, bool forceSign)
 {
-    const int64_t k = TS_CONST64(1024);
+    const int64_t k = 1024;
 
     if (value < 8 * k) { // less than 8 kB => use bytes
         return Decimal(value, 0, true, u",", forceSign) + u" " + units;
@@ -1382,34 +1349,154 @@ ts::UString ts::UString::HumanSize(int64_t value, const UString& units, bool for
 
 
 //----------------------------------------------------------------------------
-// Check if two strings are identical, case-insensitive and ignoring blanks
+// Format the name of an instance of std::chrono::duration based on its ratio.
 //----------------------------------------------------------------------------
 
-bool ts::UString::similar(const UString& other) const
-{
-    const size_type alen = length();
-    const size_type blen = other.length();
-    size_type ai = 0;
-    size_type bi = 0;
+// A static instance of a map from num/den to string.
+namespace {
+    struct Ratio
+    {
+        std::intmax_t num;
+        std::intmax_t den;
+        bool operator<(const Ratio& other) const { return num < other.num || (num == other.num && den < other.den); }
+    };
+    struct UnitNames
+    {
+        const ts::UChar* sname;
+        const ts::UChar* lname;
+        const ts::UChar* pname;
+    };
+    using UnitMap = std::map<Ratio,UnitNames>;
+}
+TS_STATIC_INSTANCE(UnitMap, (), ChronoUnitMap);
 
-    for (;;) {
-        // Skip spaces
-        while (ai < alen && IsSpace(at(ai))) {
-            ai++;
+// The constructor registers a new std::chrono::duration unit name.
+ts::UString::RegisterChronoUnit::RegisterChronoUnit(std::intmax_t num, std::intmax_t den, const UChar* sname, const UChar* lname, const UChar* pname)
+{
+    ChronoUnitMap::Instance().insert(std::make_pair<Ratio, UnitNames>({num, den}, {sname, lname, pname}));
+}
+
+// Standard std::cn::chrono::duration types.
+TS_REGISTER_CHRONO_UNIT(cn::seconds, u"s", u"second");
+TS_REGISTER_CHRONO_UNIT(ts::deciseconds, u"ds", u"decisecond");
+TS_REGISTER_CHRONO_UNIT(cn::milliseconds, u"ms", u"millisecond");
+TS_REGISTER_CHRONO_UNIT(cn::microseconds, u"us", u"microsecond");
+TS_REGISTER_CHRONO_UNIT(cn::nanoseconds, u"ns", u"nanosecond");
+TS_REGISTER_CHRONO_UNIT(cn::minutes, u"mn", u"minute");
+TS_REGISTER_CHRONO_UNIT(cn::hours, u"h",  u"hour");
+TS_REGISTER_CHRONO_UNIT(cn::days, u"d", u"day");
+TS_REGISTER_CHRONO_UNIT(cn::weeks, u"w", u"week");
+TS_REGISTER_CHRONO_UNIT(cn::months, u"m", u"month");
+TS_REGISTER_CHRONO_UNIT(cn::years, u"y", u"year");
+
+// Public interface to get the chrono unit names
+ts::UString ts::UString::ChronoUnit(std::intmax_t num, std::intmax_t den, bool short_format, bool plural)
+{
+    const auto it = ChronoUnitMap::Instance().find({num, den});
+    if (it != ChronoUnitMap::Instance().end()) {
+        if (short_format) {
+            return UString(it->second.sname);
         }
-        while (bi < blen && IsSpace(other.at(bi))) {
-            bi++;
+        else if (plural && it->second.pname != nullptr && it->second.pname[0] != u'\0') {
+            return UString(it->second.pname);
         }
-        if (ai >= alen && bi >= blen) {
-            return true;
+        else {
+            UString name(it->second.lname != nullptr && it->second.lname[0] != u'\0' ? it->second.lname : it->second.sname);
+            if (plural) {
+                name.append(u's');
+            }
+            return name;
         }
-        if (ai >= alen || bi >= blen || ToLower(at(ai)) != ToLower(other.at(bi))) {
-            return false;
-        }
-        ai++;
-        bi++;
+    }
+    else if (den == 1) {
+        return Format(u"%'d-%s", num, short_format ? u"sec" : u"second");
+    }
+    else {
+        return Format(u"%'d/%'d-%s", num, den, short_format ? u"sec" : u"second");
     }
 }
+
+
+//----------------------------------------------------------------------------
+// Compare two strings using various comparison options.
+//----------------------------------------------------------------------------
+
+int ts::UString::SuperCompare(const UChar* s1, const UChar* s2, uint32_t flags)
+{
+    // Eliminate trivial cases with null pointers.
+    if (s1 == nullptr || s2 == nullptr) {
+        return (s1 == nullptr && s2 == nullptr) ? 0 : (s1 == nullptr ? -1 : 1);
+    }
+
+    // Loop on characters in both strings.
+    for (;;) {
+        // Characteristics of current character in each strings.
+        uint32_t ccc1 = UCharacteristics(*s1);
+        uint32_t ccc2 = UCharacteristics(*s2);
+
+        // Skip spaces if required (null char is not a space).
+        if (flags & SCOMP_IGNORE_BLANKS) {
+            while (ccc1 & CCHAR_SPACE) {
+                ccc1 = UCharacteristics(*++s1);
+            }
+            while (ccc2 & CCHAR_SPACE) {
+                ccc2 = UCharacteristics(*++s2);
+            }
+        }
+
+        // Manage end of string.
+        if (*s1 == CHAR_NULL) {
+            return *s2 == CHAR_NULL ? 0 : -1;
+        }
+        if (*s2 == CHAR_NULL) {
+            return 1;
+        }
+
+        if ((flags & SCOMP_CASE_INSENSITIVE) && (ccc1 & CCHAR_LETTER) && (ccc2 & CCHAR_LETTER)) {
+            // Manage case insensitive comparison.
+            const UChar c1 = ToLower(*s1++);
+            const UChar c2 = ToLower(*s2++);
+            if (c1 != c2) {
+                return c1 < c2 ? -1 : 1;
+            }
+        }
+        else if ((flags & SCOMP_NUMERIC) && (ccc1 & CCHAR_DIGIT) && (ccc2 & CCHAR_DIGIT)) {
+            // Manage numeric fields.
+            uint64_t i1 = 0;
+            uint64_t i2 = 0;
+            while (ccc1 & CCHAR_DIGIT) {
+                i1 = (10 * i1) + (*s1 - DIGIT_ZERO);
+                ccc1 = UCharacteristics(*++s1);
+            }
+            while (ccc2 & CCHAR_DIGIT) {
+                i2 = (10 * i2) + (*s2 - DIGIT_ZERO);
+                ccc2 = UCharacteristics(*++s2);
+            }
+            if (i1 != i2) {
+                return i1 < i2 ? -1 : 1;
+            }
+        }
+        else {
+            // Character comparison, including surrogate pairs.
+            char32_t c1 = *s1++;
+            char32_t c2 = *s2++;
+            if (IsLeadingSurrogate(UChar(c1)) && IsTrailingSurrogate(*s1)) {
+                c1 = FromSurrogatePair(UChar(c1), *s1++);
+            }
+            if (IsLeadingSurrogate(UChar(c2)) && IsTrailingSurrogate(*s2)) {
+                c2 = FromSurrogatePair(UChar(c2), *s2++);
+            }
+            if (c1 != c2) {
+                return c1 < c2 ? -1 : 1;
+            }
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Check if two strings are identical, case-insensitive and ignoring blanks
+//----------------------------------------------------------------------------
 
 bool ts::UString::similar(const void* addr, size_type size) const
 {
@@ -1421,9 +1508,9 @@ bool ts::UString::similar(const void* addr, size_type size) const
 // Save this string into a file, in UTF-8 format.
 //----------------------------------------------------------------------------
 
-bool ts::UString::save(const ts::UString& fileName, bool append, bool enforceLastLineFeed) const
+bool ts::UString::save(const fs::path& fileName, bool append, bool enforceLastLineFeed) const
 {
-    std::ofstream file(fileName.toUTF8().c_str(), append ? (std::ios::out | std::ios::app) : std::ios::out);
+    std::ofstream file(fileName, append ? (std::ios::out | std::ios::app) : std::ios::out);
     file << *this;
     if (enforceLastLineFeed && !empty() && back() != LINE_FEED) {
         // Check if the first end of line is a LF or CR/LF.
@@ -1870,7 +1957,7 @@ void ts::UString::appendDump(const void *data,
 // Format a string using a template and arguments.
 //----------------------------------------------------------------------------
 
-void ts::UString::format(const UChar* fmt, std::initializer_list<ArgMixIn> args)
+void ts::UString::formatHelper(const UChar* fmt, std::initializer_list<ArgMixIn> args)
 {
     // Pre-reserve some space. We don't really know how much. Just address the most common cases.
     reserve(256);
@@ -1879,19 +1966,12 @@ void ts::UString::format(const UChar* fmt, std::initializer_list<ArgMixIn> args)
     ArgMixInContext ctx(*this, fmt, args);
 }
 
-ts::UString ts::UString::Format(const UChar* fmt, std::initializer_list<ArgMixIn> args)
-{
-    UString result;
-    result.format(fmt, args);
-    return result;
-}
-
 
 //----------------------------------------------------------------------------
 // Scan this string for integer or character values.
 //----------------------------------------------------------------------------
 
-bool ts::UString::scan(size_t& extractedCount, size_type& endIndex, const UChar* fmt, std::initializer_list<ArgMixOut> args) const
+bool ts::UString::scanHelper(size_t& extractedCount, size_type& endIndex, const UChar* fmt, std::initializer_list<ArgMixOut> args) const
 {
     // Process this string instance.
     const UChar* input = data();
@@ -1921,7 +2001,7 @@ ts::UString::ArgMixContext::ArgMixContext(const UChar* fmt, bool output) :
 
 bool ts::UString::ArgMixContext::debugInit()
 {
-    _debugOn = ts::EnvironmentExists(u"TSDUCK_FORMAT_DEBUG");
+    _debugOn = EnvironmentExists(u"TSDUCK_FORMAT_DEBUG");
     _debugValid = true;
     return _debugOn;
 }
@@ -1997,6 +2077,7 @@ void ts::UString::ArgMixInContext::processArg()
     //  digits : Minimum field width.
     // .digits : Maximum field width or precision for floating/fixed point values.
     //       ' : For integer conversions, use a separator for groups of thousands.
+    //       ! : Short format.
     //       * : Can be used instead of @e digits. The integer value is taken from the argument list.
 
     bool leftJustified = false;
@@ -2004,6 +2085,7 @@ void ts::UString::ArgMixInContext::processArg()
     bool useSeparator = false;
     bool reusePrevious = false;
     bool hasDot = false;
+    bool shortFormat = false;
     UChar pad = u' ';
     size_t minWidth = 0;
     size_t maxWidth = std::numeric_limits<size_t>::max();
@@ -2039,6 +2121,10 @@ void ts::UString::ArgMixInContext::processArg()
         useSeparator = true;
         _fmt++;
     }
+    if (*_fmt == u'!') {
+        shortFormat = true;
+        _fmt++;
+    }
 
     // The thousands separator to use.
     const UString& separator(useSeparator ? DEFAULT_THOUSANDS_SEPARATOR : EMPTY);
@@ -2050,6 +2136,7 @@ void ts::UString::ArgMixInContext::processArg()
     // - %d : Integer in decimal.
     // - %x : Integer in lowercase hexadecimal.
     // - %X : Integer in uppercase hexadecimal.
+    // - %n : Integer in "uppercase "normalized" hexadecimal and decimal format.
     // - %f : Floating point value.
     // - %% : Insert a literal % (already done).
 
@@ -2060,7 +2147,7 @@ void ts::UString::ArgMixInContext::processArg()
     }
 
     // Process invalid '%' sequence.
-    if (cmd != u's' && cmd != u'c' && cmd != u'd' && cmd != u'x' && cmd != u'X' && cmd != u'f') {
+    if (cmd != u's' && cmd != u'c' && cmd != u'd' && cmd != u'x' && cmd != u'X' && cmd != u'n' && cmd != u'f') {
         if (debugActive()) {
             debug(u"invalid '%' sequence", cmd);
         }
@@ -2073,7 +2160,7 @@ void ts::UString::ArgMixInContext::processArg()
         // Reuse previous argument value, do not advance in argument list.
         argit = _prev;
     }
-    else {
+    else if (_arg != _end) {
         // Absorb the inserted argument.
         _prev = _arg++;
     }
@@ -2087,10 +2174,10 @@ void ts::UString::ArgMixInContext::processArg()
     }
 
     // Now, the command is valid, process it.
-    if (argit->isAnyString() || (argit->isBool() && cmd == u's')) {
+    if (argit->isAnyString() || ((argit->isBool() || argit->isChrono()) && cmd == u's') || ((argit->isInteger() || argit->isAbstractNumber()) && cmd == u'n')) {
         // String arguments are always treated as %s, regardless of the % command.
         // Also if a bool is specified as %s, print true or false.
-        if (cmd != u's' && debugActive()) {
+        if (argit->isAnyString() && cmd != u's' && debugActive()) {
             debug(u"type mismatch, got a string", cmd);
         }
         // Get the string parameter.
@@ -2103,6 +2190,25 @@ void ts::UString::ArgMixInContext::processArg()
         }
         else if (argit->isBool()) {
             value.assign(TrueFalse(argit->toBool()));
+        }
+        else if (argit->isChrono()) {
+            const int64_t ivalue = argit->toInt64();
+            UString units(1, u' ');
+            units.append(ChronoUnit(argit->num(), argit->den(), shortFormat, std::abs(ivalue) > 1));
+            const size_t ulen = units.length();
+            value.assign(Decimal(ivalue, minWidth < ulen ? 0 : minWidth - ulen, !leftJustified, separator, forceSign, pad));
+            value.append(units);
+        }
+        else if (cmd == u'n') {
+            // Format the string from a number.
+            // 4 possible formats, 2-bit index: forceSign || useSeparator
+            static const UChar* const formats[4] = {
+                u"0x%X (%<d)",     // 0b00
+                u"0x%'X (%<'d)",   // 0b01 -> useSeparator
+                u"0x%+X (%<+d)",   // 0b10 -> forceSign
+                u"0x%+'X (%<+'d)"  // 0b11 -> forceSign && useSeparator
+            };
+            value.formatHelper(formats[(int(forceSign) << 1) | int(useSeparator)], {*argit});
         }
         else {
             // Not a string, should not get there.
@@ -2294,6 +2400,7 @@ bool ts::UString::ArgMixOutContext::processField()
     // - %d : Matches an integer in decimal or hexadecimal.
     // - %x : Matches an integer in hexadecimal, case-insensitive, without 0x or 0X prefix.
     // - %X : Same as %x.
+    // - %f : Matches a floating point value.
     // - %c : Matches the next non-space character. The Unicode code point is returned.
     // - %% : Matches a literal % (already done).
     // The allowed options, between the '%' and the letter are:
@@ -2311,7 +2418,7 @@ bool ts::UString::ArgMixOutContext::processField()
     }
 
     // Process invalid '%' sequence.
-    if (cmd != u'c' && cmd != u'd' && cmd != u'i' && cmd != u'x' && cmd != u'X') {
+    if (cmd != u'c' && cmd != u'd' && cmd != u'i' && cmd != u'x' && cmd != u'X' && cmd != u'f') {
         if (debugActive()) {
             debug(u"invalid '%' sequence", cmd);
         }
@@ -2327,9 +2434,9 @@ bool ts::UString::ArgMixOutContext::processField()
     }
 
     // Process incorrect argument (internal error, bug).
-    if (!_arg->isOutputInteger()) {
-        // This should never occur since ArgMixOut can be constructed only from pointer to integer.
-        debug(u"internal error, scan() argument is not a pointer to integer");
+    if (!_arg->isOutputInteger() && !_arg->isOutputFloat()) {
+        // This should never occur since ArgMixOut can be constructed only from pointer to integer or float.
+        debug(u"internal error, scan() argument is not a pointer to integer or float");
         return false;
     }
 
@@ -2339,10 +2446,54 @@ bool ts::UString::ArgMixOutContext::processField()
         return true;
     }
 
-    // Extract an integer value.
-    UString value;
     const UChar* const start = _input;
+    UString value;
 
+    // Extract a floating point value.
+    if (cmd == u'f') {
+        // Not a precise parsing, rely on toFloat() later.
+        const UChar* dot = nullptr;
+        const UChar* exp = nullptr;
+        for (;;) {
+            if (IsDigit(*_input)) {
+                value.push_back(*_input++);
+            }
+            else if (*_input == u'+' && (_input == start || _input - 1 == exp)) {
+                _input++;
+            }
+            else if (*_input == u'-' && (_input == start || _input - 1 == exp)) {
+                value.push_back(*_input++);
+            }
+            else if (*_input == u',' && skipSeparator) {
+                _input++;
+            }
+            else if (*_input == u'.' && dot == nullptr) {
+                dot = _input;
+                value.push_back(*_input++);
+            }
+            else if ((*_input == u'e' || *_input == u'E') && exp == nullptr) {
+                exp = _input;
+                value.push_back(*_input++);
+            }
+            else {
+                break;
+            }
+        }
+
+        // Extract the hexadecimal value with an added prefix.
+        double d = 0.0;
+        if (_input > start && value.toFloat(d)) {
+            // Successfully decoded a float.
+            (_arg++)->storeFloat(d);
+            return true;
+        }
+        else {
+            // Invalid input.
+            return false;
+        }
+    }
+
+    // Extract an integer value.
     if (cmd == u'x' || cmd == u'X') {
         // Extract an hexadecimal value, without prefix.
         while (IsHexa(*_input)) {
@@ -2372,7 +2523,7 @@ bool ts::UString::ArgMixOutContext::processField()
 
     // Process value not found, invalid input, not a programming error.
     if (_input == start) {
-        // No hexa value found
+        // No integer value found
         return false;
     }
 
@@ -2407,13 +2558,79 @@ bool ts::UString::ArgMixOutContext::processField()
 
 ts::UString ts::UString::Float(double value, size_type width, size_type precision, bool force_sign)
 {
-    // Slightly oversized buffer.
-    char valueStr[10 + std::numeric_limits<double>::digits - std::numeric_limits<double>::min_exponent];
+    // Default precision is 6 decimal digits.
+    const bool no_size = width == 0 && precision == 0;
+    if (precision == 0) {
+        precision = 6;
+    }
+
+    // Build formatting string.
+    std::string format("%");
     if (force_sign) {
-        std::snprintf(valueStr, sizeof(valueStr), "%+*.*f", int(width), int(precision), value);
+        format.append("+");
+    }
+    format.append("*.*l");
+    const double avalue = std::fabs(value);
+    // Use "f" format if value is greater than this, "e" format if lower
+    const double min_f_value = precision > 1 && precision <= MAX_POWER_10 ? 1.0 / double(Power10(precision / 2)) : 0.000001;
+    if (avalue < std::numeric_limits<double>::epsilon() || (avalue >= min_f_value && avalue < 100000.0)) {
+        // Use a float representation.
+        format.append("f");
     }
     else {
-        std::snprintf(valueStr, sizeof(valueStr), "%*.*f", int(width), int(precision), value);
+        // Use a exponent representation.
+        format.append("e");
     }
-    return FromUTF8(valueStr);
+
+    // Oversized buffer.
+    std::string str(32 + width + std::numeric_limits<double>::digits - std::numeric_limits<double>::min_exponent, '\0');
+
+    // Format the result.
+    TS_PUSH_WARNING()
+    TS_GCC_NOWARNING(format-nonliteral)
+    TS_LLVM_NOWARNING(format-nonliteral)
+    TS_MSC_NOWARNING(4774) // 'snprintf' : format string expected in argument 3 is not a string literal
+    std::snprintf(&str[0], str.size(), format.c_str(), int(width), int(precision), value);
+    TS_POP_WARNING()
+
+    str[str.size() - 1] = '\0';
+    UString result;
+    result.assignFromUTF8(str.c_str());
+
+    // Cleanup extra zeroes when no formatting rule is given.
+    if (no_size) {
+        // Find decimal dot and exponent.
+        const size_type dot = result.find(u'.');
+        const size_type exp = result.find_first_of(u"eE");
+        if (exp == NPOS) {
+            // No exponent, remove trailing fractional zeroes.
+            if (dot != NPOS) {
+                while (!result.empty() && result.back() == u'0') {
+                    result.pop_back();
+                }
+            }
+            // Remove empty fractional part.
+            if (!result.empty() && result.back() == u'.') {
+                result.pop_back();
+            }
+        }
+        else {
+            // Remove leading zeroes in exponent.
+            size_type pos = exp + 1;
+            while (pos < result.size() && !IsDigit(result[pos])) {
+                pos++;
+            }
+            while (pos + 1 < result.size() && result[pos] == u'0') {
+                result.erase(pos, 1);
+            }
+            // Remove trailing zeroes in fractional part, but keep a fractional part.
+            if (dot != NPOS && exp > 0) {
+                for (size_type i = exp - 1; i > dot + 1 && result[i] == u'0'; i--) {
+                    result.erase(i, 1);
+                }
+            }
+        }
+    }
+
+    return result;
 }

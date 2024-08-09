@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,7 +14,6 @@
 #pragma once
 #include "tsAbstractDefinedByStandards.h"
 #include "tsTablesPtr.h"
-#include "tsSection.h"
 #include "tsTS.h"
 #include "tsxml.h"
 
@@ -63,7 +41,7 @@ namespace ts {
         //!
         //! Default constructor.
         //!
-        BinaryTable();
+        BinaryTable() = default;
 
         //!
         //! Copy constructor.
@@ -123,17 +101,7 @@ namespace ts {
         //! @return True if the two tables are identical. False otherwise.
         //!
         bool operator==(const BinaryTable& table) const;
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! The source PID's are ignored, only the table contents are compared.
-        //! Invalid tables are never identical.
-        //! @param [in] table Other table to compare.
-        //! @return True if the two tables are different. False otherwise.
-        //!
-        bool operator!=(const BinaryTable& table) const { return !operator==(table); }
-#endif
+        TS_UNEQUAL_OPERATOR(BinaryTable)
 
         //!
         //! Add a section to a table.
@@ -147,6 +115,23 @@ namespace ts {
         //! @return True on succes, false if @a section could not be added (inconsistent property).
         //!
         bool addSection(const SectionPtr& section, bool replace = true, bool grow = true);
+
+        //!
+        //! Create a section and add it to a table.
+        //! The section is replaced if it was already present and the table grows when necessary.
+        //! @tparam Args Arguments types for the Section constructor.
+        //! @param [in] args Arguments for the Section constructor.
+        //! @return True on succes, false if @a section could not be added (inconsistent property).
+        //!
+        template<class... Args>
+        bool addNewSection(Args&&... args)
+        {
+            // MSVC is unable to correctly forward the arguments.
+            TS_PUSH_WARNING()
+            TS_MSC_NOWARNING(4242) // 'argument': conversion from 'xxxx' to 'yyyy', possible loss of data
+            return addSection(std::make_shared<Section>(std::forward<Args>(args)...), true, true);
+            TS_POP_WARNING()
+        }
 
         //!
         //! Add several sections to a table.
@@ -304,12 +289,14 @@ namespace ts {
         //!
         class TSDUCKDLL XMLOptions
         {
+            TS_DEFAULT_COPY_MOVE(XMLOptions);
         public:
-            XMLOptions();       //!< Constructor.
-            bool forceGeneric;  //!< Force a generic table node even if the table can be specialized.
-            bool setPID;        //!< Add a metadata element with the source PID, when available.
-            bool setLocalTime;  //!< Add a metadata element with the current local time.
-            bool setPackets;    //!< Add a metadata element with the index of the first and last TS packets of the table.
+            XMLOptions() {}             //!< Constructor.
+            bool forceGeneric = false;  //!< Force a generic table node even if the table can be specialized.
+            bool setPID = false;        //!< Add a metadata element with the source PID, when available.
+            bool setLocalTime = false;  //!< Add a metadata element with the current local time.
+            bool setPackets = false;    //!< Add a metadata element with the index of the first and last TS packets of the table.
+            bool setSections = false;   //!< Add metadata elements with hexadecimal dump of each section in the table.
         };
 
         //!
@@ -339,12 +326,12 @@ namespace ts {
         BinaryTable(const BinaryTable& table) = delete;
 
         // Private fields
-        bool             _is_valid;
-        TID              _tid;
-        uint16_t         _tid_ext;
-        uint8_t          _version;
-        PID              _source_pid;
-        int              _missing_count;
-        SectionPtrVector _sections;
+        bool             _is_valid = false;
+        TID              _tid = TID_NULL;
+        uint16_t         _tid_ext = 0;
+        uint8_t          _version = 0;
+        PID              _source_pid = PID_NULL;
+        int              _missing_count = 0;
+        SectionPtrVector _sections {};
     };
 }

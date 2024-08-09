@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,7 +11,10 @@
 #include "tsFatal.h"
 #include "tsMemory.h"
 
-#if !defined(TS_NO_PCSC)
+#if defined(TS_NO_PCSC)
+TS_LLVM_NOWARNING(missing-variable-declarations)
+bool tsPCSCIsEmpty = true; // Avoid warning about empty module.
+#else
 
 // SCARD_ macros contains many "old style" casts.
 TS_LLVM_NOWARNING(old-style-cast)
@@ -49,7 +31,7 @@ bool ts::pcsc::Success(::LONG status, Report& report)
         return true;
     }
     else {
-        report.error(u"PC/SC error 0x%X: %s", {status, pcsc::StrError(status)});
+        report.error(u"PC/SC error 0x%X: %s", status, pcsc::StrError(status));
         return false;
     }
 }
@@ -85,7 +67,7 @@ bool ts::pcsc::Success(::LONG status, Report& report)
 
     if (status == SCARD_S_SUCCESS) {
         size_t len;
-        for (const char* p = names; (len = ::strlen(p)) != 0; p += len + 1) {  // Flawfinder: ignore: strlen()
+        for (const char* p = names; (len = std::strlen(p)) != 0; p += len + 1) {
             readers.push_back(UString::FromUTF8(p));
         }
     }
@@ -115,12 +97,10 @@ bool ts::pcsc::Success(::LONG status, Report& report)
         c_states[i].szReader = utf8Names[i].c_str();
         c_states[i].dwCurrentState = states[i].current_state;
         c_states[i].cbAtr = ::DWORD(std::min(sizeof(c_states[i].rgbAtr), states[i].atr.size()));
-        // Flawfinder: ignore: memcpy()
-        ::memcpy(c_states[i].rgbAtr, states[i].atr.data(), c_states[i].cbAtr);
+        MemCopy(c_states[i].rgbAtr, states[i].atr.data(), c_states[i].cbAtr);
     }
 
     // Check status of all smartcard readers
-
     ::LONG status = ::SCardGetStatusChange(context, ::DWORD(timeout_ms), c_states, ::DWORD(states.size()));
 
     if (status == SCARD_S_SUCCESS) {
@@ -403,9 +383,9 @@ ts::UString ts::pcsc::StrError(::LONG status)
             // pcsc_stringify_error is specific to pcsc-lite.
             return UString::FromUTF8(pcsc_stringify_error(status));
 #elif defined(TS_WINDOWS)
-            return SysErrorCodeMessage(status);
+            return UString::FromUTF8(SysErrorCodeMessage(status));
 #else
-            return UString::Format(u"unknown PC/SC error code 0x%X (%<d)", {status});
+            return UString::Format(u"unknown PC/SC error code %n", status);
 #endif
     }
 }

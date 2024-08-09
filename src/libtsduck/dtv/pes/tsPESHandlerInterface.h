@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,16 +12,19 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPESPacket.h"
-#include "tsMPEG2AudioAttributes.h"
-#include "tsMPEG2VideoAttributes.h"
-#include "tsAVCAttributes.h"
-#include "tsHEVCAttributes.h"
-#include "tsAC3Attributes.h"
+#include "tsByteBlock.h"
+#include "tsTS.h"
 
 namespace ts {
 
     class PESDemux;
+    class PESPacket;
+    class DemuxedData;
+    class MPEG2AudioAttributes;
+    class MPEG2VideoAttributes;
+    class AVCAttributes;
+    class HEVCAttributes;
+    class AC3Attributes;
 
     //!
     //! Abstract interface to be notified of PES packets using a PESDemux.
@@ -51,6 +33,7 @@ namespace ts {
     //!
     class TSDUCKDLL PESHandlerInterface
     {
+        TS_INTERFACE(PESHandlerInterface);
     public:
         //!
         //! This hook is invoked when a complete PES packet is available.
@@ -58,6 +41,13 @@ namespace ts {
         //! @param [in] packet The demultiplexed PES packet.
         //!
         virtual void handlePESPacket(PESDemux& demux, const PESPacket& packet);
+
+        //!
+        //! This hook is invoked when an invalid PES packet is encountered.
+        //! @param [in,out] demux A reference to the PES demux.
+        //! @param [in] data Raw elementary stream data between two PUSI, not recognized as a valid PES packet.
+        //!
+        virtual void handleInvalidPESPacket(PESDemux& demux, const DemuxedData& data);
 
         //!
         //! This hook is invoked when a video start code is encountered.
@@ -137,10 +127,5 @@ namespace ts {
         //! @param [in] attr Audio attributes.
         //!
         virtual void handleNewAC3Attributes(PESDemux& demux, const PESPacket& packet, const AC3Attributes& attr);
-
-        //!
-        //! Virtual destructor.
-        //!
-        virtual ~PESHandlerInterface() = default;
     };
 }

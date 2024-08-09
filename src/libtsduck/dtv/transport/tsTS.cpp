@@ -1,59 +1,35 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTS.h"
 
 
-//----------------------------------------------------------------------------
 // These PID sets respectively contains no PID and all PID's.
 // The default constructor for PIDSet (std::bitset) sets all bits to 0.
-//----------------------------------------------------------------------------
-
 const ts::PIDSet ts::NoPID;
-const ts::PIDSet ts::AllPIDs (~NoPID);
+const ts::PIDSet ts::AllPIDs(~NoPID);
 
-
-//----------------------------------------------------------------------------
 // Enumeration description of ts::PIDClass.
-//----------------------------------------------------------------------------
-
 const ts::Enumeration ts::PIDClassEnum({
-    {u"undefined", int(ts::PIDClass::UNDEFINED)},
-    {u"PSI/SI",    int(ts::PIDClass::PSI)},
-    {u"EMM",       int(ts::PIDClass::EMM)},
-    {u"ECM",       int(ts::PIDClass::ECM)},
-    {u"video",     int(ts::PIDClass::VIDEO)},
-    {u"audio",     int(ts::PIDClass::AUDIO)},
-    {u"subtitles", int(ts::PIDClass::SUBTITLES)},
-    {u"data",      int(ts::PIDClass::DATA)},
-    {u"stuffing",  int(ts::PIDClass::STUFFING)},
+    {u"undefined", ts::PIDClass::UNDEFINED},
+    {u"PSI/SI",    ts::PIDClass::PSI},
+    {u"EMM",       ts::PIDClass::EMM},
+    {u"ECM",       ts::PIDClass::ECM},
+    {u"video",     ts::PIDClass::VIDEO},
+    {u"audio",     ts::PIDClass::AUDIO},
+    {u"subtitles", ts::PIDClass::SUBTITLES},
+    {u"data",      ts::PIDClass::DATA},
+    {u"stuffing",  ts::PIDClass::STUFFING},
 });
+
+// Our std::cn::chrono::duration types for transport streams.
+TS_REGISTER_CHRONO_UNIT(ts::PCR, u"PCR", u"PCR", u"PCR");
+TS_REGISTER_CHRONO_UNIT(ts::PTS, u"PTS/DTS", u"PTS/DTS", u"PTS/DTS");
 
 
 //----------------------------------------------------------------------------
@@ -98,6 +74,27 @@ uint64_t ts::NextPCR(uint64_t last_pcr, PacketCounter distance, const BitRate& b
     }
 
     return next_pcr;
+}
+
+
+//----------------------------------------------------------------------------
+// Add a signed offset to a PCR.
+//----------------------------------------------------------------------------
+
+uint64_t ts::AddPCR(uint64_t pcr, int64_t offset)
+{
+    if (pcr > MAX_PCR) {
+        return INVALID_PCR;
+    }
+    else {
+        // Beware of signed / unsigned conversions.
+        // If the final value is negative, the '%' operation differs on the signedness of the modulus type.
+        // - If the modulus is unsigned (as PCR_SCALE is), the negative lhs is first converted to unsigned and the result is absurd.
+        // - If the modulus is signed, the result is currect but also negative and must be adjusted.
+        // So, let's compute everything in signed form and adjust negative results.
+        const int64_t res = (int64_t(pcr) + offset) % int64_t(PCR_SCALE);
+        return res < 0 ? uint64_t(int64_t(PCR_SCALE) + res) : uint64_t(res);
+    }
 }
 
 
@@ -155,14 +152,14 @@ namespace {
         int count = 0;
         ts::UString str;
         if (hexa) {
-            str.format(u"0x%0*X", {hex_digits, value});
+            str.format(u"0x%0*X", hex_digits, value);
             count++;
         }
         if (decimal && (value != 0 || count == 0)) {
             if (count == 1) {
                 str.append(u" (");
             }
-            str.format(u"%'d", {value});
+            str.format(u"%'d", value);
             count++;
         }
         if (ms && (value != 0 || count == 0)) {
@@ -172,7 +169,7 @@ namespace {
             else if (count > 1) {
                 str.append(u", ");
             }
-            str.format(u"%'d ms", {value / (frequency / 1000)});
+            str.format(u"%'d ms", value / (frequency / 1000));
             count++;
         }
         if (count > 1) {
@@ -190,19 +187,4 @@ ts::UString ts::PCRToString(uint64_t pcr, bool hexa, bool decimal, bool ms)
 ts::UString ts::PTSToString(uint64_t pts, bool hexa, bool decimal, bool ms)
 {
     return TimeStampToString(pts, hexa, decimal, ms, SYSTEM_CLOCK_SUBFREQ, 9);
-}
-
-
-//----------------------------------------------------------------------------
-// Convert PCR, PTS, DTS values to milliseconds.
-//----------------------------------------------------------------------------
-
-ts::MilliSecond ts::PCRToMilliSecond(uint64_t pcr)
-{
-    return pcr >= PCR_SCALE ? -1 : pcr / (SYSTEM_CLOCK_FREQ / MilliSecPerSec);
-}
-
-ts::MilliSecond ts::PTSToMilliSecond(uint64_t pts)
-{
-    return pts >= PTS_DTS_SCALE ? -1 : pts / (SYSTEM_CLOCK_SUBFREQ / MilliSecPerSec);
 }

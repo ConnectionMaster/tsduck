@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -36,12 +15,7 @@
 
 bool ts::StartsWith(const void* area, size_t area_size, const void* prefix, size_t prefix_size)
 {
-    if (prefix_size == 0 || area_size < prefix_size) {
-        return false;
-    }
-    else {
-        return ::memcmp(area, prefix, prefix_size) == 0;
-    }
+    return area_size >= prefix_size && MemEqual(area, prefix, prefix_size);
 }
 
 
@@ -51,18 +25,58 @@ bool ts::StartsWith(const void* area, size_t area_size, const void* prefix, size
 
 const uint8_t* ts::LocatePattern(const void* area, size_t area_size, const void* pattern, size_t pattern_size)
 {
-    if (pattern_size > 0) {
+    // Warning: this function emerged as a bottleneck in perfomance analysis on TSDuck.
+    // Some optimizations have been added to improve this. Think twice before modifying it.
+    if (pattern_size == 0) {
+        return nullptr;
+    }
+    else if (pattern_size == 1) {
+        const uint8_t val = *reinterpret_cast<const uint8_t*>(pattern);
+        return reinterpret_cast<const uint8_t*>(std::memchr(area, val, area_size));
+    }
+    else {
         const uint8_t* a = reinterpret_cast<const uint8_t*>(area);
-        const uint8_t* p = reinterpret_cast<const uint8_t*>(pattern);
+        const uint8_t* const p = reinterpret_cast<const uint8_t*>(pattern);
+        const uint8_t* const p1 = p + 1;
+        const size_t last = pattern_size - 1;
+        const size_t sublen = pattern_size - 2;
         while (area_size >= pattern_size) {
-            if (*a == *p && ::memcmp(a, p, pattern_size) == 0) {
+            if (*a == *p && a[last] == p[last] && MemEqual(a + 1, p1, sublen)) {
                 return a;
             }
             ++a;
             --area_size;
         }
+        return nullptr; // not found
     }
-    return nullptr; // not found
+}
+
+
+//----------------------------------------------------------------------------
+// Locate a 3-byte pattern 00 00 XY into a memory area.
+//----------------------------------------------------------------------------
+
+const uint8_t* ts::LocateZeroZero(const void* area, size_t area_size, uint8_t third)
+{
+    const uint8_t* a = reinterpret_cast<const uint8_t*>(area);
+    while (area_size >= 3) {
+        const uint8_t* next = reinterpret_cast<const uint8_t*>(std::memchr(a, 0x00, area_size - 2));
+        if (next == nullptr) {
+            return nullptr;
+        }
+        else if (next[1] != 0x00) {
+            area_size -= (next - a) + 2;
+            a = next + 2;
+        }
+        else if (next[2] == third) {
+            return next;
+        }
+        else {
+            area_size -= (next - a) + 1;
+            a = next + 1;
+        }
+    }
+    return nullptr;
 }
 
 
@@ -70,19 +84,51 @@ const uint8_t* ts::LocatePattern(const void* area, size_t area_size, const void*
 // Check if a memory area contains all identical byte values.
 //----------------------------------------------------------------------------
 
-bool ts::IdenticalBytes(const void * area, size_t area_size)
+bool ts::IdenticalBytes(const void* area, size_t area_size)
 {
     if (area_size < 2) {
         return false;
     }
     else {
-        const uint8_t* d = reinterpret_cast<const uint8_t*>(area);
-        for (size_t i = 0; i < area_size - 1; ++i) {
-            if (d[i] != d[i + 1]) {
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(area);
+        const uint8_t* const end = p + area_size;
+        const uint8_t val = *p++;
+        while (p < end) {
+            if (*p++ != val) {
                 return false;
             }
         }
         return true;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Compute an exclusive or over memory areas.
+//----------------------------------------------------------------------------
+
+void ts::MemXor(void* dest, const void* src1, const void* src2, size_t size)
+{
+    while (size >= 8) {
+        *reinterpret_cast<uint64_t*>(dest) = *reinterpret_cast<const uint64_t*>(src1) ^ *reinterpret_cast<const uint64_t*>(src2);
+        dest = reinterpret_cast<uint8_t*>(dest) + 8;
+        src1 = reinterpret_cast<const uint8_t*>(src1) + 8;
+        src2 = reinterpret_cast<const uint8_t*>(src2) + 8;
+        size -= 8;
+    }
+    if (size >= 4) {
+        *reinterpret_cast<uint32_t*>(dest) = *reinterpret_cast<const uint32_t*>(src1) ^ *reinterpret_cast<const uint32_t*>(src2);
+        dest = reinterpret_cast<uint8_t*>(dest) + 4;
+        src1 = reinterpret_cast<const uint8_t*>(src1) + 4;
+        src2 = reinterpret_cast<const uint8_t*>(src2) + 4;
+        size -= 4;
+    }
+    while (size > 0) {
+        *reinterpret_cast<uint8_t*>(dest) = *reinterpret_cast<const uint8_t*>(src1) ^ *reinterpret_cast<const uint8_t*>(src2);
+        dest = reinterpret_cast<uint8_t*>(dest) + 1;
+        src1 = reinterpret_cast<const uint8_t*>(src1) + 1;
+        src2 = reinterpret_cast<const uint8_t*>(src2) + 1;
+        size -= 1;
     }
 }
 

@@ -1,66 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsURL.h"
 #include "tsFileUtils.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors.
-//----------------------------------------------------------------------------
-
-ts::URL::URL() :
-    _scheme(),
-    _username(),
-    _password(),
-    _host(),
-    _port(0),
-    _path(),
-    _query(),
-    _fragment()
-{
-}
-
-ts::URL::URL(const UString& path) : URL()
-{
-    setURL(path);
-}
-
-ts::URL::URL(const UString& path, const UString& base) : URL()
-{
-    setURL(path, base);
-}
-
-ts::URL::URL(const UString& path, const URL& base) : URL()
-{
-    setURL(path, base);
-}
+#include "tsErrCodeReport.h"
 
 
 //----------------------------------------------------------------------------
@@ -77,7 +25,7 @@ void ts::URL::setURL(const UString& path)
         _scheme = u"file";
         if (!_path.startWith(u"/")) {
             // Make it an absolute path.
-            UString dir(CurrentWorkingDirectory());
+            UString dir(fs::current_path(&ErrCodeReport()));
 #if defined(TS_WINDOWS)
             dir.substitute(u'\\', u'/');
             dir.insert(0, u"/");
@@ -325,7 +273,7 @@ ts::UString ts::URL::toString(bool useWinInet) const
         }
         url.append(_host);
         if (_port != 0) {
-            url.append(UString::Format(u":%d", {_port}));
+            url.append(UString::Format(u":%d", _port));
         }
         if (!_path.startWith(u"/")) {
             // Enforce a slash between host and path.

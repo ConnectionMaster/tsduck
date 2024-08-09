@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -47,10 +26,9 @@
 namespace ts {
     class TimePlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(TimePlugin);
+        TS_PLUGIN_CONSTRUCTORS(TimePlugin);
     public:
         // Implementation of plugin API
-        TimePlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
@@ -68,21 +46,23 @@ namespace ts {
             // Comparison, for sort algorithm
             bool operator<(const TimeEvent& t) const {return time < t.time;}
         };
-        typedef std::vector<TimeEvent> TimeEventVector;
+        using TimeEventVector = std::vector<TimeEvent>;
 
         // TimePlugin private members
-        Status            _status;       // Packet status to return
-        bool              _relative;     // Use relative time from the beginning
-        bool              _use_utc;      // Use UTC time
-        bool              _use_tdt;      // Use TDT as time reference
-        Time              _last_time;    // Last measured time
-        const Enumeration _status_names; // Names of packet status
-        SectionDemux      _demux;        // Section filter
-        TimeEventVector   _events;       // Sorted list of time events to apply
-        size_t            _next_index;   // Index of next TimeEvent to apply
+        Status            _status = TSP_DROP;  // Packet status to return
+        bool              _relative = false;   // Use relative time from the beginning
+        bool              _use_utc = false;    // Use UTC time
+        bool              _use_tdt = false;    // Use TDT as time reference
+        Time              _last_time {};       // Last measured time
+        SectionDemux      _demux {duck, this}; // Section filter
+        TimeEventVector   _events {};          // Sorted list of time events to apply
+        size_t            _next_index = 0;     // Index of next TimeEvent to apply
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
+
+        // Get current time.
+        Time currentTime() const { return _use_utc ? Time::CurrentUTC() : Time::CurrentLocalTime(); }
 
         // Add time events in the list fro one option. Return false if a time string is invalid
         bool addEvents(const UChar* option, Status status);
@@ -97,16 +77,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"time", ts::TimePlugin);
 //----------------------------------------------------------------------------
 
 ts::TimePlugin::TimePlugin (TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Schedule packets pass or drop, based on time", u"[options]"),
-    _status(TSP_DROP),
-    _relative(false),
-    _use_utc(false),
-    _use_tdt(false),
-    _last_time(Time::Epoch),
-    _status_names({{u"pass", TSP_OK}, {u"stop", TSP_END}, {u"drop", TSP_DROP}, {u"null", TSP_NULL}}),
-    _demux(duck, this),
-    _events(),
-    _next_index(0)
+    ProcessorPlugin(tsp_, u"Schedule packets pass or drop, based on time", u"[options]")
 {
     option(u"drop", 'd', STRING, 0, UNLIMITED_COUNT);
     help(u"drop",
@@ -164,7 +135,7 @@ bool ts::TimePlugin::start()
     _use_utc = present(u"utc");
 
     if (_relative + _use_tdt + _use_utc > 1) {
-        tsp->error(u"options --relative, --tdt and --utc are mutually exclusive");
+        error(u"options --relative, --tdt and --utc are mutually exclusive");
         return false;
     }
 
@@ -181,10 +152,10 @@ bool ts::TimePlugin::start()
     // Sort events by time
     std::sort(_events.begin(), _events.end());
 
-    if (tsp->verbose()) {
-        tsp->verbose(u"initial packet processing: %s", {_status_names.name(_status)});
+    if (verbose()) {
+        verbose(u"initial packet processing: %s", StatusNames.name(_status));
         for (auto& it : _events) {
-            tsp->verbose(u"packet %s after %s", {_status_names.name(it.status), it.time.format(Time::DATETIME)});
+            verbose(u"packet %s after %s", StatusNames.name(it.status), it.time.format(Time::DATETIME));
         }
     }
 
@@ -202,13 +173,12 @@ bool ts::TimePlugin::start()
 
 
 //----------------------------------------------------------------------------
-// Add time events in the list fro one option.
-// Return false if a time string is invalid
+// Add time events in the list for one option.
 //----------------------------------------------------------------------------
 
 bool ts::TimePlugin::addEvents(const UChar* opt, Status status)
 {
-    const Time start_time(Time::CurrentLocalTime());
+    const Time start_time(currentTime());
 
     for (size_t index = 0; index < count(opt); ++index) {
         const UString timeString(value(opt, u"", index));
@@ -217,19 +187,19 @@ bool ts::TimePlugin::addEvents(const UChar* opt, Status status)
             _status = status;
         }
         else if (_relative) {
-            // Decode relative time string (a number of seconds)
-            MilliSecond second = 0;
-            if (!timeString.toInteger(second)) {
-                tsp->error(u"invalid relative number of seconds: %s", {timeString});
+            // Decode relative time string (a number of seconds) into milliseconds.
+            cn::milliseconds::rep milliSeconds;
+            if (!timeString.toInteger(milliSeconds, UString(), 3)) {
+                error(u"invalid relative number of seconds: %s", timeString);
                 return false;
             }
-            _events.push_back(TimeEvent(status, start_time + second * MilliSecPerSec));
+            _events.push_back(TimeEvent(status, start_time + cn::milliseconds(milliSeconds)));
         }
         else {
             // Decode an absolute time string
             Time absTime;
             if (!absTime.decode(timeString)) {
-                tsp->error(u"invalid time value \"%s\" (use \"year/month/day:hour:minute:second\")", {timeString});
+                error(u"invalid time value \"%s\" (use \"year/month/day:hour:minute:second\")", timeString);
                 return false;
             }
             _events.push_back(TimeEvent(status, absTime));
@@ -269,7 +239,7 @@ ts::ProcessorPlugin::Status ts::TimePlugin::processPacket(TSPacket& pkt, TSPacke
 
     // Get current system time (unless TDT is used as reference)
     if (!_use_tdt) {
-        _last_time = _use_utc ? Time::CurrentUTC() : Time::CurrentLocalTime();
+        _last_time = currentTime();
     }
 
     // Is it time to change the action?
@@ -279,8 +249,8 @@ ts::ProcessorPlugin::Status ts::TimePlugin::processPacket(TSPacket& pkt, TSPacke
         _status = _events[_next_index].status;
         _next_index++;
 
-        if (tsp->verbose()) {
-            tsp->verbose(u"%s: new packet processing: %s", {_last_time.format(Time::DATETIME), _status_names.name(_status)});
+        if (verbose()) {
+            verbose(u"%s: new packet processing: %s", _last_time.format(Time::DATETIME), StatusNames.name(_status));
         }
     }
 

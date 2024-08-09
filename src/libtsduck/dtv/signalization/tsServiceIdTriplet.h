@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -44,8 +23,13 @@ namespace ts {
     {
     public:
         // Public members:
-        uint16_t service_id;  //!< Service id.
-        uint8_t  version;     //!< General-purpose version (typically a table version), not part of the DVB triplet.
+        uint16_t service_id = 0;  //!< Service id.
+        uint8_t  version = 0;     //!< General-purpose version (typically a table version), not part of the DVB triplet.
+
+        //!
+        //! Default constructor.
+        //!
+        ServiceIdTriplet() = default;
 
         //!
         //! Constructor.
@@ -54,7 +38,12 @@ namespace ts {
         //! @param [in] onid Original network id.
         //! @param [in] vers Optional version.
         //!
-        ServiceIdTriplet(uint16_t svid = 0, uint16_t tsid = 0, uint16_t onid = 0, uint8_t vers = 0);
+        ServiceIdTriplet(uint16_t svid, uint16_t tsid, uint16_t onid, uint8_t vers = 0) :
+            TransportStreamId(tsid, onid),
+            service_id(svid),
+            version(vers)
+        {
+        }
 
         //!
         //! Constructor.
@@ -88,18 +77,7 @@ namespace ts {
         {
             return normalized() == svid.normalized();
         }
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Comparison operator.
-        //! @param [in] svid Another instance to compare.
-        //! @return True if this object != @a svid.
-        //!
-        bool operator!=(const ServiceIdTriplet& svid) const
-        {
-            return normalized() != svid.normalized();
-        }
-#endif
+        TS_UNEQUAL_OPERATOR(ServiceIdTriplet)
 
         //!
         //! Comparison operator.
@@ -149,6 +127,6 @@ namespace ts {
     };
 
     // Containers:
-    typedef std::set<ServiceIdTriplet> ServiceIdTripletSet;        //!< Set of ServiceIdTriplet.
-    typedef std::vector<ServiceIdTriplet> ServiceIdTripletVector;  //!< Vector of ServiceIdTriplet.
+    using ServiceIdTripletSet = std::set<ServiceIdTriplet>;        //!< Set of ServiceIdTriplet.
+    using ServiceIdTripletVector = std::vector<ServiceIdTriplet>;  //!< Vector of ServiceIdTriplet.
 }

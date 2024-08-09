@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,12 +12,11 @@
 //----------------------------------------------------------------------------
 
 #pragma once
+#include "tsxml.h"
+#include "tsxmlTweaks.h"
 #include "tsRingNode.h"
-#include "tsNullReport.h"
-#include "tsReportWithPrefix.h"
 #include "tsTextFormatter.h"
 #include "tsTextParser.h"
-#include "tsxmlTweaks.h"
 
 namespace ts {
     namespace xml {
@@ -81,11 +59,30 @@ namespace ts {
             //! @param [in] last If true, the child is added at the end of the list of children.
             //! If false, it is added at the beginning.
             //!
-            virtual void reparent(Node* newParent, bool last = true);
+            void reparent(Node* newParent, bool last = true);
+
+            //!
+            //! Move the node before another node, potentially to a new parent.
+            //! @param [in,out] newSibling A new sibling. The node will be moved before this one.
+            //!
+            void moveBefore(Node* newSibling) { move(newSibling, true); }
+
+            //!
+            //! Move the node after another node, potentially to a new parent.
+            //! @param [in,out] newSibling A new sibling. The node will be moved after this one.
+            //!
+            void moveAfter(Node* newSibling) { move(newSibling, false); }
+
+            //!
+            //! Move the node before or after another node, potentially to a new parent.
+            //! @param [in,out] newSibling A new sibling. The node will be moved before or after this one.
+            //! @param [in] before If true, move the node before @a newSibling, after it otherwise.
+            //!
+            void move(Node* newSibling, bool before);
 
             //!
             //! Get the parent's node.
-            //! @return The parent's node or zero if this is a top-level document.
+            //! @return The parent's node or a null pointer if this is a top-level document.
             //!
             const Node* parent() const { return _parent; }
 
@@ -119,6 +116,12 @@ namespace ts {
             //! @return The depth of the element, ie. the number of ancestors.
             //!
             size_t depth() const;
+
+            //!
+            //! Check if the node or one of its ancestors has attribute xml:space="preserve".
+            //! @return True if spaces shall be preserved.
+            //!
+            bool preserveSpace() const;
 
             //!
             //! Check if the node has children.
@@ -205,6 +208,18 @@ namespace ts {
             Element* nextSiblingElement();
 
             //!
+            //! Find the previous sibling element.
+            //! @return Element address or zero if not found.
+            //!
+            const Element* previousSiblingElement() const { return (const_cast<Node*>(this))->previousSiblingElement(); }
+
+            //!
+            //! Find the previous sibling element.
+            //! @return Element address or zero if not found.
+            //!
+            Element* previousSiblingElement();
+
+            //!
             //! Get the value of the node.
             //!
             //! The semantic of the @e value depends on the node subclass:
@@ -225,6 +240,12 @@ namespace ts {
             //! @see value()
             //!
             void setValue(const UString& value) { _value = value; }
+
+            //!
+            //! Remove all comments in the XML node.
+            //! @param [in] recurse If true, apply recursively to all children nodes.
+            //!
+            void removeComments(bool recurse);
 
             //!
             //! Return a node type name, mainly for debug purpose.
@@ -248,6 +269,12 @@ namespace ts {
             //! If zero, no output is produced.
             //!
             virtual void printClose(TextFormatter& output, size_t levels = std::numeric_limits<size_t>::max()) const;
+
+            //!
+            //! Format the value as a one-liner XML text.
+            //! @return The formatted one-line XML text.
+            //!
+            virtual UString oneLiner() const;
 
             //!
             //! Check if the text shall be stuck to other elements in XML output.
@@ -302,14 +329,14 @@ namespace ts {
             //! @return A new node or zero either at end of document or before a "</" sequence.
             //! The returned node, when not zero, is not yet linked to its parent and siblings.
             //! When the returned node is not zero, the parser is located after the tag which
-            //! identified the node ("<?", "<!--", etc.)
+            //! identified the node ("<?", "<!- -", etc.)
             //!
             Node* identifyNextNode(TextParser& parser);
 
             //!
             //! Parse the node.
             //! @param [in,out] parser The document parser. On input, the current position of the
-            //! parser after the tag which identified the node ("<?", "<!--", etc.) On output, it
+            //! parser after the tag which identified the node ("<?", "<!- -", etc.) On output, it
             //! must be after the last character of the node.
             //! @param [in] parent Candidate parent node, for information only, do not modify. Can be null.
             //! @return True on success, false on error.
@@ -324,12 +351,20 @@ namespace ts {
             //!
             virtual bool parseChildren(TextParser& parser);
 
+            //!
+            //! Called by the subclass when its spaces shall be preserved.
+            //! Typically called when xml:space="preserve" is encountered.
+            //! @param [in] on True is spaces shall be preserved.
+            //!
+            void setPreserveSpace(bool on) { _preserveSpace = on; }
+
         private:
-            Report& _report;        // Where to report errors.
-            UString _value;         // Value of the node, depend on the node type.
-            Node*   _parent;        // Parent node, null for a document.
-            Node*   _firstChild;    // First child, can be null, other children are linked through the RingNode.
-            size_t  _inputLineNum;  // Line number in input document, zero if build programmatically.
+            Report& _report;                // Where to report errors.
+            UString _value {};              // Value of the node, depend on the node type.
+            Node*   _parent = nullptr;      // Parent node, null for a document.
+            Node*   _firstChild = nullptr;  // First child, can be null, other children are linked through the RingNode.
+            size_t  _inputLineNum = 0;      // Line number in input document, zero if build programmatically.
+            bool    _preserveSpace = false; // Has attribute xml:space="preserve".
 
             // Default XML tweaks for orphan nodes.
             static const Tweaks defaultTweaks;

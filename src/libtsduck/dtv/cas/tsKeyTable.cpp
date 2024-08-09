@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,16 +10,6 @@
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
 #include "tsAlgorithm.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors
-//----------------------------------------------------------------------------
-
-ts::KeyTable::KeyTable() :
-    _keys()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -110,16 +79,16 @@ bool ts::KeyTable::getKey(const UString& id, ByteBlock& value) const
 // Retrieve a key in the table and initialize a block cipher engine.
 //----------------------------------------------------------------------------
 
-bool ts::KeyTable::setKey(BlockCipher& cipher, const ByteBlock& id, size_t rounds) const
+bool ts::KeyTable::setKey(BlockCipher& cipher, const ByteBlock& id) const
 {
     ByteBlock value;
-    return getKey(id, value) && cipher.setKey(value.data(), value.size(), rounds);
+    return getKey(id, value) && cipher.setKey(value.data(), value.size());
 }
 
-bool ts::KeyTable::setKey(BlockCipher& cipher, const UString& id, size_t rounds) const
+bool ts::KeyTable::setKey(BlockCipher& cipher, const UString& id) const
 {
     ByteBlock bid;
-    return id.hexaDecode(bid) && setKey(cipher, bid, rounds);
+    return id.hexaDecode(bid) && setKey(cipher, bid);
 }
 
 
@@ -142,7 +111,7 @@ bool ts::KeyTable::loadFile(Report& report, const UString& filename, bool replac
 {
     // Do not search in TSDuck directory, use plain file specification.
     xml::Document doc(report);
-    report.debug(u"loading %s", {filename});
+    report.debug(u"loading %s", filename);
     return doc.load(filename, false) && parseXML(doc, replace, id_size, value_size);
 }
 
@@ -176,7 +145,7 @@ bool ts::KeyTable::parseXML(xml::Document& doc, bool replace, size_t id_size, si
     }
 
     // Analyze all keys.
-    doc.report().debug(u"loaded %d key records", {keys.size()});
+    doc.report().debug(u"loaded %d key records", keys.size());
     bool success = true;
     for (size_t i = 0; i < keys.size(); ++i) {
         UString id, value;
@@ -187,14 +156,14 @@ bool ts::KeyTable::parseXML(xml::Document& doc, bool replace, size_t id_size, si
             success = false;
         }
         else if (!id.hexaDecode(bid) || (id_size != 0 && bid.size() != id_size)) {
-            doc.report().error(u"invalid id in <%s> at line %d", {k->name(), k->lineNumber()});
+            doc.report().error(u"invalid id in <%s> at line %d", k->name(), k->lineNumber());
             success = false;
         }
         else if (!value.hexaDecode(bvalue) || (value_size != 0 && bvalue.size() != value_size)) {
-            doc.report().error(u"invalid value in <%s> at line %d", {k->name(), k->lineNumber()});
+            doc.report().error(u"invalid value in <%s> at line %d", k->name(), k->lineNumber());
         }
         else if (replace || !hasKey(bid)) {
-            _keys[bid] = bvalue;
+            _keys[bid] = std::move(bvalue);
         }
     }
     return success;

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -53,15 +32,7 @@
 
 class PacketizerTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testPacketizer();
-
-    TSUNIT_TEST_BEGIN(PacketizerTest);
-    TSUNIT_TEST(testPacketizer);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Packetizer);
 
 private:
     // Demux one table from a list of packets
@@ -72,28 +43,13 @@ TSUNIT_REGISTER(PacketizerTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void PacketizerTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void PacketizerTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
 // Demux one table from a list of packets
 void PacketizerTest::DemuxTable(ts::BinaryTablePtr& binTable, const char* name, const uint8_t* packets, size_t packets_size)
 {
-    binTable.clear();
+    binTable.reset();
 
     debug() << "PacketizerTest: DemuxTable: Rebuilding " << name << std::endl;
     TSUNIT_EQUAL(0, packets_size % ts::PKT_SIZE);
@@ -107,11 +63,11 @@ void PacketizerTest::DemuxTable(ts::BinaryTablePtr& binTable, const char* name, 
     TSUNIT_EQUAL(1, demux.tableCount());
 
     binTable = demux.tableAt(0);
-    TSUNIT_ASSERT(!binTable.isNull());
+    TSUNIT_ASSERT(binTable != nullptr);
     TSUNIT_ASSERT(binTable->isValid());
 }
 
-void PacketizerTest::testPacketizer()
+TSUNIT_DEFINE_TEST(Packetizer)
 {
     // Build a PAT, PMT and SDT. All these tables use one packet.
 
@@ -137,9 +93,9 @@ void PacketizerTest::testPacketizer()
     const ts::BitRate bitrate = ts::PKT_SIZE_BITS * 10; // 10 packets per second
 
     ts::CyclingPacketizer pzer(duck, ts::PID_PAT, ts::CyclingPacketizer::StuffingPolicy::ALWAYS, bitrate);
-    pzer.addTable(duck, pat);        // unscheduled
-    pzer.addTable(duck, pmt, 1000);  // 1000 ms => 1 table / second
-    pzer.addTable(duck, sdt, 250);   // 250 ms => 4 tables / second
+    pzer.addTable(duck, pat);                          // unscheduled
+    pzer.addTable(duck, pmt, cn::milliseconds(1000));  // 1000 ms => 1 table / second
+    pzer.addTable(duck, sdt, cn::milliseconds(250));   // 250 ms => 4 tables / second
 
     debug() << "PacketizerTest: Packetizer state before packetization: " << std::endl << pzer;
 

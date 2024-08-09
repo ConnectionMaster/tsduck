@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,11 +12,13 @@
 
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
+#include "tsxmlDeclaration.h"
 #include "tsSectionFile.h"
 #include "tsTextFormatter.h"
 #include "tsCerrReport.h"
 #include "tsReportBuffer.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
 #include "tsunit.h"
 
 
@@ -47,36 +28,28 @@
 
 class XMLTest: public tsunit::Test
 {
-public:
-    XMLTest();
+    TSUNIT_DECLARE_TEST(Document);
+    TSUNIT_DECLARE_TEST(Invalid);
+    TSUNIT_DECLARE_TEST(FileBOM);
+    TSUNIT_DECLARE_TEST(Validation);
+    TSUNIT_DECLARE_TEST(Creation);
+    TSUNIT_DECLARE_TEST(KeepOpen);
+    TSUNIT_DECLARE_TEST(Escape);
+    TSUNIT_DECLARE_TEST(Tweaks);
+    TSUNIT_DECLARE_TEST(Channels);
+    TSUNIT_DECLARE_TEST(Merge);
+    TSUNIT_DECLARE_TEST(Sort);
+    TSUNIT_DECLARE_TEST(GetFloat);
+    TSUNIT_DECLARE_TEST(SetFloat);
+    TSUNIT_DECLARE_TEST(PreserveSpace);
+    TSUNIT_DECLARE_TEST(IntValue);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testDocument();
-    void testInvalid();
-    void testFileBOM();
-    void testValidation();
-    void testCreation();
-    void testKeepOpen();
-    void testEscape();
-    void testTweaks();
-    void testChannels();
-
-    TSUNIT_TEST_BEGIN(XMLTest);
-    TSUNIT_TEST(testDocument);
-    TSUNIT_TEST(testInvalid);
-    TSUNIT_TEST(testFileBOM);
-    TSUNIT_TEST(testValidation);
-    TSUNIT_TEST(testCreation);
-    TSUNIT_TEST(testKeepOpen);
-    TSUNIT_TEST(testEscape);
-    TSUNIT_TEST(testTweaks);
-    TSUNIT_TEST(testChannels);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFileName;
+    fs::path _tempFileName {};
     ts::Report& report();
 };
 
@@ -87,25 +60,19 @@ TSUNIT_REGISTER(XMLTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-XMLTest::XMLTest() :
-    _tempFileName()
-{
-}
-
 // Test suite initialization method.
 void XMLTest::beforeTest()
 {
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void XMLTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 ts::Report& XMLTest::report()
@@ -123,7 +90,7 @@ ts::Report& XMLTest::report()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void XMLTest::testDocument()
+TSUNIT_DEFINE_TEST(Document)
 {
     static const ts::UChar* const document =
         u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -142,6 +109,7 @@ void XMLTest::testDocument()
     ts::xml::Element* root = doc.rootElement();
     TSUNIT_ASSERT(root != nullptr);
     TSUNIT_ASSERT(root->hasChildren());
+    TSUNIT_ASSERT(root->hasChildElement(u"node3"));
     TSUNIT_EQUAL(4, root->childrenCount());
     TSUNIT_ASSERT(root->hasAttribute(u"attr1"));
     TSUNIT_ASSERT(root->hasAttribute(u"AttR1"));
@@ -193,7 +161,7 @@ void XMLTest::testDocument()
     TSUNIT_ASSERT(elem == nullptr);
 }
 
-void XMLTest::testInvalid()
+TSUNIT_DEFINE_TEST(Invalid)
 {
     // Incorrect XML document
     static const ts::UChar* xmlContent =
@@ -201,13 +169,13 @@ void XMLTest::testInvalid()
         u"<foo>\n"
         u"</bar>";
 
-    ts::ReportBuffer<> rep;
+    ts::ReportBuffer<ts::ThreadSafety::None> rep;
     ts::xml::Document doc(rep);
     TSUNIT_ASSERT(!doc.parse(xmlContent));
-    TSUNIT_EQUAL(u"Error: line 3: parsing error, expected </foo> to match <foo> at line 2", rep.getMessages());
+    TSUNIT_EQUAL(u"Error: line 3: parsing error, expected </foo> to match <foo> at line 2", rep.messages());
 }
 
-void XMLTest::testFileBOM()
+TSUNIT_DEFINE_TEST(FileBOM)
 {
     // Binary content of XML file with BOM, accented characters and HTML entities.
     const ts::ByteBlock fileData({
@@ -246,10 +214,10 @@ void XMLTest::testFileBOM()
     TSUNIT_EQUAL(childText1, elem->text(false));
     TSUNIT_EQUAL(childText2, elem->text(true));
 
-    TSUNIT_ASSERT(ts::DeleteFile(_tempFileName));
+    TSUNIT_ASSERT(fs::remove(_tempFileName, &ts::ErrCodeReport(CERR, u"error deleting", _tempFileName)));
 }
 
-void XMLTest::testValidation()
+TSUNIT_DEFINE_TEST(Validation)
 {
     ts::xml::ModelDocument model(report());
     TSUNIT_ASSERT(model.load(ts::SectionFile::XML_TABLES_MODEL));
@@ -279,7 +247,7 @@ void XMLTest::testValidation()
     TSUNIT_ASSERT(model.validate(doc));
 }
 
-void XMLTest::testCreation()
+TSUNIT_DEFINE_TEST(Creation)
 {
     ts::xml::Document doc(report());
     ts::xml::Element* child1 = nullptr;
@@ -297,7 +265,7 @@ void XMLTest::testCreation()
     child1->setIntAttribute(u"int", -47);
     TSUNIT_ASSERT(child1->addElement(u"subChild1") != nullptr);
     TSUNIT_ASSERT((subchild2 = child1->addElement(u"subChild2")) != nullptr);
-    subchild2->setIntAttribute(u"int64", TS_CONST64(0x7FFFFFFFFFFFFFFF));
+    subchild2->setIntAttribute(u"int64", 0x7FFFFFFFFFFFFFFF);
 
     TSUNIT_ASSERT((child2 = root->addElement(u"child2")) != nullptr);
     TSUNIT_ASSERT(child2->addElement(u"fooBar") != nullptr);
@@ -312,7 +280,7 @@ void XMLTest::testCreation()
 
     int64_t i64;
     TSUNIT_ASSERT(subchild2->getIntAttribute(i64, u"int64", true));
-    TSUNIT_EQUAL(TS_CONST64(0x7FFFFFFFFFFFFFFF), i64);
+    TSUNIT_EQUAL(0x7FFFFFFFFFFFFFFF, i64);
 
     TSUNIT_EQUAL(
         u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -328,7 +296,7 @@ void XMLTest::testCreation()
         doc.toString());
 }
 
-void XMLTest::testKeepOpen()
+TSUNIT_DEFINE_TEST(KeepOpen)
 {
     static const ts::UChar* const document =
         u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -385,7 +353,7 @@ void XMLTest::testKeepOpen()
         out.toString());
 }
 
-void XMLTest::testEscape()
+TSUNIT_DEFINE_TEST(Escape)
 {
     ts::xml::Document doc(report());
     ts::xml::Element* child1 = nullptr;
@@ -436,7 +404,7 @@ void XMLTest::testEscape()
     TSUNIT_EQUAL(u"text<&'\">text", elem->text());
 }
 
-void XMLTest::testTweaks()
+TSUNIT_DEFINE_TEST(Tweaks)
 {
     ts::xml::Document doc(report());
     ts::xml::Element* root = doc.initialize(u"root");
@@ -483,8 +451,344 @@ void XMLTest::testTweaks()
         doc.toString());
 }
 
-void XMLTest::testChannels()
+TSUNIT_DEFINE_TEST(Channels)
 {
     ts::xml::Document model(report());
     TSUNIT_ASSERT(model.load(ts::SectionFile::XML_TABLES_MODEL));
+}
+
+TSUNIT_DEFINE_TEST(Merge)
+{
+    static const ts::UChar* const document1 =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  <node1 a1=\"v1\">Text in node1</node1>\n"
+        u"  <node3 foo=\"bar\">\n"
+        u"    <node31>\n"
+        u"      <node311 a=\"311\"/>\n"
+        u"      <node313 a=\"313\"/>\n"
+        u"    </node31>\n"
+        u"    <node33>\n"
+        u"      <node331 a=\"331\"/>\n"
+        u"    </node33>\n"
+        u"  </node3>\n"
+        u"</root>\n";
+
+    static const ts::UChar* const document2 =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root attr1=\"val1\">\n"
+        u"  <node1 a1=\"y1\" a2=\"y2\">=== in node1</node1>\n"
+        u"  <node2 b2=\"x2\">==== in node2</node2>\n"
+        u"  <node3>\n"
+        u"    <node31>\n"
+        u"      <node311 a=\"311-2\"/>\n"
+        u"      <node312 a=\"312-2\"/>\n"
+        u"      <node314 a=\"314-2\"/>\n"
+        u"    </node31>\n"
+        u"    <node32 b=\"32\"/>\n"
+        u"    <node33>\n"
+        u"      <node332 a=\"332\"/>\n"
+        u"    </node33>\n"
+        u"  </node3>\n"
+        u"  <node4/>\n"
+        u"</root>\n";
+
+    ts::xml::Document doc1(report());
+    ts::xml::Document doc2(report());
+    TSUNIT_ASSERT(doc1.parse(document1));
+    TSUNIT_ASSERT(doc2.parse(document2));
+    TSUNIT_EQUAL(2, doc1.childrenCount());
+    TSUNIT_EQUAL(2, doc2.childrenCount());
+
+    TSUNIT_ASSERT(doc1.rootElement()->merge(doc2.rootElement(), ts::xml::MergeAttributes::NONE));
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  <node1 a1=\"v1\">Text in node1</node1>\n"
+        u"  <node3 foo=\"bar\">\n"
+        u"    <node31>\n"
+        u"      <node311 a=\"311\"/>\n"
+        u"      <node313 a=\"313\"/>\n"
+        u"      <node312 a=\"312-2\"/>\n"
+        u"      <node314 a=\"314-2\"/>\n"
+        u"    </node31>\n"
+        u"    <node33>\n"
+        u"      <node331 a=\"331\"/>\n"
+        u"      <node332 a=\"332\"/>\n"
+        u"    </node33>\n"
+        u"    <node32 b=\"32\"/>\n"
+        u"  </node3>\n"
+        u"  <node2 b2=\"x2\">==== in node2</node2>\n"
+        u"  <node4/>\n"
+        u"</root>\n",
+        doc1.toString());
+
+    doc1.clear();
+    doc2.clear();
+    TSUNIT_ASSERT(doc1.parse(document1));
+    TSUNIT_ASSERT(doc2.parse(document2));
+    TSUNIT_EQUAL(2, doc1.childrenCount());
+    TSUNIT_EQUAL(2, doc2.childrenCount());
+
+    TSUNIT_ASSERT(doc1.rootElement()->merge(doc2.rootElement(), ts::xml::MergeAttributes::ADD));
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root attr1=\"val1\">\n"
+        u"  <node1 a1=\"v1\" a2=\"y2\">Text in node1</node1>\n"
+        u"  <node3 foo=\"bar\">\n"
+        u"    <node31>\n"
+        u"      <node311 a=\"311\"/>\n"
+        u"      <node313 a=\"313\"/>\n"
+        u"      <node312 a=\"312-2\"/>\n"
+        u"      <node314 a=\"314-2\"/>\n"
+        u"    </node31>\n"
+        u"    <node33>\n"
+        u"      <node331 a=\"331\"/>\n"
+        u"      <node332 a=\"332\"/>\n"
+        u"    </node33>\n"
+        u"    <node32 b=\"32\"/>\n"
+        u"  </node3>\n"
+        u"  <node2 b2=\"x2\">==== in node2</node2>\n"
+        u"  <node4/>\n"
+        u"</root>\n",
+        doc1.toString());
+
+    doc1.clear();
+    doc2.clear();
+    TSUNIT_ASSERT(doc1.parse(document1));
+    TSUNIT_ASSERT(doc2.parse(document2));
+    TSUNIT_EQUAL(2, doc1.childrenCount());
+    TSUNIT_EQUAL(2, doc2.childrenCount());
+
+    TSUNIT_ASSERT(doc1.rootElement()->merge(doc2.rootElement(), ts::xml::MergeAttributes::REPLACE));
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root attr1=\"val1\">\n"
+        u"  <node1 a1=\"y1\" a2=\"y2\">Text in node1</node1>\n"
+        u"  <node3 foo=\"bar\">\n"
+        u"    <node31>\n"
+        u"      <node311 a=\"311-2\"/>\n"
+        u"      <node313 a=\"313\"/>\n"
+        u"      <node312 a=\"312-2\"/>\n"
+        u"      <node314 a=\"314-2\"/>\n"
+        u"    </node31>\n"
+        u"    <node33>\n"
+        u"      <node331 a=\"331\"/>\n"
+        u"      <node332 a=\"332\"/>\n"
+        u"    </node33>\n"
+        u"    <node32 b=\"32\"/>\n"
+        u"  </node3>\n"
+        u"  <node2 b2=\"x2\">==== in node2</node2>\n"
+        u"  <node4/>\n"
+        u"</root>\n",
+        doc1.toString());
+}
+
+TSUNIT_DEFINE_TEST(Sort)
+{
+    static const ts::UChar* const document =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  Text 1\n"
+        u"  <node3 a=\"1\"/>\n"
+        u"  Text 3\n"
+        u"  <node2/>\n"
+        u"  <node3 a=\"2\"/>\n"
+        u"  <node7>\n"
+        u"    <node7e/>\n"
+        u"    <node7d/>\n"
+        u"    <node7a/>\n"
+        u"    <node7g/>\n"
+        u"    <node7c/>\n"
+        u"    <node7z/>\n"
+        u"  </node7>\n"
+        u"  <node9/>\n"
+        u"  <node4/>\n"
+        u"  <node7>\n"
+        u"    <node7a1/>\n"
+        u"    <node7a2/>\n"
+        u"    <node7a4/>\n"
+        u"    <node7a3/>\n"
+        u"    <node7a5/>\n"
+        u"  </node7>\n"
+        u"  <node1/>\n"
+        u"  End\n"
+        u"</root>\n";
+
+    ts::xml::Document doc(report());
+    TSUNIT_ASSERT(doc.parse(document));
+    TSUNIT_EQUAL(2, doc.childrenCount());
+    doc.rootElement()->sort();
+
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  Text 1\n"
+        u"  <node1/>\n"
+        u"  <node2/>\n"
+        u"  <node3 a=\"1\"/>\n"
+        u"  Text 3\n"
+        u"  <node3 a=\"2\"/>\n"
+        u"  <node4/>\n"
+        u"  <node7>\n"
+        u"    <node7e/>\n"
+        u"    <node7d/>\n"
+        u"    <node7a/>\n"
+        u"    <node7g/>\n"
+        u"    <node7c/>\n"
+        u"    <node7z/>\n"
+        u"  </node7>\n"
+        u"  <node7>\n"
+        u"    <node7a1/>\n"
+        u"    <node7a2/>\n"
+        u"    <node7a4/>\n"
+        u"    <node7a3/>\n"
+        u"    <node7a5/>\n"
+        u"  </node7>\n"
+        u"  <node9/>\n"
+        u"  End\n"
+        u"</root>\n",
+        doc.toString());
+
+    doc.clear();
+    TSUNIT_ASSERT(doc.parse(document));
+    TSUNIT_EQUAL(2, doc.childrenCount());
+    doc.rootElement()->sort(u"node7");
+
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  Text 1\n"
+        u"  <node3 a=\"1\"/>\n"
+        u"  Text 3\n"
+        u"  <node2/>\n"
+        u"  <node3 a=\"2\"/>\n"
+        u"  <node7>\n"
+        u"    <node7a/>\n"
+        u"    <node7c/>\n"
+        u"    <node7d/>\n"
+        u"    <node7e/>\n"
+        u"    <node7g/>\n"
+        u"    <node7z/>\n"
+        u"  </node7>\n"
+        u"  <node9/>\n"
+        u"  <node4/>\n"
+        u"  <node7>\n"
+        u"    <node7a1/>\n"
+        u"    <node7a2/>\n"
+        u"    <node7a3/>\n"
+        u"    <node7a4/>\n"
+        u"    <node7a5/>\n"
+        u"  </node7>\n"
+        u"  <node1/>\n"
+        u"  End\n"
+        u"</root>\n",
+        doc.toString());
+}
+
+TSUNIT_DEFINE_TEST(GetFloat)
+{
+    static const ts::UChar* const document =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  <node a='12.34' b='45' c='1.34e-12' d='xyz'/>\n"
+        u"</root>\n";
+
+    ts::xml::Document doc(report());
+    TSUNIT_ASSERT(doc.parse(document));
+    TSUNIT_EQUAL(2, doc.childrenCount());
+
+    ts::xml::Element* root = doc.rootElement();
+    TSUNIT_ASSERT(root != nullptr);
+
+    ts::xml::Element* node = root->findFirstChild(u"node", true);
+    TSUNIT_ASSERT(node != nullptr);
+
+    double dbl = 0.0;
+    TSUNIT_ASSERT(node->getFloatAttribute(dbl, u"a", true));
+    TSUNIT_EQUAL(12.34, dbl);
+
+    float flt = 0.0;
+    TSUNIT_ASSERT(node->getFloatAttribute(flt, u"b", true));
+    TSUNIT_EQUAL(45.0, flt);
+
+    TSUNIT_ASSERT(node->getFloatAttribute(dbl, u"c", true));
+    TSUNIT_EQUAL(1.34e-12, dbl);
+
+    TSUNIT_ASSERT(!node->getFloatAttribute(dbl, u"d"));
+
+    TSUNIT_ASSERT(node->getFloatAttribute(flt, u"e", false, 52.12));
+    TSUNIT_EQUAL(52.12, flt);
+}
+
+TSUNIT_DEFINE_TEST(SetFloat)
+{
+    ts::xml::Document doc(report());
+    new ts::xml::Declaration(&doc, ts::xml::Declaration::DEFAULT_XML_DECLARATION);
+    ts::xml::Element* root = new ts::xml::Element(&doc, u"root");
+    ts::xml::Element* node = new ts::xml::Element(root, u"node");
+    node->setFloatAttribute(u"a", 12.34);
+    node->setFloatAttribute(u"b", 4.5e-13);
+
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<root>\n"
+        u"  <node a=\"12.340000\" b=\"4.500000e-13\"/>\n"
+        u"</root>\n",
+        doc.toString());
+}
+
+TSUNIT_DEFINE_TEST(PreserveSpace)
+{
+    static const ts::UChar* const document =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<w:document>\n"
+        u"  <w:t xml:space=\"preserve\"> </w:t>\n"
+        u"  <w:t xml:space=\"preserve\">   </w:t>\n"
+        u"  <w:t xml:space=\"preserve\"></w:t>\n"
+        u"  <w:t> </w:t>\n"
+        u"  <w:t>    </w:t>\n"
+        u"  <w:t></w:t>\n"
+        u"  <w:t xml:space=\"preserve\">  a  b  </w:t>\n"
+        u"  <w:t>  a  b  </w:t>\n"
+        u"</w:document>\n";
+
+    ts::xml::Document doc(report());
+    TSUNIT_ASSERT(doc.parse(document));
+    TSUNIT_EQUAL(2, doc.childrenCount());
+
+    TSUNIT_EQUAL(
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<w:document>\n"
+        u"  <w:t xml:space=\"preserve\"> </w:t>\n"
+        u"  <w:t xml:space=\"preserve\">   </w:t>\n"
+        u"  <w:t xml:space=\"preserve\"/>\n"
+        u"  <w:t/>\n"
+        u"  <w:t/>\n"
+        u"  <w:t/>\n"
+        u"  <w:t xml:space=\"preserve\">  a  b  </w:t>\n"
+        u"  <w:t>  a  b  </w:t>\n"
+        u"</w:document>\n",
+        doc.toString());
+}
+
+TSUNIT_DEFINE_TEST(IntValue)
+{
+    static const ts::UChar* const document =
+        u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        u"<document a='1000'/>";
+
+    ts::xml::Document doc(report());
+    TSUNIT_ASSERT(doc.parse(document));
+    TSUNIT_EQUAL(2, doc.childrenCount());
+
+    ts::xml::Element* root = doc.rootElement();
+    TSUNIT_ASSERT(root != nullptr);
+
+    int i = 0;
+    TSUNIT_ASSERT(root->getIntAttribute(i, u"a"));
+    TSUNIT_EQUAL(1000, i);
+
+    int8_t i8 = 0;
+    TSUNIT_ASSERT(!root->getIntAttribute(i8, u"a"));
 }

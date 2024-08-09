@@ -1,40 +1,16 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTunerArgs.h"
-#include "tsTuner.h"
 #include "tsChannelFile.h"
 #include "tsDuckContext.h"
 #include "tsHFBand.h"
 #include "tsArgs.h"
-#include "tsSysUtils.h"
-#include "tsNullReport.h"
 
 
 //----------------------------------------------------------------------------
@@ -42,13 +18,6 @@
 //----------------------------------------------------------------------------
 
 ts::TunerArgs::TunerArgs(bool info_only) :
-    ModulationArgs(),
-    device_name(),
-    signal_timeout(Tuner::DEFAULT_SIGNAL_TIMEOUT),
-    receive_timeout(0),
-    demux_buffer_size(Tuner::DEFAULT_DEMUX_BUFFER_SIZE),
-    demux_queue_size(Tuner::DEFAULT_SINK_QUEUE_SIZE),
-    receiver_name(),
     _info_only(info_only)
 {
 }
@@ -61,11 +30,11 @@ ts::TunerArgs::TunerArgs(bool info_only) :
 void ts::TunerArgs::clear()
 {
     device_name.clear();
-    signal_timeout = Tuner::DEFAULT_SIGNAL_TIMEOUT;
-    receive_timeout = 0;
+    receiver_name.clear();
     demux_buffer_size = Tuner::DEFAULT_DEMUX_BUFFER_SIZE;
     demux_queue_size = Tuner::DEFAULT_SINK_QUEUE_SIZE;
-    receiver_name.clear();
+    signal_timeout = Tuner::DEFAULT_SIGNAL_TIMEOUT;
+    receive_timeout = cn::milliseconds::zero();
 
     // Reset superclass.
     ModulationArgs::clear();
@@ -87,34 +56,34 @@ bool ts::TunerArgs::loadArgs(DuckContext& duck, Args& args)
         status = false;
     }
     if (args.present(u"device-name")) {
-        device_name = args.value(u"device-name");
+        args.getValue(device_name, u"device-name");
     }
     else if (args.present(u"adapter")) {
         const int adapter = args.intValue(u"adapter", 0);
 #if defined(TS_LINUX)
-        device_name.format(u"/dev/dvb/adapter%d", {adapter});
+        device_name.format(u"/dev/dvb/adapter%d", adapter);
 #elif defined(TS_WINDOWS)
-        device_name.format(u":%d", {adapter});
+        device_name.format(u":%d", adapter);
 #else
         // Does not mean anything, just for error messages.
-        device_name.format(u"DVB adapter %d", {adapter});
+        device_name.format(u"DVB adapter %d", adapter);
 #endif
     }
 
 #if defined(TS_WINDOWS)
     // Windows-specific tuner options.
-    receiver_name = args.value(u"receiver-name");
+    args.getValue(receiver_name, u"receiver-name");
 #endif
 
     // Tuning options.
     if (!_info_only) {
         // Reception parameters.
-        signal_timeout = args.intValue<MilliSecond>(u"signal-timeout", Tuner::DEFAULT_SIGNAL_TIMEOUT / 1000) * 1000;
-        receive_timeout = args.intValue<MilliSecond>(u"receive-timeout", receive_timeout); // preserve previous value
+        args.getChronoValue(signal_timeout, u"signal-timeout", Tuner::DEFAULT_SIGNAL_TIMEOUT);
+        args.getChronoValue(receive_timeout, u"receive-timeout", receive_timeout); // preserve previous value
 #if defined(TS_LINUX)
-        demux_buffer_size = args.intValue<size_t>(u"demux-buffer-size", Tuner::DEFAULT_DEMUX_BUFFER_SIZE);
+        args.getIntValue(demux_buffer_size, u"demux-buffer-size", Tuner::DEFAULT_DEMUX_BUFFER_SIZE);
 #elif defined(TS_WINDOWS)
-        demux_queue_size = args.intValue<size_t>(u"demux-queue-size", Tuner::DEFAULT_SINK_QUEUE_SIZE);
+        args.getIntValue(demux_queue_size, u"demux-queue-size", Tuner::DEFAULT_SINK_QUEUE_SIZE);
 #endif
 
         // Locating the transponder by channel
@@ -194,8 +163,9 @@ void ts::TunerArgs::defineArgs(Args& args, bool allow_short_options)
     args.help(u"device-name", u"name",
 #if defined(TS_LINUX)
               u"Specify the DVB receiver device name, /dev/dvb/adapterA[:F[:M[:V]]] "
-              u"where A = adapter number, F = frontend number (default: 0), M = demux "
-              u"number (default: 0), V = dvr number (default: 0). "
+              u"where A = adapter number, F = frontend number (default: 0), "
+              u"M = demux number (default: same as frontend), "
+              u"V = dvr number (default: same as frontend). "
 #elif defined(TS_WINDOWS)
               u"Specify the receiver device name. This is a DirectShow/BDA tuner "
               u"filter name (not case sensitive, blanks are ignored). "
@@ -215,18 +185,18 @@ void ts::TunerArgs::defineArgs(Args& args, bool allow_short_options)
     if (!_info_only) {
 
         // Reception parameters.
-        args.option(u"receive-timeout", 0, Args::UNSIGNED);
-        args.help(u"receive-timeout", u"milliseconds",
+        args.option<cn::milliseconds>(u"receive-timeout");
+        args.help(u"receive-timeout",
                   u"Specifies the timeout, in milliseconds, for each receive operation. "
                   u"To disable the timeout and wait indefinitely for packets, specify zero. "
                   u"This is the default.");
 
-        args.option(u"signal-timeout", 0, Args::UNSIGNED);
-        args.help(u"signal-timeout", u"seconds",
+        args.option<cn::seconds>(u"signal-timeout");
+        args.help(u"signal-timeout",
                   u"Specifies the timeout, in seconds, for DVB signal locking. If no signal "
                   u"is detected after this timeout, the command aborts. To disable the "
                   u"timeout and wait indefinitely for the signal, specify zero. The default "
-                  u"is " + UString::Decimal(Tuner::DEFAULT_SIGNAL_TIMEOUT / 1000) + u" seconds.");
+                  u"is " + UString::Chrono(cn::duration_cast<cn::seconds>(Tuner::DEFAULT_SIGNAL_TIMEOUT)) + u".");
 
 #if defined(TS_LINUX)
 

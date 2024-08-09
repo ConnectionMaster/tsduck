@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,10 +22,9 @@
 namespace ts {
     class PCRVerifyPlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(PCRVerifyPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PCRVerifyPlugin);
     public:
         // Implementation of plugin API
-        PCRVerifyPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -56,32 +34,32 @@ namespace ts {
         // Description of one PID
         struct PIDContext
         {
-            PIDContext();                  // Constructor.
-            uint64_t      pcr_value;       // Last PCR value in this PID.
-            PacketCounter pcr_packet;      // Packet index containing last PCR.
-            uint64_t      pcr_timestamp;   // Input timestamp of packet containing last PCR (or INVALID _PCR).
-            TimeSource    pcr_timesource;  // Source of input time stamp.
+            PIDContext() = default;
+            uint64_t      pcr_value = INVALID_PCR;                 // Last PCR value in this PID.
+            PacketCounter pcr_packet = 0;                          // Packet index containing last PCR.
+            uint64_t      pcr_timestamp = INVALID_PCR;             // Input timestamp of packet containing last PCR (or INVALID _PCR).
+            TimeSource    pcr_timesource = TimeSource::UNDEFINED;  // Source of input time stamp.
         };
 
         // Command line options.
-        bool    _absolute;       // Use PCR absolute value, not micro-second
-        bool    _input_synch;    // Use input-synchronous verification, base on input timestamps
-        BitRate _bitrate;        // Expected bitrate (0 if unknown)
-        int64_t _jitter_max;     // Max accepted jitter in PCR units
-        int64_t _jitter_unreal;  // Max realistic jitter
-        bool    _time_stamp;     // Display time stamps
-        PIDSet  _pid_list;       // Array of pid values to filter
+        bool    _absolute = false;     // Use PCR absolute value, not micro-second
+        bool    _input_synch = false;  // Use input-synchronous verification, base on input timestamps
+        BitRate _bitrate = 0;          // Expected bitrate (0 if unknown)
+        int64_t _jitter_max = 0;       // Max accepted jitter in PCR units
+        int64_t _jitter_unreal = 0;    // Max realistic jitter
+        bool    _time_stamp = false;   // Display time stamps
+        PIDSet  _pid_list {};          // Array of pid values to filter
 
         // Working data.
-        PacketCounter            _nb_pcr_ok;         // Number of PCR without jitter
-        PacketCounter            _nb_pcr_nok;        // Number of PCR with jitter
-        PacketCounter            _nb_pcr_unchecked;  // Number of unchecked PCR (no previous ref)
-        std::map<PID,PIDContext> _stats;             // Per-PID statistics
+        PacketCounter            _nb_pcr_ok = 0;         // Number of PCR without jitter
+        PacketCounter            _nb_pcr_nok = 0;        // Number of PCR with jitter
+        PacketCounter            _nb_pcr_unchecked = 0;  // Number of unchecked PCR (no previous ref)
+        std::map<PID,PIDContext> _stats {};              // Per-PID statistics
 
         // PCR units per micro-second.
-        static constexpr int64_t PCR_PER_MICRO_SEC = int64_t(SYSTEM_CLOCK_FREQ) / MicroSecPerSec;
+        static constexpr int64_t PCR_PER_MICRO_SEC = int64_t(SYSTEM_CLOCK_FREQ) / cn::microseconds::period::den;
         static constexpr int64_t DEFAULT_JITTER_MAX_US = 1000; // 1000 us = 1 ms
-        static constexpr int64_t DEFAULT_JITTER_UNREAL_US = 10 * MicroSecPerSec; // 10 seconds
+        static constexpr int64_t DEFAULT_JITTER_UNREAL_US = 10 * cn::microseconds::period::den; // 10 seconds
         static constexpr int64_t DEFAULT_JITTER_MAX = DEFAULT_JITTER_MAX_US * PCR_PER_MICRO_SEC;
         static constexpr int64_t DEFAULT_JITTER_UNREAL = DEFAULT_JITTER_UNREAL_US * PCR_PER_MICRO_SEC;
     };
@@ -89,45 +67,13 @@ namespace ts {
 
 TS_REGISTER_PROCESSOR_PLUGIN(u"pcrverify", ts::PCRVerifyPlugin);
 
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr int64_t ts::PCRVerifyPlugin::PCR_PER_MICRO_SEC;
-constexpr int64_t ts::PCRVerifyPlugin::DEFAULT_JITTER_MAX_US;
-constexpr int64_t ts::PCRVerifyPlugin::DEFAULT_JITTER_UNREAL_US;
-constexpr int64_t ts::PCRVerifyPlugin::DEFAULT_JITTER_MAX;
-constexpr int64_t ts::PCRVerifyPlugin::DEFAULT_JITTER_UNREAL;
-#endif
-
-
-//----------------------------------------------------------------------------
-// PID context constructor
-//----------------------------------------------------------------------------
-
-ts::PCRVerifyPlugin::PIDContext::PIDContext() :
-    pcr_value(INVALID_PCR),
-    pcr_packet(0),
-    pcr_timestamp(INVALID_PCR),
-    pcr_timesource(TimeSource::UNDEFINED)
-{
-}
-
 
 //----------------------------------------------------------------------------
 // Constructor
 //----------------------------------------------------------------------------
 
 ts::PCRVerifyPlugin::PCRVerifyPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Verify PCR's from TS packets", u"[options]"),
-    _absolute(false),
-    _input_synch(false),
-    _bitrate(0),
-    _jitter_max(0),
-    _jitter_unreal(0),
-    _time_stamp(false),
-    _pid_list(),
-    _nb_pcr_ok(0),
-    _nb_pcr_nok(0),
-    _nb_pcr_unchecked(0),
-    _stats()
+    ProcessorPlugin(tsp_, u"Verify PCR's from TS packets", u"[options]")
 {
     option(u"absolute", 'a');
     help(u"absolute",
@@ -161,7 +107,7 @@ ts::PCRVerifyPlugin::PCRVerifyPlugin(TSP* tsp_) :
          u"otherwise it is in micro-seconds. The default is " +
          UString::Decimal(DEFAULT_JITTER_UNREAL) + u" PCR units or " +
          UString::Decimal(DEFAULT_JITTER_UNREAL_US) + u" micro-seconds (" +
-         UString::Decimal(DEFAULT_JITTER_UNREAL_US / MicroSecPerSec) + u" seconds).");
+         UString::Decimal(DEFAULT_JITTER_UNREAL_US / cn::microseconds::period::den) + u" seconds).");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
     help(u"pid", u"pid1[-pid2]",
@@ -194,7 +140,7 @@ bool ts::PCRVerifyPlugin::getOptions()
         _jitter_unreal *= PCR_PER_MICRO_SEC;
     }
     if (_bitrate > 0 && _input_synch) {
-        tsp->error(u"options --bitrate and --input-synchronous are mutually exclusive");
+        error(u"options --bitrate and --input-synchronous are mutually exclusive");
         return false;
     }
 
@@ -223,8 +169,8 @@ bool ts::PCRVerifyPlugin::start()
 bool ts::PCRVerifyPlugin::stop()
 {
     // Display PCR summary
-    tsp->info(u"%'d PCR OK, %'d with jitter > %'d (%'d micro-seconds), %'d unchecked",
-              {_nb_pcr_ok, _nb_pcr_nok, _jitter_max, _jitter_max / PCR_PER_MICRO_SEC, _nb_pcr_unchecked});
+    info(u"%'d PCR OK, %'d with jitter > %'d (%'d micro-seconds), %'d unchecked",
+         _nb_pcr_ok, _nb_pcr_nok, _jitter_max, _jitter_max / PCR_PER_MICRO_SEC, _nb_pcr_unchecked);
     return true;
 }
 
@@ -247,7 +193,8 @@ ts::ProcessorPlugin::Status ts::PCRVerifyPlugin::processPacket(TSPacket& pkt, TS
         PIDContext next_pc;
         next_pc.pcr_value = pkt.getPCR();
         next_pc.pcr_packet = tsp->pluginPackets();
-        next_pc.pcr_timestamp = pkt_data.getInputTimeStamp(); // in PCR units, INVALID_PCR if there is no timestamp
+        const PCR pkt_timestamp = pkt_data.getInputTimeStamp();
+        next_pc.pcr_timestamp = pkt_timestamp < PCR::zero() ? INVALID_PCR : pkt_data.getInputTimeStamp().count();
         next_pc.pcr_timesource = pkt_data.getInputTimeSource();
 
         // Current bitrate is needed if not --input-synchronous. Use signed 64-bit for jitter computation.
@@ -267,7 +214,7 @@ ts::ProcessorPlugin::Status ts::PCRVerifyPlugin::processPacket(TSPacket& pkt, TS
             _nb_pcr_unchecked++;
         }
         else if (pc.pcr_timesource != next_pc.pcr_timesource) {
-            tsp->verbose(u"distinct time sources for PCR packets: %s then %s", {TimeSourceEnum.name(pc.pcr_timesource), TimeSourceEnum.name(next_pc.pcr_timesource)});
+            verbose(u"distinct time sources for PCR packets: %s then %s", TimeSourceEnum.name(pc.pcr_timesource), TimeSourceEnum.name(next_pc.pcr_timesource));
             _nb_pcr_unchecked++;
         }
         else {
@@ -315,15 +262,15 @@ ts::ProcessorPlugin::Status ts::PCRVerifyPlugin::processPacket(TSPacket& pkt, TS
                 _nb_pcr_nok++;
                 // Jitter in bits at current bitrate
                 const int64_t bit_jit = (ajit * bitrate) / SYSTEM_CLOCK_FREQ;
-                tsp->info(u"%sPID %d (0x%<X), PCR jitter: %'d = %'d micro-seconds = %'d packets + %'d bytes + %'d bits (%s time)", {
-                          _time_stamp ? (Time::CurrentLocalTime().format(Time::DATETIME) + u", ") : u"",
-                          pid,
-                          jitter,
-                          ajit / PCR_PER_MICRO_SEC,
-                          bit_jit / PKT_SIZE_BITS,
-                          (bit_jit / 8) % PKT_SIZE,
-                          bit_jit % 8,
-                          TimeSourceEnum.name(next_pc.pcr_timesource)});
+                info(u"%sPID %n, PCR jitter: %'d = %'d micro-seconds = %'d packets + %'d bytes + %'d bits (%s time)",
+                     _time_stamp ? (Time::CurrentLocalTime().format(Time::DATETIME) + u", ") : u"",
+                     pid,
+                     jitter,
+                     ajit / PCR_PER_MICRO_SEC,
+                     bit_jit / PKT_SIZE_BITS,
+                     (bit_jit / 8) % PKT_SIZE,
+                     bit_jit % 8,
+                     TimeSourceEnum.name(next_pc.pcr_timesource));
             }
         }
 

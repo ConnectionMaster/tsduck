@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -39,11 +18,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"tables", ts::TablesPlugin);
 //----------------------------------------------------------------------------
 
 ts::TablesPlugin::TablesPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Collect PSI/SI Tables", u"[options]"),
-    _display(duck),
-    _logger(_display),
-    _signal_event(false),
-    _event_code(0)
+    ProcessorPlugin(tsp_, u"Collect PSI/SI Tables", u"[options]")
 {
     duck.defineArgsForCAS(*this);
     duck.defineArgsForPDS(*this);
@@ -59,6 +34,11 @@ ts::TablesPlugin::TablesPlugin(TSP* tsp_) :
          u"Signal a plugin event with the specified code for each section. "
          u"The event data is an instance of PluginEventData pointing to the section content. "
          u"Without --all-sections, an event is signaled for each section of complete new tables.");
+
+    option(u"joint-termination", 'j');
+    help(u"joint-termination",
+         u"With --max-tables, when the final table is collected, perform a \"joint termination\" instead of unconditional termination. "
+         u"See \"tsp --help\" for more details on \"joint termination\".");
 }
 
 
@@ -71,18 +51,20 @@ bool ts::TablesPlugin::getOptions()
     _signal_event = present(u"event-code");
     getIntValue(_event_code, u"event-code");
     _logger.setSectionHandler(_signal_event ? this : nullptr);
+    tsp->useJointTermination(present(u"joint-termination"));
     return duck.loadArgs(*this) && _logger.loadArgs(duck, *this) && _display.loadArgs(duck, *this);
 }
 
 bool ts::TablesPlugin::start()
 {
+    _terminated = false;
     return _logger.open();
 }
 
 bool ts::TablesPlugin::stop()
 {
     _logger.close();
-    _logger.reportDemuxErrors(*tsp, Severity::Verbose);
+    _logger.reportDemuxErrors(*this, Severity::Verbose);
     return true;
 }
 
@@ -107,6 +89,24 @@ void ts::TablesPlugin::handleSection(SectionDemux&, const Section& sect)
 
 ts::ProcessorPlugin::Status ts::TablesPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    _logger.feedPacket(pkt);
-    return _logger.completed() ? TSP_END : TSP_OK;
+    if (_terminated) {
+        // Typically waiting for joint termination, pass packet without processing.
+        return TSP_OK;
+    }
+    else {
+        // Normal packet processing.
+        _logger.feedPacket(pkt);
+        _terminated = _logger.completed();
+        // Process termination.
+        if (!_terminated) {
+            return TSP_OK;
+        }
+        else if (tsp->useJointTermination()) {
+            tsp->jointTerminate();
+            return TSP_OK;
+        }
+        else {
+            return TSP_END;
+        }
+    }
 }

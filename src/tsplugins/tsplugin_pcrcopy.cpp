@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,35 +22,34 @@
 namespace ts {
     class PCRCopyPlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(PCRCopyPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PCRCopyPlugin);
     public:
         // Implementation of plugin API
-        PCRCopyPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Command line options.
-        PID           _ref_pid_arg;     // Reference PCR source.
-        PID           _target_pid_arg;  // Target PID to alter.
-        size_t        _ref_label;       // Label which indicates the reference PID.
-        size_t        _target_label;    // Label which indicates the target PID.
-        PacketCounter _every;           // Insert a PCR every N packets (if not zero).
-        size_t        _max_shift;       // Maximum number of bytes to shift.
-        bool          _pusi;            // Insert a PCR in PUSI packets.
+        PID           _ref_pid_arg = PID_NULL;     // Reference PCR source.
+        PID           _target_pid_arg = PID_NULL;  // Target PID to alter.
+        size_t        _ref_label = TSPacketLabelSet::MAX + 1;    // Label which indicates the reference PID.
+        size_t        _target_label = TSPacketLabelSet::MAX + 1; // Label which indicates the target PID.
+        PacketCounter _every = 0;                  // Insert a PCR every N packets (if not zero).
+        size_t        _max_shift = 0;              // Maximum number of bytes to shift.
+        bool          _pusi = false;               // Insert a PCR in PUSI packets.
 
         // Working data.
-        PID           _ref_pid;         // Current reference PCR source.
-        PID           _target_pid;      // Current target PID to alter.
-        PacketCounter _target_packets;  // Number of packets in target PID.
-        PacketCounter _ref_packet;      // Packet index of last PCR in reference PID.
-        uint64_t      _ref_pcr;         // Last PCR value in reference PID.
-        uint8_t       _target_cc_in;    // Last read continuity counter in target PID.
-        uint8_t       _target_cc_out;   // Last written continuity counter in target PID.
-        bool          _shift_overflow;  // Overflow in target shift buffer, resync at next PUSI.
-        size_t        _shift_pusi;      // Position of a PUSI in shift buffer (NPOS if there is none).
-        ByteBlock     _shift_buffer;    // Buffer for shifted payload.
+        PID           _ref_pid = PID_NULL;         // Current reference PCR source.
+        PID           _target_pid = PID_NULL;      // Current target PID to alter.
+        PacketCounter _target_packets = 0;         // Number of packets in target PID.
+        PacketCounter _ref_packet = 0;             // Packet index of last PCR in reference PID.
+        uint64_t      _ref_pcr = INVALID_PCR;      // Last PCR value in reference PID.
+        uint8_t       _target_cc_in = 0;           // Last read continuity counter in target PID.
+        uint8_t       _target_cc_out = 0;          // Last written continuity counter in target PID.
+        bool          _shift_overflow = false;     // Overflow in target shift buffer, resync at next PUSI.
+        size_t        _shift_pusi = NPOS;          // Position of a PUSI in shift buffer (NPOS if there is none).
+        ByteBlock     _shift_buffer {};            // Buffer for shifted payload.
 
         // Process a packet from the target PID, insert PCR when needed, shift payload.
         // Can also be used on the null PID to insert shifted payload.
@@ -87,24 +65,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pcrcopy", ts::PCRCopyPlugin);
 //----------------------------------------------------------------------------
 
 ts::PCRCopyPlugin::PCRCopyPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Copy and synchronize PCR's from one PID to another", u"[options]"),
-    _ref_pid_arg(PID_NULL),
-    _target_pid_arg(PID_NULL),
-    _ref_label(TSPacketMetadata::LABEL_COUNT),
-    _target_label(TSPacketMetadata::LABEL_COUNT),
-    _every(0),
-    _max_shift(0),
-    _pusi(true),
-    _ref_pid(PID_NULL),
-    _target_pid(PID_NULL),
-    _target_packets(0),
-    _ref_packet(0),
-    _ref_pcr(INVALID_PCR),
-    _target_cc_in(0),
-    _target_cc_out(0),
-    _shift_overflow(false),
-    _shift_pusi(NPOS),
-    _shift_buffer()
+    ProcessorPlugin(tsp_, u"Copy and synchronize PCR's from one PID to another", u"[options]")
 {
     option(u"reference-pid", 'r', PIDVAL);
     help(u"reference-pid",
@@ -157,17 +118,17 @@ bool ts::PCRCopyPlugin::getOptions()
     _pusi = !present(u"no-pusi");
     getIntValue(_ref_pid_arg, u"reference-pid", PID_NULL);
     getIntValue(_target_pid_arg, u"target-pid", PID_NULL);
-    getIntValue(_ref_label, u"reference-label", TSPacketMetadata::LABEL_COUNT);
-    getIntValue(_target_label, u"target-label", TSPacketMetadata::LABEL_COUNT);
+    getIntValue(_ref_label, u"reference-label", TSPacketLabelSet::MAX + 1);
+    getIntValue(_target_label, u"target-label", TSPacketLabelSet::MAX + 1);
     getIntValue(_every, u"every");
     getIntValue(_max_shift, u"max-shift", 16 * PKT_MAX_PAYLOAD_SIZE);
 
     if (count(u"reference-pid") + count(u"reference-label") != 1) {
-        tsp->error(u"Exactly one of --reference-pid and --reference-label shall be specified.");
+        error(u"Exactly one of --reference-pid and --reference-label shall be specified.");
         return false;
     }
     if (count(u"target-pid") + count(u"target-label") != 1) {
-        tsp->error(u"Exactly one of --target-pid and --target-label shall be specified.");
+        error(u"Exactly one of --target-pid and --target-label shall be specified.");
         return false;
     }
     return true;
@@ -205,15 +166,15 @@ ts::ProcessorPlugin::Status ts::PCRCopyPlugin::processPacket(TSPacket& pkt, TSPa
     const PID pid = pkt.getPID();
 
     // Process PID switching according to labels.
-    if (pkt_data.hasLabel(_ref_label) && pid != _ref_pid && pid != PID_NULL) {
+    if (_ref_label <= TSPacketLabelSet::MAX && pkt_data.hasLabel(_ref_label) && pid != _ref_pid && pid != PID_NULL) {
         // Switch to a new reference PID.
-        tsp->verbose(u"using PID 0x%X (%<d) as PCR reference", {pid});
+        verbose(u"using PID %n as PCR reference", pid);
         _ref_pid = pid;
         _ref_pcr = INVALID_PCR;
     }
-    if (pkt_data.hasLabel(_target_label) && pid != _target_pid && pid != PID_NULL) {
+    if (_target_label <= TSPacketLabelSet::MAX && pkt_data.hasLabel(_target_label) && pid != _target_pid && pid != PID_NULL) {
         // Switch to a new target PID.
-        tsp->verbose(u"using PID 0x%X (%<d) to insert copied PCR", {pid});
+        verbose(u"using PID %n to insert copied PCR", pid);
         _target_pid = pid;
         _target_packets = 0;
         _target_cc_in = _target_cc_out = CC_MAX; // invalid CC value
@@ -258,7 +219,7 @@ void ts::PCRCopyPlugin::processTargetPacket(TSPacket& pkt)
         }
         else if (_shift_pusi != NPOS) {
             // There is a full PES packet in the shift buffer, we cannot accumulate them.
-            tsp->warning(u"dropping complete PES packet, not enought null packets to absorb the shift");
+            warning(u"dropping complete PES packet, not enought null packets to absorb the shift");
             assert(_shift_pusi <= _shift_buffer.size());
             _shift_buffer.resize(_shift_pusi);
             _shift_pusi = NPOS;
@@ -352,7 +313,7 @@ void ts::PCRCopyPlugin::processTargetPacket(TSPacket& pkt)
         pkt.setPayloadSize(size);
         // Copy the new paylaod from the start of the shift buffer.
         if (size > 0) {
-            ::memcpy(pkt.getPayload(), _shift_buffer.data(), size);
+            MemCopy(pkt.getPayload(), _shift_buffer.data(), size);
             _shift_buffer.erase(0, size);
             if (_shift_pusi == 0) {
                 // The PUSI has moved from the shift buffer to the packet.
@@ -368,7 +329,7 @@ void ts::PCRCopyPlugin::processTargetPacket(TSPacket& pkt)
 
     // Check if there is an overflow in the shift buffer after all adjustments.
     if (!_shift_overflow && _shift_buffer.size() > _max_shift) {
-        tsp->warning(u"dropping partial PES packet, not enought null packets to absorb the shift");
+        warning(u"dropping partial PES packet, not enought null packets to absorb the shift");
         _shift_overflow = true;
     }
 }

@@ -1,0 +1,36 @@
+#-----------------------------------------------------------------------------
+#
+#  TSDuck - The MPEG Transport Stream Toolkit
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
+#
+#  GitHub Actions configuration file : Cleanup old issues.
+#
+#-----------------------------------------------------------------------------
+
+name: Cleanup old issues
+
+on:
+  # Trigger the workflow every week on Sunday at 02:00 UTC.
+  schedule:
+    - cron: '0 2 * * 0'
+  # Allow manual trigger.
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  cleanup:
+    name: Cleanup
+    if: github.repository == 'tsduck/tsduck'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - name: Get repository
+      uses: actions/checkout@master
+    - name: Install dependencies
+      run: sudo apt install -y python3-github
+    - name: Cleanup issues
+      run: python3 pkg/github/close-pending.py

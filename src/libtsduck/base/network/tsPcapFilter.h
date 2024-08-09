@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -43,9 +22,8 @@ namespace ts {
     //!
     //! Read a pcap or pcapng file with packet filtering.
     //!
-    //! This class also implements ArgsSupplierInterface to set filtering options
-    //! from the command line: @c -\-first-packet, @c -\-first-timestamp,
-    //! @c -\-first-date, @c -\-last-packet, @c -\-last-timestamp, @c -\-last-date.
+    //! This class also sets filtering options from the command line:
+    //! @c -\-first-packet, @c -\-first-timestamp, @c -\-first-date, @c -\-last-packet, @c -\-last-timestamp, @c -\-last-date.
     //!
     //! @ingroup net
     //!
@@ -56,7 +34,7 @@ namespace ts {
         //!
         //! Default constructor.
         //!
-        PcapFilter();
+        PcapFilter() = default;
 
         //!
         //! Filter packets starting at the specified number.
@@ -79,28 +57,28 @@ namespace ts {
         //! This is the same value as seen on Wireshark in the "Time" column (in seconds).
         //! @param [in] time First time offset in microseconds from the beginning of the capture.
         //!
-        void setFirstTimeOffset(MicroSecond time) { _first_time_offset = time; }
+        void setFirstTimeOffset(cn::microseconds time) { _first_time_offset = time; }
 
         //!
         //! Filter packets up to the specified time offset from the beginning of the file.
         //! This is the same value as seen on Wireshark in the "Time" column (in seconds).
         //! @param [in] time Last time offset in microseconds from the beginning of the capture.
         //!
-        void setLastTimeOffset(MicroSecond time) { _last_time_offset = time; }
+        void setLastTimeOffset(cn::microseconds time) { _last_time_offset = time; }
 
         //!
         //! Filter packets starting at the specified timestamp.
         //! @param [in] time First timestamp, in microseconds from the UNIX epoch.
         //! @see ts::Time::UnixEpoch
         //!
-        void setFirstTimestamp(MicroSecond time) { _first_time = time; }
+        void setFirstTimestamp(cn::microseconds time) { _first_time = time; }
 
         //!
         //! Filter packets up to the specified timestamp.
         //! @param [in] time Last timestamp, in microseconds from the UNIX epoch.
         //! @see ts::Time::UnixEpoch
         //!
-        void setLastTimestamp(MicroSecond time) { _last_time = time; }
+        void setLastTimestamp(cn::microseconds time) { _last_time = time; }
 
         //!
         //! Filter TCP packets only.
@@ -239,30 +217,30 @@ namespace ts {
         bool loadArgs(DuckContext& duck, Args& args);
 
         // Inherited methods.
-        virtual bool open(const UString& filename, Report& report) override;
-        virtual bool readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& report) override;
+        virtual bool open(const fs::path& filename, Report& report) override;
+        virtual bool readIPv4(IPv4Packet& packet, cn::microseconds& timestamp, Report& report) override;
 
     private:
-        std::set<uint8_t> _protocols;
-        IPv4SocketAddress _source;
-        IPv4SocketAddress _destination;
-        bool              _bidirectional_filter;
-        bool              _wildcard_filter;
-        int               _display_addresses_severity;
-        size_t            _first_packet;
-        size_t            _last_packet;
-        MicroSecond       _first_time_offset;
-        MicroSecond       _last_time_offset;
-        MicroSecond       _first_time;
-        MicroSecond       _last_time;
-        size_t            _opt_first_packet;
-        size_t            _opt_last_packet;
-        MicroSecond       _opt_first_time_offset;
-        MicroSecond       _opt_last_time_offset;
-        MicroSecond       _opt_first_time;
-        MicroSecond       _opt_last_time;
+        std::set<uint8_t> _protocols {};
+        IPv4SocketAddress _source {};
+        IPv4SocketAddress _destination {};
+        bool              _bidirectional_filter = false;
+        bool              _wildcard_filter = true;
+        int               _display_addresses_severity = Severity::Debug;
+        size_t            _first_packet = 0;
+        size_t            _last_packet = std::numeric_limits<size_t>::max();
+        cn::microseconds  _first_time_offset = cn::microseconds::zero();
+        cn::microseconds  _last_time_offset = cn::microseconds::max();
+        cn::microseconds  _first_time = cn::microseconds::zero();
+        cn::microseconds  _last_time = cn::microseconds::max();
+        size_t            _opt_first_packet = 0;
+        size_t            _opt_last_packet = std::numeric_limits<size_t>::max();
+        cn::microseconds  _opt_first_time_offset = cn::microseconds::zero();
+        cn::microseconds  _opt_last_time_offset = cn::microseconds::max();
+        cn::microseconds  _opt_first_time = cn::microseconds::zero();
+        cn::microseconds  _opt_last_time = cn::microseconds::max();
 
         // Get a date option and return it as micro-seconds since Unix epoch.
-        ts::MicroSecond getDate(Args& args, const ts::UChar* arg_name, ts::MicroSecond def_value);
+        cn::microseconds getDate(Args& args, const ts::UChar* arg_name, cn::microseconds def_value);
     };
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -31,8 +10,14 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsBuffer.h"
+#include "tsPSIBuffer.h"
+#include "tsDuckContext.h"
 #include "tsunit.h"
+
+// Some floating-point literal (implicitly double) are used as ieee_float32_t
+TS_LLVM_NOWARNING(implicit-float-conversion)
+TS_MSC_NOWARNING(4056) // overflow in floating-point constant arithmetic
+TS_MSC_NOWARNING(4305) // truncation from 'double' to 'ts::ieee_float32_t'
 
 
 //----------------------------------------------------------------------------
@@ -41,121 +26,70 @@
 
 class BufferTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testConstructors();
-    void testReset();
-    void testResize();
-    void testSeek();
-    void testByteAligned();
-    void testSkipBack();
-    void testReadBitBigEndian();
-    void testReadBitLittleEndian();
-    void testReadBitsBigEndian();
-    void testReadBitsLittleEndian();
-    void testGetUInt8();
-    void testGetUInt16BE();
-    void testGetUInt16LE();
-    void testGetUInt24BE();
-    void testGetUInt24LE();
-    void testGetUInt32BE();
-    void testGetUInt32LE();
-    void testGetUInt40BE();
-    void testGetUInt40LE();
-    void testGetUInt48BE();
-    void testGetUInt48LE();
-    void testGetUInt64BE();
-    void testGetUInt64LE();
-    void testGetInt8();
-    void testGetInt16BE();
-    void testGetInt16LE();
-    void testGetInt24BE();
-    void testGetInt24LE();
-    void testGetInt32BE();
-    void testGetInt32LE();
-    void testGetInt40BE();
-    void testGetInt40LE();
-    void testGetInt48BE();
-    void testGetInt48LE();
-    void testGetInt64BE();
-    void testGetInt64LE();
-    void testGetBitsSigned();
-    void testPutBCD();
-    void testGetBCD();
-    void testTryGetASCII();
-    void testGetUTF8();
-    void testGetUTF8WithLength();
-    void testGetUTF16();
-    void testGetUTF16WithLength();
-    void testPutUTF8();
-    void testPutFixedUTF8();
-    void testPutPartialUTF8();
-    void testPutUTF8WithLength();
-    void testPutPartialUTF8WithLength();
-    void testPutUTF16();
-    void testPutFixedUTF16();
-    void testPutPartialUTF16();
-    void testPutUTF16WithLength();
-    void testPutPartialUTF16WithLength();
-
-    TSUNIT_TEST_BEGIN(BufferTest);
-    TSUNIT_TEST(testConstructors);
-    TSUNIT_TEST(testReset);
-    TSUNIT_TEST(testResize);
-    TSUNIT_TEST(testSeek);
-    TSUNIT_TEST(testByteAligned);
-    TSUNIT_TEST(testSkipBack);
-    TSUNIT_TEST(testReadBitBigEndian);
-    TSUNIT_TEST(testReadBitLittleEndian);
-    TSUNIT_TEST(testReadBitsBigEndian);
-    TSUNIT_TEST(testReadBitLittleEndian);
-    TSUNIT_TEST(testGetUInt8);
-    TSUNIT_TEST(testGetUInt16BE);
-    TSUNIT_TEST(testGetUInt16LE);
-    TSUNIT_TEST(testGetUInt24BE);
-    TSUNIT_TEST(testGetUInt24LE);
-    TSUNIT_TEST(testGetUInt32BE);
-    TSUNIT_TEST(testGetUInt32LE);
-    TSUNIT_TEST(testGetUInt40BE);
-    TSUNIT_TEST(testGetUInt40LE);
-    TSUNIT_TEST(testGetUInt48BE);
-    TSUNIT_TEST(testGetUInt48LE);
-    TSUNIT_TEST(testGetUInt64BE);
-    TSUNIT_TEST(testGetUInt64LE);
-    TSUNIT_TEST(testGetInt8);
-    TSUNIT_TEST(testGetInt16BE);
-    TSUNIT_TEST(testGetInt16LE);
-    TSUNIT_TEST(testGetInt24BE);
-    TSUNIT_TEST(testGetInt24LE);
-    TSUNIT_TEST(testGetInt32BE);
-    TSUNIT_TEST(testGetInt32LE);
-    TSUNIT_TEST(testGetInt40BE);
-    TSUNIT_TEST(testGetInt40LE);
-    TSUNIT_TEST(testGetInt48BE);
-    TSUNIT_TEST(testGetInt48LE);
-    TSUNIT_TEST(testGetInt64BE);
-    TSUNIT_TEST(testGetInt64LE);
-    TSUNIT_TEST(testGetBitsSigned);
-    TSUNIT_TEST(testPutBCD);
-    TSUNIT_TEST(testGetBCD);
-    TSUNIT_TEST(testTryGetASCII);
-    TSUNIT_TEST(testGetUTF8);
-    TSUNIT_TEST(testGetUTF8WithLength);
-    TSUNIT_TEST(testGetUTF16);
-    TSUNIT_TEST(testGetUTF16WithLength);
-    TSUNIT_TEST(testPutUTF8);
-    TSUNIT_TEST(testPutFixedUTF8);
-    TSUNIT_TEST(testPutPartialUTF8);
-    TSUNIT_TEST(testPutUTF8WithLength);
-    TSUNIT_TEST(testPutPartialUTF8WithLength);
-    TSUNIT_TEST(testPutUTF16);
-    TSUNIT_TEST(testPutFixedUTF16);
-    TSUNIT_TEST(testPutPartialUTF16);
-    TSUNIT_TEST(testPutUTF16WithLength);
-    TSUNIT_TEST(testPutPartialUTF16WithLength);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Constructors);
+    TSUNIT_DECLARE_TEST(Reset);
+    TSUNIT_DECLARE_TEST(Resize);
+    TSUNIT_DECLARE_TEST(Seek);
+    TSUNIT_DECLARE_TEST(ByteAligned);
+    TSUNIT_DECLARE_TEST(SkipBack);
+    TSUNIT_DECLARE_TEST(ReadBitBigEndian);
+    TSUNIT_DECLARE_TEST(ReadBitLittleEndian);
+    TSUNIT_DECLARE_TEST(ReadBitsBigEndian);
+    TSUNIT_DECLARE_TEST(ReadBitsLittleEndian);
+    TSUNIT_DECLARE_TEST(GetUInt8);
+    TSUNIT_DECLARE_TEST(GetUInt16BE);
+    TSUNIT_DECLARE_TEST(GetUInt16LE);
+    TSUNIT_DECLARE_TEST(GetUInt24BE);
+    TSUNIT_DECLARE_TEST(GetUInt24LE);
+    TSUNIT_DECLARE_TEST(GetUInt32BE);
+    TSUNIT_DECLARE_TEST(GetUInt32LE);
+    TSUNIT_DECLARE_TEST(GetUInt40BE);
+    TSUNIT_DECLARE_TEST(GetUInt40LE);
+    TSUNIT_DECLARE_TEST(GetUInt48BE);
+    TSUNIT_DECLARE_TEST(GetUInt48LE);
+    TSUNIT_DECLARE_TEST(GetUInt64BE);
+    TSUNIT_DECLARE_TEST(GetUInt64LE);
+    TSUNIT_DECLARE_TEST(GetInt8);
+    TSUNIT_DECLARE_TEST(GetInt16BE);
+    TSUNIT_DECLARE_TEST(GetInt16LE);
+    TSUNIT_DECLARE_TEST(GetInt24BE);
+    TSUNIT_DECLARE_TEST(GetInt24LE);
+    TSUNIT_DECLARE_TEST(GetInt32BE);
+    TSUNIT_DECLARE_TEST(GetInt32LE);
+    TSUNIT_DECLARE_TEST(GetInt40BE);
+    TSUNIT_DECLARE_TEST(GetInt40LE);
+    TSUNIT_DECLARE_TEST(GetInt48BE);
+    TSUNIT_DECLARE_TEST(GetInt48LE);
+    TSUNIT_DECLARE_TEST(GetInt64BE);
+    TSUNIT_DECLARE_TEST(GetInt64LE);
+    TSUNIT_DECLARE_TEST(GetBitsSigned);
+    TSUNIT_DECLARE_TEST(PutBCD);
+    TSUNIT_DECLARE_TEST(GetBCD);
+    TSUNIT_DECLARE_TEST(TryGetASCII);
+    TSUNIT_DECLARE_TEST(GetUTF8);
+    TSUNIT_DECLARE_TEST(GetUTF8WithLength);
+    TSUNIT_DECLARE_TEST(GetUTF16);
+    TSUNIT_DECLARE_TEST(GetUTF16WithLength);
+    TSUNIT_DECLARE_TEST(PutUTF8);
+    TSUNIT_DECLARE_TEST(PutFixedUTF8);
+    TSUNIT_DECLARE_TEST(PutPartialUTF8);
+    TSUNIT_DECLARE_TEST(PutUTF8WithLength);
+    TSUNIT_DECLARE_TEST(PutPartialUTF8WithLength);
+    TSUNIT_DECLARE_TEST(PutUTF16);
+    TSUNIT_DECLARE_TEST(PutFixedUTF16);
+    TSUNIT_DECLARE_TEST(PutPartialUTF16);
+    TSUNIT_DECLARE_TEST(PutUTF16WithLength);
+    TSUNIT_DECLARE_TEST(PutPartialUTF16WithLength);
+    TSUNIT_DECLARE_TEST(GetFloat32LE);
+    TSUNIT_DECLARE_TEST(GetFloat32BE);
+    TSUNIT_DECLARE_TEST(GetFloat64LE);
+    TSUNIT_DECLARE_TEST(GetFloat64BE);
+    TSUNIT_DECLARE_TEST(PutFloat32LE);
+    TSUNIT_DECLARE_TEST(PutFloat32BE);
+    TSUNIT_DECLARE_TEST(PutFloat64LE);
+    TSUNIT_DECLARE_TEST(PutFloat64BE);
+    TSUNIT_DECLARE_TEST(GetVluimsbf5);
+    TSUNIT_DECLARE_TEST(PutVluimsbf5);
 
 private:
     // Return a byte block with bytes swapped two by two.
@@ -164,21 +98,6 @@ private:
 };
 
 TSUNIT_REGISTER(BufferTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void BufferTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void BufferTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -253,7 +172,7 @@ ts::ByteBlock BufferTest::SwapBytes(const ts::UString& str)
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void BufferTest::testConstructors()
+TSUNIT_DEFINE_TEST(Constructors)
 {
     ts::Buffer b1;
     TSUNIT_ASSERT(b1.isValid());
@@ -322,7 +241,7 @@ void BufferTest::testConstructors()
     TSUNIT_EQUAL(sizeof(bin3), b5.currentWriteByteOffset());
 }
 
-void BufferTest::testReset()
+TSUNIT_DEFINE_TEST(Reset)
 {
     ts::Buffer b(512);
 
@@ -346,7 +265,7 @@ void BufferTest::testReset()
     TSUNIT_EQUAL(128, b.size());
 }
 
-void BufferTest::testResize()
+TSUNIT_DEFINE_TEST(Resize)
 {
     ts::Buffer b(512);
 
@@ -379,7 +298,7 @@ void BufferTest::testResize()
     TSUNIT_EQUAL(4, b.size());
 }
 
-void BufferTest::testSeek()
+TSUNIT_DEFINE_TEST(Seek)
 {
     // 0          10         20         30          40         50         60         70        79
     // |          |          |          |           |          |          |          |         |
@@ -443,7 +362,7 @@ void BufferTest::testSeek()
     TSUNIT_ASSERT(!b.readError());
 }
 
-void BufferTest::testByteAligned()
+TSUNIT_DEFINE_TEST(ByteAligned)
 {
     ts::Buffer b(_bytes2, 10);
 
@@ -460,7 +379,7 @@ void BufferTest::testByteAligned()
     TSUNIT_ASSERT(b.readIsByteAligned());
 }
 
-void BufferTest::testSkipBack()
+TSUNIT_DEFINE_TEST(SkipBack)
 {
     ts::Buffer b(_bytes2, 10);
     TSUNIT_ASSERT(b.readIsByteAligned());
@@ -531,7 +450,7 @@ void BufferTest::testSkipBack()
     TSUNIT_EQUAL(8, b.remainingReadBytes());
 }
 
-void BufferTest::testReadBitBigEndian()
+TSUNIT_DEFINE_TEST(ReadBitBigEndian)
 {
     // 0          10         20         30          40         50         60         70          80     87
     // |          |          |          |           |          |          |          |           |      |
@@ -691,7 +610,7 @@ void BufferTest::testReadBitBigEndian()
     TSUNIT_EQUAL(0, b.getBit());
 }
 
-void BufferTest::testReadBitLittleEndian()
+TSUNIT_DEFINE_TEST(ReadBitLittleEndian)
 {
     //        0        8       16       24       32       40       48       56       64       72 87    80
     //      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-| |    <-|
@@ -854,7 +773,7 @@ void BufferTest::testReadBitLittleEndian()
     TSUNIT_EQUAL(0, b.getBit());
 }
 
-void BufferTest::testReadBitsBigEndian()
+TSUNIT_DEFINE_TEST(ReadBitsBigEndian)
 {
     // 0          10         20         30          40         50         60         70          80         90
     // |          |          |          |           |          |          |          |           |          |
@@ -878,7 +797,7 @@ void BufferTest::testReadBitsBigEndian()
     // must be explicitly provided when instantiated on 64-bit integer types.
 
     // 100110101010001010101010101100101011101101000011010010110101
-    TSUNIT_EQUAL(TS_UCONST64(0x9AA2AAB2BB434B5), b.getBits<uint64_t>(60));
+    TSUNIT_EQUAL(0x9AA2AAB2BB434B5, b.getBits<uint64_t>(60));
     TSUNIT_EQUAL(87, b.currentReadBitOffset());
 
     // 001101011 (9 remaining bits)
@@ -901,7 +820,7 @@ void BufferTest::testReadBitsBigEndian()
     TSUNIT_EQUAL(96, b.currentReadBitOffset());
 }
 
-void BufferTest::testReadBitsLittleEndian()
+TSUNIT_DEFINE_TEST(ReadBitsLittleEndian)
 {
     //        0        8       16       24       32       40       48       56       64       72       80       88
     //      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|      <-|
@@ -909,34 +828,34 @@ void BufferTest::testReadBitsLittleEndian()
     ts::Buffer b(_bytes2, 12);
     b.setLittleEndian();
 
-    // 1010000
-    TSUNIT_EQUAL(0x50, b.getBits<int>(7));
+    // 1010000 -> sign bit is on -> same as 1111 1111 1101 0000 = 0xFFD0 = -48
+    TSUNIT_EQUAL(-48, b.getBits<int>(7));
     TSUNIT_EQUAL(7, b.currentReadBitOffset());
 
     // 0 0001 -> 0001 0
     TSUNIT_EQUAL(0x02, b.getBits<int>(5));
     TSUNIT_EQUAL(12, b.currentReadBitOffset());
 
-    // 0101 01010010 010 -> 010 01010010 0101
-    TSUNIT_EQUAL(0x2525, b.getBits<uint16_t>(15));
+    // 0101 01010010 011 -> 011 01010010 0101
+    TSUNIT_EQUAL(0x3525, b.getBits<uint16_t>(15));
     TSUNIT_EQUAL(27, b.currentReadBitOffset());
 }
 
-void BufferTest::testGetUInt8()
+TSUNIT_DEFINE_TEST(GetUInt8)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x07);
     TSUNIT_EQUAL(0x07, b.getUInt8());
 }
 
-void BufferTest::testGetUInt16BE()
+TSUNIT_DEFINE_TEST(GetUInt16BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x23);
     TSUNIT_EQUAL(0x2324, b.getUInt16());
 }
 
-void BufferTest::testGetUInt16LE()
+TSUNIT_DEFINE_TEST(GetUInt16LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -944,7 +863,7 @@ void BufferTest::testGetUInt16LE()
     TSUNIT_EQUAL(0x2423, b.getUInt16());
 }
 
-void BufferTest::testGetUInt24BE()
+TSUNIT_DEFINE_TEST(GetUInt24BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x10);
@@ -953,7 +872,7 @@ void BufferTest::testGetUInt24BE()
     TSUNIT_EQUAL(0xCECFD0, b.getUInt24());
 }
 
-void BufferTest::testGetUInt24LE()
+TSUNIT_DEFINE_TEST(GetUInt24LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -963,14 +882,14 @@ void BufferTest::testGetUInt24LE()
     TSUNIT_EQUAL(0xD0CFCE, b.getUInt24());
 }
 
-void BufferTest::testGetUInt32BE()
+TSUNIT_DEFINE_TEST(GetUInt32BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x47);
     TSUNIT_EQUAL(0x4748494A, b.getUInt32());
 }
 
-void BufferTest::testGetUInt32LE()
+TSUNIT_DEFINE_TEST(GetUInt32LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -978,66 +897,66 @@ void BufferTest::testGetUInt32LE()
     TSUNIT_EQUAL(0x4A494847, b.getUInt32());
 }
 
-void BufferTest::testGetUInt40BE()
+TSUNIT_DEFINE_TEST(GetUInt40BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x000000898A8B8C8D), b.getUInt40());
+    TSUNIT_EQUAL(0x000000898A8B8C8D, b.getUInt40());
 }
 
-void BufferTest::testGetUInt40LE()
-{
-    ts::Buffer b(_bytes1, sizeof(_bytes1));
-    b.setLittleEndian();
-    b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x0000008D8C8B8A89), b.getUInt40());
-}
-
-void BufferTest::testGetUInt48BE()
-{
-    ts::Buffer b(_bytes1, sizeof(_bytes1));
-    b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x0000898A8B8C8D8E), b.getUInt48());
-}
-
-void BufferTest::testGetUInt48LE()
+TSUNIT_DEFINE_TEST(GetUInt40LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
     b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x00008E8D8C8B8A89), b.getUInt48());
+    TSUNIT_EQUAL(0x0000008D8C8B8A89, b.getUInt40());
 }
 
-void BufferTest::testGetUInt64BE()
+TSUNIT_DEFINE_TEST(GetUInt48BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x898A8B8C8D8E8F90), b.getUInt64());
+    TSUNIT_EQUAL(0x0000898A8B8C8D8E, b.getUInt48());
 }
 
-void BufferTest::testGetUInt64LE()
+TSUNIT_DEFINE_TEST(GetUInt48LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
     b.readSeek(0x89);
-    TSUNIT_EQUAL(TS_UCONST64(0x908F8E8D8C8B8A89), b.getUInt64());
+    TSUNIT_EQUAL(0x00008E8D8C8B8A89, b.getUInt48());
 }
 
-void BufferTest::testGetInt8()
+TSUNIT_DEFINE_TEST(GetUInt64BE)
+{
+    ts::Buffer b(_bytes1, sizeof(_bytes1));
+    b.readSeek(0x89);
+    TSUNIT_EQUAL(0x898A8B8C8D8E8F90, b.getUInt64());
+}
+
+TSUNIT_DEFINE_TEST(GetUInt64LE)
+{
+    ts::Buffer b(_bytes1, sizeof(_bytes1));
+    b.setLittleEndian();
+    b.readSeek(0x89);
+    TSUNIT_EQUAL(0x908F8E8D8C8B8A89, b.getUInt64());
+}
+
+TSUNIT_DEFINE_TEST(GetInt8)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x03);
     TSUNIT_EQUAL(3, b.getInt8());
 }
 
-void BufferTest::testGetInt16BE()
+TSUNIT_DEFINE_TEST(GetInt16BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0xCE);
     TSUNIT_EQUAL(-12593, b.getInt16()); // 0xCECF
 }
 
-void BufferTest::testGetInt16LE()
+TSUNIT_DEFINE_TEST(GetInt16LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -1045,7 +964,7 @@ void BufferTest::testGetInt16LE()
     TSUNIT_EQUAL(-12338, b.getInt16()); // 0xCFCE
 }
 
-void BufferTest::testGetInt24BE()
+TSUNIT_DEFINE_TEST(GetInt24BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x10);
@@ -1054,7 +973,7 @@ void BufferTest::testGetInt24BE()
     TSUNIT_EQUAL(-3223600, b.getInt24()); // 0xFFCECFD0
 }
 
-void BufferTest::testGetInt24LE()
+TSUNIT_DEFINE_TEST(GetInt24LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -1064,14 +983,14 @@ void BufferTest::testGetInt24LE()
     TSUNIT_EQUAL(-3092530, b.getInt24()); // 0xFFD0CFCE
 }
 
-void BufferTest::testGetInt32BE()
+TSUNIT_DEFINE_TEST(GetInt32BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0x81);
     TSUNIT_EQUAL(-2122153084, b.getInt32()); // 0x81828384
 }
 
-void BufferTest::testGetInt32LE()
+TSUNIT_DEFINE_TEST(GetInt32LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
@@ -1079,55 +998,55 @@ void BufferTest::testGetInt32LE()
     TSUNIT_EQUAL(-2071756159, b.getInt32()); // 0x84838281
 }
 
-void BufferTest::testGetInt40BE()
+TSUNIT_DEFINE_TEST(GetInt40BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-219885416496), b.getInt40()); // 0xCCCDCECFD0
+    TSUNIT_EQUAL(-219885416496, b.getInt40()); // 0xCCCDCECFD0
 }
 
-void BufferTest::testGetInt40LE()
-{
-    ts::Buffer b(_bytes1, sizeof(_bytes1));
-    b.setLittleEndian();
-    b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-202671993396), b.getInt40()); // 0xD0CFCECDCC
-}
-
-void BufferTest::testGetInt48BE()
-{
-    ts::Buffer b(_bytes1, sizeof(_bytes1));
-    b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-56290666622767), b.getInt48()); // 0xCCCDCECFD0D1
-}
-
-void BufferTest::testGetInt48LE()
+TSUNIT_DEFINE_TEST(GetInt40LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
     b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-50780206871092), b.getInt48()); // 0xD1D0CFCECDCC
+    TSUNIT_EQUAL(-202671993396, b.getInt40()); // 0xD0CFCECDCC
 }
 
-void BufferTest::testGetInt64BE()
+TSUNIT_DEFINE_TEST(GetInt48BE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-3689065127789604141), b.getInt64()); // 0xCCCDCECFD0D1D2D3
+    TSUNIT_EQUAL(-56290666622767, b.getInt48()); // 0xCCCDCECFD0D1
 }
 
-void BufferTest::testGetInt64LE()
+TSUNIT_DEFINE_TEST(GetInt48LE)
 {
     ts::Buffer b(_bytes1, sizeof(_bytes1));
     b.setLittleEndian();
     b.readSeek(0xCC);
-    TSUNIT_EQUAL(TS_CONST64(-3183251291827679796), b.getInt64()); // 0xD3D2D1D0CFCECDCC
+    TSUNIT_EQUAL(-50780206871092, b.getInt48()); // 0xD1D0CFCECDCC
 }
 
-void BufferTest::testGetBitsSigned()
+TSUNIT_DEFINE_TEST(GetInt64BE)
+{
+    ts::Buffer b(_bytes1, sizeof(_bytes1));
+    b.readSeek(0xCC);
+    TSUNIT_EQUAL(-3689065127789604141, b.getInt64()); // 0xCCCDCECFD0D1D2D3
+}
+
+TSUNIT_DEFINE_TEST(GetInt64LE)
+{
+    ts::Buffer b(_bytes1, sizeof(_bytes1));
+    b.setLittleEndian();
+    b.readSeek(0xCC);
+    TSUNIT_EQUAL(-3183251291827679796, b.getInt64()); // 0xD3D2D1D0CFCECDCC
+}
+
+TSUNIT_DEFINE_TEST(GetBitsSigned)
 {
     uint8_t mem[10];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
 
     b.putBits(2, 3);
@@ -1154,10 +1073,10 @@ void BufferTest::testGetBitsSigned()
 }
 
 
-void BufferTest::testPutBCD()
+TSUNIT_DEFINE_TEST(PutBCD)
 {
     uint8_t mem[10];
-    ::memset(mem, 0xFF, sizeof(mem));
+    ts::MemSet(mem, 0xFF, sizeof(mem));
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1184,7 +1103,7 @@ void BufferTest::testPutBCD()
     TSUNIT_EQUAL(40, b.currentWriteBitOffset());
 }
 
-void BufferTest::testGetBCD()
+TSUNIT_DEFINE_TEST(GetBCD)
 {
     ts::Buffer b(_bytes1 + 0x25, 10);
     TSUNIT_ASSERT(b.readOnly());
@@ -1211,7 +1130,7 @@ void BufferTest::testGetBCD()
     TSUNIT_EQUAL(48, b.currentReadBitOffset());
 }
 
-void BufferTest::testTryGetASCII()
+TSUNIT_DEFINE_TEST(TryGetASCII)
 {
     static const char mem[] = "abcdefgh\x00\x00\x00zyxw\x01\x02mnop";
     ts::Buffer b(mem, sizeof(mem) - 1); // exclude trailing zero => - 1
@@ -1254,7 +1173,7 @@ void BufferTest::testTryGetASCII()
     TSUNIT_EQUAL(15, b.currentReadByteOffset());
 }
 
-void BufferTest::testGetUTF8()
+TSUNIT_DEFINE_TEST(GetUTF8)
 {
     static const char mem[] = "abcdefgh";
     ts::Buffer b(mem, 8);
@@ -1277,7 +1196,7 @@ void BufferTest::testGetUTF8()
     TSUNIT_EQUAL(5, b.currentReadByteOffset());
 }
 
-void BufferTest::testGetUTF8WithLength()
+TSUNIT_DEFINE_TEST(GetUTF8WithLength)
 {
     static const char mem[] = "\x03" "abc" "\xF0\x02" "de" "\x04" "fgh";
     TSUNIT_EQUAL(13, sizeof(mem));
@@ -1298,7 +1217,7 @@ void BufferTest::testGetUTF8WithLength()
     TSUNIT_EQUAL(8, b.currentReadByteOffset());
 }
 
-void BufferTest::testGetUTF16()
+TSUNIT_DEFINE_TEST(GetUTF16)
 {
     // GREEK_SMALL_LETTER_ALPHA has a non-zero most significant byte in Unicode and UTF-16
     const ts::UString mem = ts::UString({u'a', ts::GREEK_SMALL_LETTER_ALPHA}) + u"cdefgh";
@@ -1351,7 +1270,7 @@ void BufferTest::testGetUTF16()
     TSUNIT_EQUAL(10, b2.currentReadByteOffset());
 }
 
-void BufferTest::testGetUTF16WithLength()
+TSUNIT_DEFINE_TEST(GetUTF16WithLength)
 {
     static const uint16_t mem[] = {6, u'a', ts::GREEK_SMALL_LETTER_ALPHA, u'c', 4, u'd', u'e', 8, u'f', u'g', u'h'};
 
@@ -1394,10 +1313,10 @@ void BufferTest::testGetUTF16WithLength()
     TSUNIT_EQUAL(14, b2.currentReadByteOffset());
 }
 
-void BufferTest::testPutUTF8()
+TSUNIT_DEFINE_TEST(PutUTF8)
 {
     uint8_t mem[10];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1420,10 +1339,10 @@ void BufferTest::testPutUTF8()
     TSUNIT_EQUAL(5, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutFixedUTF8()
+TSUNIT_DEFINE_TEST(PutFixedUTF8)
 {
     uint8_t mem[10];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1446,10 +1365,10 @@ void BufferTest::testPutFixedUTF8()
     TSUNIT_EQUAL(5, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutPartialUTF8()
+TSUNIT_DEFINE_TEST(PutPartialUTF8)
 {
     uint8_t mem[5];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1470,10 +1389,10 @@ void BufferTest::testPutPartialUTF8()
     TSUNIT_EQUAL('l', mem[4]);
 }
 
-void BufferTest::testPutUTF8WithLength()
+TSUNIT_DEFINE_TEST(PutUTF8WithLength)
 {
     uint8_t mem[10];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1524,10 +1443,10 @@ void BufferTest::testPutUTF8WithLength()
     TSUNIT_EQUAL(6, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutPartialUTF8WithLength()
+TSUNIT_DEFINE_TEST(PutPartialUTF8WithLength)
 {
     uint8_t mem[10];
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     TSUNIT_ASSERT(!b.readOnly());
     TSUNIT_EQUAL(0, b.currentWriteByteOffset());
@@ -1555,12 +1474,12 @@ void BufferTest::testPutPartialUTF8WithLength()
     TSUNIT_EQUAL('2', mem[9]);
 }
 
-void BufferTest::testPutUTF16()
+TSUNIT_DEFINE_TEST(PutUTF16)
 {
     uint8_t mem[20];
 
     // Run the test in big endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     b.setBigEndian();
 
@@ -1590,7 +1509,7 @@ void BufferTest::testPutUTF16()
     TSUNIT_EQUAL(10, b.currentWriteByteOffset());
 
     // Run the test in little endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     b.reset(mem, sizeof(mem));
     b.setLittleEndian();
 
@@ -1620,12 +1539,12 @@ void BufferTest::testPutUTF16()
     TSUNIT_EQUAL(10, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutFixedUTF16()
+TSUNIT_DEFINE_TEST(PutFixedUTF16)
 {
     uint8_t mem[20];
 
     // Run the test in big endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     b.setBigEndian();
 
@@ -1656,7 +1575,7 @@ void BufferTest::testPutFixedUTF16()
     TSUNIT_EQUAL(11, b.currentWriteByteOffset());
 
     // Run the test in little endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     b.reset(mem, sizeof(mem));
     b.setLittleEndian();
 
@@ -1687,12 +1606,12 @@ void BufferTest::testPutFixedUTF16()
     TSUNIT_EQUAL(11, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutPartialUTF16()
+TSUNIT_DEFINE_TEST(PutPartialUTF16)
 {
     uint8_t mem[11];
 
     // Run the test in big endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     b.setBigEndian();
 
@@ -1720,7 +1639,7 @@ void BufferTest::testPutPartialUTF16()
     TSUNIT_EQUAL('l',  mem[9]);
 
     // Run the test in little endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     b.reset(mem, sizeof(mem));
     b.setLittleEndian();
 
@@ -1748,12 +1667,12 @@ void BufferTest::testPutPartialUTF16()
     TSUNIT_EQUAL(0x00, mem[9]);
 }
 
-void BufferTest::testPutUTF16WithLength()
+TSUNIT_DEFINE_TEST(PutUTF16WithLength)
 {
     uint8_t mem[20];
 
     // Run the test in big endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     b.setBigEndian();
 
@@ -1811,7 +1730,7 @@ void BufferTest::testPutUTF16WithLength()
     TSUNIT_EQUAL(11, b.currentWriteByteOffset());
 
     // Run the test in little endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     b.reset(mem, sizeof(mem));
     b.setLittleEndian();
 
@@ -1869,12 +1788,12 @@ void BufferTest::testPutUTF16WithLength()
     TSUNIT_EQUAL(11, b.currentWriteByteOffset());
 }
 
-void BufferTest::testPutPartialUTF16WithLength()
+TSUNIT_DEFINE_TEST(PutPartialUTF16WithLength)
 {
     uint8_t mem[20];
 
     // Run the test in big endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     ts::Buffer b(mem, sizeof(mem));
     b.setBigEndian();
 
@@ -1913,7 +1832,7 @@ void BufferTest::testPutPartialUTF16WithLength()
     TSUNIT_EQUAL('3',  mem[18]);
 
     // Run the test in little endian.
-    ::memset(mem, 0, sizeof(mem));
+    TS_ZERO(mem);
     b.reset(mem, sizeof(mem));
     b.setLittleEndian();
 
@@ -1950,4 +1869,172 @@ void BufferTest::testPutPartialUTF16WithLength()
     TSUNIT_EQUAL(0x00, mem[14]);
     TSUNIT_EQUAL('3',  mem[17]);
     TSUNIT_EQUAL(0x00, mem[18]);
+}
+
+TSUNIT_DEFINE_TEST(GetFloat32LE)
+{
+    static const uint8_t bin[] = {0x00, 0x00, 0x80, 0x25};
+    ts::Buffer b(bin, sizeof(bin));
+    b.setLittleEndian();
+    TSUNIT_EQUAL(2.2204460e-16, b.getFloat32());
+}
+
+TSUNIT_DEFINE_TEST(GetFloat32BE)
+{
+    static const uint8_t bin[] = {0x07, 0x80, 0x00, 0x00};
+    ts::Buffer b(bin, sizeof(bin));
+    TSUNIT_EQUAL(1.9259299e-34, b.getFloat32());
+}
+
+TSUNIT_DEFINE_TEST(GetFloat64LE)
+{
+    static const uint8_t bin[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3E};
+    ts::Buffer b(bin, sizeof(bin));
+    b.setLittleEndian();
+    TSUNIT_EQUAL(1.1920928955078125e-07, b.getFloat64());
+}
+
+TSUNIT_DEFINE_TEST(GetFloat64BE)
+{
+    static const uint8_t bin[] = {0x47, 0xEF, 0xFF, 0xFF, 0xE0, 0x00, 0x00, 0x00};
+    ts::Buffer b(bin, sizeof(bin));
+    TSUNIT_EQUAL(3.4028234663852886e+38, b.getFloat64());
+}
+
+TSUNIT_DEFINE_TEST(PutFloat32LE)
+{
+    tsunit::Bytes mem(10, 0xAC);
+    ts::Buffer b(&mem[0], mem.size());
+    b.setLittleEndian();
+
+    TSUNIT_ASSERT(!b.readOnly());
+    TSUNIT_EQUAL(0, b.currentWriteByteOffset());
+
+    TSUNIT_ASSERT(b.putFloat32(1.9259299e-34));
+    TSUNIT_ASSERT(!b.writeError());
+    TSUNIT_ASSERT(!b.endOfWrite());
+    TSUNIT_EQUAL(4, b.currentWriteByteOffset());
+
+    mem.resize(4);
+    TSUNIT_EQUAL((tsunit::Bytes{0x00, 0x00, 0x80, 0x07}), mem);
+}
+
+TSUNIT_DEFINE_TEST(PutFloat32BE)
+{
+    tsunit::Bytes mem(10, 0xAC);
+    ts::Buffer b(&mem[0], mem.size());
+
+    TSUNIT_ASSERT(!b.readOnly());
+    TSUNIT_EQUAL(0, b.currentWriteByteOffset());
+
+    TSUNIT_ASSERT(b.putFloat32(3.4028235e+38));
+    TSUNIT_ASSERT(!b.writeError());
+    TSUNIT_ASSERT(!b.endOfWrite());
+    TSUNIT_EQUAL(4, b.currentWriteByteOffset());
+
+    mem.resize(4);
+    TSUNIT_EQUAL((tsunit::Bytes{0x7F, 0x7F, 0xFF, 0xFF}), mem);
+}
+
+TSUNIT_DEFINE_TEST(PutFloat64LE)
+{
+    tsunit::Bytes mem(10, 0xAC);
+    ts::Buffer b(&mem[0], mem.size());
+    b.setLittleEndian();
+
+    TSUNIT_ASSERT(!b.readOnly());
+    TSUNIT_EQUAL(0, b.currentWriteByteOffset());
+
+    TSUNIT_ASSERT(b.putFloat64(1.9259299443872359e-34));
+    TSUNIT_ASSERT(!b.writeError());
+    TSUNIT_ASSERT(!b.endOfWrite());
+    TSUNIT_EQUAL(8, b.currentWriteByteOffset());
+
+    mem.resize(8);
+    TSUNIT_EQUAL((tsunit::Bytes{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x38}), mem);
+}
+
+TSUNIT_DEFINE_TEST(PutFloat64BE)
+{
+    tsunit::Bytes mem(10, 0xAC);
+    ts::Buffer b(&mem[0], mem.size());
+
+    TSUNIT_ASSERT(!b.readOnly());
+    TSUNIT_EQUAL(0, b.currentWriteByteOffset());
+
+    TSUNIT_ASSERT(b.putFloat64(3.4028234663852886e+38));
+    TSUNIT_ASSERT(!b.writeError());
+    TSUNIT_ASSERT(!b.endOfWrite());
+    TSUNIT_EQUAL(8, b.currentWriteByteOffset());
+
+    mem.resize(8);
+    TSUNIT_EQUAL((tsunit::Bytes{0x47, 0xEF, 0xFF, 0xFF, 0xE0, 0x00, 0x00, 0x00}), mem);
+}
+
+TSUNIT_DEFINE_TEST(GetVluimsbf5)
+{
+    ts::DuckContext duck;
+
+    static const uint8_t bin1[] = {0x00};
+    ts::PSIBuffer b(duck, bin1, sizeof(bin1));
+    TSUNIT_EQUAL(0x00, b.getVluimsbf5());
+    TSUNIT_EQUAL(5, b.currentReadBitOffset());
+
+    static const uint8_t bin2[] = {0xC2, 0x46};
+    b.reset(bin2, sizeof(bin2));
+    TSUNIT_EQUAL(0x0123, b.getVluimsbf5());
+    TSUNIT_EQUAL(15, b.currentReadBitOffset());
+
+    static const uint8_t bin3[] = {0xEF, 0xFF, 0xF0};
+    b.reset(bin3, sizeof(bin3));
+    TSUNIT_EQUAL(0xFFFF, b.getVluimsbf5());
+    TSUNIT_EQUAL(20, b.currentReadBitOffset());
+
+    static const uint8_t bin4[] = {0xF0, 0xD5, 0xE6, 0x80};
+    b.reset(bin4, sizeof(bin4));
+    TSUNIT_EQUAL(0x1ABCD, b.getVluimsbf5());
+    TSUNIT_EQUAL(25, b.currentReadBitOffset());
+}
+
+TSUNIT_DEFINE_TEST(PutVluimsbf5)
+{
+    ts::DuckContext duck;
+    tsunit::Bytes mem(32);
+    ts::PSIBuffer b(duck, mem.data(), mem.size());
+
+    TSUNIT_ASSERT(!b.readOnly());
+    TSUNIT_EQUAL(0, b.currentWriteByteOffset());
+
+    TSUNIT_ASSERT(b.putVluimsbf5(0));
+    TSUNIT_ASSERT(!b.writeError());
+    TSUNIT_ASSERT(!b.endOfWrite());
+    TSUNIT_EQUAL(5, b.currentWriteBitOffset());
+
+    mem.resize(1);
+    TSUNIT_EQUAL((tsunit::Bytes{0x00}), mem);
+
+    mem.resize(32);
+    b.reset(mem.data(), mem.size());
+    TSUNIT_ASSERT(b.putVluimsbf5(0x123));
+    TSUNIT_EQUAL(15, b.currentWriteBitOffset());
+    mem.resize(2);
+    TSUNIT_EQUAL((tsunit::Bytes{0xC2, 0x46}), mem);
+
+    mem.resize(32);
+    b.reset(mem.data(), mem.size());
+    TSUNIT_ASSERT(b.putVluimsbf5(0xFFFF));
+    // 1111.1111.1111.1111
+    // --> 1110-.1111.1111.1111.1111
+    TSUNIT_EQUAL(20, b.currentWriteBitOffset());
+    mem.resize(3);
+    TSUNIT_EQUAL((tsunit::Bytes{0xEF, 0xFF, 0xF0}), mem);
+
+    mem.resize(32);
+    b.reset(mem.data(), mem.size());
+    TSUNIT_ASSERT(b.putVluimsbf5(0x1ABCD));
+    // 0001.1010.1011.1100.1101
+    // --> 1111.0-000.1101.0101.1110.0110.1-000
+    TSUNIT_EQUAL(25, b.currentWriteBitOffset());
+    mem.resize(4);
+    TSUNIT_EQUAL((tsunit::Bytes{0xF0, 0xD5, 0xE6, 0x80}), mem);
 }

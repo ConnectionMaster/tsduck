@@ -1,75 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsInputSwitcherArgs.h"
 #include "tsArgsWithPlugins.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::InputSwitcherArgs::DEFAULT_MAX_INPUT_PACKETS;
-constexpr size_t ts::InputSwitcherArgs::MIN_INPUT_PACKETS;
-constexpr size_t ts::InputSwitcherArgs::DEFAULT_MAX_OUTPUT_PACKETS;
-constexpr size_t ts::InputSwitcherArgs::MIN_OUTPUT_PACKETS;
-constexpr size_t ts::InputSwitcherArgs::DEFAULT_BUFFERED_PACKETS;
-constexpr size_t ts::InputSwitcherArgs::MIN_BUFFERED_PACKETS;
-constexpr ts::MilliSecond ts::InputSwitcherArgs::DEFAULT_RECEIVE_TIMEOUT;
-#endif
-
-
-//----------------------------------------------------------------------------
-// Constructors.
-//----------------------------------------------------------------------------
-
-ts::InputSwitcherArgs::InputSwitcherArgs() :
-    appName(),
-    fastSwitch(false),
-    delayedSwitch(false),
-    terminate(false),
-    reusePort(false),
-    firstInput(0),
-    primaryInput(NPOS),
-    cycleCount(1),
-    bufferedPackets(0),
-    maxInputPackets(0),
-    maxOutputPackets(0),
-    eventCommand(),
-    eventUDP(),
-    eventLocalAddress(),
-    eventTTL(0),
-    eventUserData(),
-    sockBuffer(0),
-    remoteServer(),
-    allowedRemote(),
-    receiveTimeout(0),
-    inputs(),
-    output()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -85,7 +23,7 @@ void ts::InputSwitcherArgs::enforceDefaults()
     if (output.name.empty()) {
         output.set(u"file");
     }
-    if (receiveTimeout <= 0 && primaryInput != NPOS) {
+    if (receiveTimeout.count() <= 0 && primaryInput != NPOS) {
         receiveTimeout = DEFAULT_RECEIVE_TIMEOUT;
     }
 
@@ -102,7 +40,7 @@ void ts::InputSwitcherArgs::enforceDefaults()
 
 void ts::InputSwitcherArgs::defineArgs(Args& args)
 {
-    args.option(u"allow", 'a', Args::STRING);
+    args.option(u"allow", 'a', Args::IPADDR);
     args.help(u"allow",
               u"Specify an IP address or host name which is allowed to send remote commands. "
               u"Several --allow options are allowed. By default, all remote commands are accepted.");
@@ -136,16 +74,16 @@ void ts::InputSwitcherArgs::defineArgs(Args& args)
               u"3. The input index after the event.\n"
               u"4. Optional: the user data string from --event-user-data option.");
 
-    args.option(u"event-udp", 0, Args::STRING);
-    args.help(u"event-udp", u"address:port",
+    args.option(u"event-udp", 0, Args::IPSOCKADDR);
+    args.help(u"event-udp",
               u"When a switch event occurs, send a short JSON description over UDP/IP to the specified destination. "
               u"This can be used to notify some external system of the event. "
               u"The 'address' specifies an IP address which can be either unicast or multicast. "
               u"It can be also a host name that translates to an IP address. "
               u"The 'port' specifies the destination UDP port.");
 
-    args.option(u"event-local-address", 0, Args::STRING);
-    args.help(u"event-local-address", u"address",
+    args.option(u"event-local-address", 0, Args::IPADDR);
+    args.help(u"event-local-address",
               u"With --event-udp, when the destination is a multicast address, specify "
               u"the IP address of the outgoing local interface. It can be also a host "
               u"name that translates to a local address.");
@@ -205,17 +143,17 @@ void ts::InputSwitcherArgs::defineArgs(Args& args)
               u"Disable the reuse port socket option for the remote control. "
               u"Do not use unless completely necessary.");
 
-    args.option(u"receive-timeout", 0, Args::UNSIGNED);
+    args.option<cn::milliseconds>(u"receive-timeout");
     args.help(u"receive-timeout",
               u"Specify a receive timeout in milliseconds. "
               u"When the current input plugin has received no packet within "
               u"this timeout, automatically switch to the next plugin. "
               u"By default, without --primary-input, there is no automatic switch "
               u"when the current input plugin is waiting for packets. With "
-              u"--primary-input, the default is " + UString::Decimal(DEFAULT_RECEIVE_TIMEOUT) + u" ms.");
+              u"--primary-input, the default is " + UString::Chrono(DEFAULT_RECEIVE_TIMEOUT, true) + u".");
 
-    args.option(u"remote", 'r', Args::STRING);
-    args.help(u"remote", u"[address:]port",
+    args.option(u"remote", 'r', Args::IPSOCKADDR_OA);
+    args.help(u"remote",
               u"Specify the local UDP port which is used to receive remote commands. "
               u"If an optional address is specified, it must be a local IP address of the system. "
               u"By default, there is no remote control.");
@@ -243,16 +181,17 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
     args.getIntValue(bufferedPackets, u"buffer-packets", DEFAULT_BUFFERED_PACKETS);
     maxInputPackets = std::min(args.intValue<size_t>(u"max-input-packets", DEFAULT_MAX_INPUT_PACKETS), bufferedPackets / 2);
     args.getIntValue(maxOutputPackets, u"max-output-packets", DEFAULT_MAX_OUTPUT_PACKETS);
-    const UString remoteName(args.value(u"remote"));
+    args.getSocketValue(remoteServer, u"remote");
     reusePort = !args.present(u"no-reuse-port");
     args.getIntValue(sockBuffer, u"udp-buffer-size");
     args.getIntValue(firstInput, u"first-input", 0);
     args.getIntValue(primaryInput, u"primary-input", NPOS);
-    args.getIntValue(receiveTimeout, u"receive-timeout", primaryInput >= inputs.size() ? 0 : DEFAULT_RECEIVE_TIMEOUT);
+    args.getChronoValue(receiveTimeout, u"receive-timeout", primaryInput >= inputs.size() ? cn::milliseconds::zero() : DEFAULT_RECEIVE_TIMEOUT);
 
     // Event reporting.
     args.getValue(eventCommand, u"event-command");
-    setEventUDP(args.value(u"event-udp"), args.value(u"event-local-address"), args);
+    args.getSocketValue(eventUDP, u"event-udp");
+    args.getIPValue(eventLocalAddress, u"event-local-address");
     args.getIntValue(eventTTL, u"event-ttl", 0);
     args.getValue(eventUserData, u"event-user-data");
 
@@ -264,20 +203,11 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
         args.error(u"options --delayed-switch and --fast-switch are mutually exclusive");
     }
 
-    // Resolve network names. The resolve() method reports error and set the args error state.
-    if (!remoteName.empty() && remoteServer.resolve(remoteName, args) && !remoteServer.hasPort()) {
-        args.error(u"missing UDP port number in --remote");
-    }
-
     // Resolve all allowed remote.
-    UStringVector remotes;
-    args.getValues(remotes, u"allow");
+    const size_t allow_count = args.count(u"allow");
     allowedRemote.clear();
-    for (auto it = remotes.begin(); it != remotes.end(); ++it) {
-        const IPv4Address addr(*it, args);
-        if (addr.hasAddress()) {
-            allowedRemote.insert(addr);
-        }
+    for (size_t i = 0; i < allow_count; ++i) {
+        allowedRemote.insert(args.ipValue(u"allow", IPv4Address(), i));
     }
 
     // Load all plugin descriptions. Default output is the standard output file.
@@ -297,40 +227,12 @@ bool ts::InputSwitcherArgs::loadArgs(DuckContext& duck, Args& args)
 
     // Check validity of input indexes.
     if (firstInput >= inputs.size()) {
-        args.error(u"invalid input index for --first-input %d", {firstInput});
+        args.error(u"invalid input index for --first-input %d", firstInput);
     }
 
     if (primaryInput != NPOS && primaryInput >= inputs.size()) {
-        args.error(u"invalid input index for --primary-input %d", {primaryInput});
+        args.error(u"invalid input index for --primary-input %d", primaryInput);
     }
 
     return args.valid();
-}
-
-
-//----------------------------------------------------------------------------
-// Set the UDP destination for event reporting using strings.
-//----------------------------------------------------------------------------
-
-bool ts::InputSwitcherArgs::setEventUDP(const UString& destination, const UString& local, Report& report)
-{
-    if (destination.empty()) {
-        eventUDP.clear();
-    }
-    else if (!eventUDP.resolve(destination, report)) {
-        return false;
-    }
-    else if (!eventUDP.hasAddress() || !eventUDP.hasPort()) {
-        report.error(u"event reporting through UDP requires an IP address and a UDP port");
-        return false;
-    }
-
-    if (local.empty()) {
-        eventLocalAddress.clear();
-    }
-    else if (!eventLocalAddress.resolve(local, report)) {
-        return false;
-    }
-
-    return true;
 }

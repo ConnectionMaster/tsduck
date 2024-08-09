@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -36,6 +15,7 @@
 #include "tsDuckContext.h"
 #include "tsService.h"
 #include "tsServiceIdTriplet.h"
+#include "tsReplacement.h"
 #include "tsAbstractLogicalChannelDescriptor.h"
 #include "tsNIT.h"
 
@@ -82,8 +62,9 @@ namespace ts {
         //! @param [in] srv_id The service id.
         //! @param [in] ts_id The transport stream id.
         //! @param [in] onet_id The original network id. Use 0xFFFF for "unspecified".
+        //! @param [in] visible The service LCN is visible.
         //!
-        void addLCN(uint16_t lcn, uint16_t srv_id, uint16_t ts_id, uint16_t onet_id);
+        void addLCN(uint16_t lcn, uint16_t srv_id, uint16_t ts_id, uint16_t onet_id, bool visible = true);
 
         //!
         //! Collect all LCN which are declared in a NIT.
@@ -122,12 +103,21 @@ namespace ts {
         uint16_t getLCN(const ServiceIdTriplet& srv) const;
 
         //!
-        //! Get all known services by logical channel number.
-        //! @param [out] lcns A map of all known LCN's, key: LCN, value: service id triplet.
-        //! @param [in] ts_id If not 0xFFFF, get services from that TS id only.
-        //! @param [in] onet_id If not 0xFFFF, get services from that original network id only.
+        //! Get the visible flag of a service.
+        //! @param [in] srv_id The service id to search.
+        //! @param [in] ts_id The transport stream id of the service.
+        //! @param [in] onet_id The original network id of the service.
+        //! If set to 0xFFFF (the default), the first match service is used.
+        //! @return The visible flag of the service or true if not found.
         //!
-        void getLCNs(std::map<uint16_t,ServiceIdTriplet>& lcns, uint16_t ts_id = 0xFFFF, uint16_t onet_id = 0xFFFF) const;
+        bool getVisible(uint16_t srv_id, uint16_t ts_id, uint16_t onet_id = 0xFFFF) const;
+
+        //!
+        //! Get the visible flag of a service.
+        //! @param [in] srv The service id triplet to search.
+        //! @return The visible flag of the service or true if not found.
+        //!
+        bool getVisible(const ServiceIdTriplet& srv) const;
 
         //!
         //! Update a service description with its LCN.
@@ -141,12 +131,12 @@ namespace ts {
 
         //!
         //! Update a list of service descriptions with LCN's.
-        //! @param [in,out] services The list of service description to update.
-        //! @param [in] replace If a service already has an LCN and @a replace is false, don't search.
-        //! @param [in] add If true, add in @a services all missing services for which an LCN is known.
-        //! @return Number of updated or added LCN.
+        //! @tparam CONTAINER A container class of @c Services with @c push_back() method.
+        //! @param [in,out] services The container of service description to update.
+        //! @param [in] rep Replacement policy in @a services for new, updated, or absent services.
         //!
-        size_t updateServices(ServiceList& services, bool replace, bool add) const;
+        template <class CONTAINER>
+        void updateServices(CONTAINER& services, Replacement rep) const;
 
     private:
         // Storage of one LCN, except the service id which is used as an index.
@@ -156,20 +146,83 @@ namespace ts {
             uint16_t lcn;      // Logical channel number.
             uint16_t ts_id;    // Transport stream id.
             uint16_t onet_id;  // Original network id, 0xFFFF means unspecified.
-
-            // Constructor.
-            LCN(uint16_t l = 0xFFFF, uint16_t t = 0xFFFF, uint16_t o = 0xFFFF);
+            bool     visible;  // Channel is visible.
         };
 
         // The LCN store is indexed by service id only. This is more efficient than using the DVB triplet as index.
         // This is a multimap since the same sevice id can be used on different TS.
-        typedef std::multimap<uint16_t,LCN> LCNMap;
+        using LCNMap = std::multimap<uint16_t,LCN>;
+
+        // Get LCN entry.
+        LCNMap::const_iterator findLCN(uint16_t srv_id, uint16_t ts_id, uint16_t onet_id) const;
 
         // Collect LCN for a generic form of LCN descriptor.
         size_t addFromAbstractLCN(const AbstractLogicalChannelDescriptor& desc, uint16_t ts_id, uint16_t onet_id);
 
         // LCN store private members.
         DuckContext& _duck;
-        LCNMap       _lcn_map;
+        LCNMap _lcn_map {};
     };
+}
+
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Update a list of service descriptions with LCN's.
+template <class CONTAINER>
+void ts::LogicalChannelNumbers::updateServices(CONTAINER& services, Replacement rep) const
+{
+    // Build a copy of the internal LCN map, remove them one by one when used.
+    LCNMap lcns(_lcn_map);
+
+    // Update LCN's in existing services.
+    for (auto lcn_it = lcns.begin(); lcn_it != lcns.end(); ) {
+        bool found = false;
+
+        // Loop on all services and update matching ones.
+        for (auto& srv : services) {
+            // Check if this service match the current LCN (onet id must match or be unspecified).
+            if (srv.hasId(lcn_it->first) &&
+                srv.hasTSId(lcn_it->second.ts_id) &&
+                (lcn_it->second.onet_id == 0xFFFF || !srv.hasONId() || srv.hasONId(lcn_it->second.onet_id)))
+            {
+                found = true;
+                if (!(rep & (Replacement::UPDATE | Replacement::REPLACE))) {
+                    // Without update of the service list, we only need to know if the service is found once.
+                    break;
+                }
+                if (!srv.hasLCN(lcn_it->second.lcn)) {
+                    srv.setLCN(lcn_it->second.lcn);
+                }
+                if (!srv.hasHidden()) {
+                    srv.setHidden(!lcn_it->second.visible);
+                }
+            }
+        }
+
+        // Move to next LCN. Remove current from the list if found in the list of services.
+        if (found) {
+            lcn_it = lcns.erase(lcn_it);
+        }
+        else {
+            ++lcn_it;
+        }
+    }
+
+    // Add remaining LCN's in the list of services.
+    if ((rep & Replacement::ADD) != Replacement::NONE) {
+        for (const auto& lcn_it : lcns) {
+            Service srv;
+            srv.setId(lcn_it.first);
+            srv.setLCN(lcn_it.second.lcn);
+            srv.setTSId(lcn_it.second.ts_id);
+            if (lcn_it.second.onet_id != 0xFFFF) {
+                srv.setONId(lcn_it.second.onet_id);
+            }
+            srv.setHidden(!lcn_it.second.visible);
+            services.push_back(srv);
+        }
+    }
 }

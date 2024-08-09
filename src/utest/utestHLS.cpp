@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,28 +20,18 @@
 
 class HLSTest: public tsunit::Test
 {
-public:
-    HLSTest();
+    TSUNIT_DECLARE_TEST(MasterPlaylist);
+    TSUNIT_DECLARE_TEST(MasterPlaylistWithAlternate);
+    TSUNIT_DECLARE_TEST(MediaPlaylist);
+    TSUNIT_DECLARE_TEST(BuildMasterPlaylist);
+    TSUNIT_DECLARE_TEST(BuildMediaPlaylist);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testMasterPlaylist();
-    void testMasterPlaylistWithAlternate();
-    void testMediaPlaylist();
-    void testBuildMasterPlaylist();
-    void testBuildMediaPlaylist();
-
-    TSUNIT_TEST_BEGIN(HLSTest);
-    TSUNIT_TEST(testMasterPlaylist);
-    TSUNIT_TEST(testMasterPlaylistWithAlternate);
-    TSUNIT_TEST(testMediaPlaylist);
-    TSUNIT_TEST(testBuildMasterPlaylist);
-    TSUNIT_TEST(testBuildMediaPlaylist);
-    TSUNIT_TEST_END();
-
 private:
-    int _previousSeverity;
+    int _previousSeverity = 0;
 };
 
 TSUNIT_REGISTER(HLSTest);
@@ -71,12 +40,6 @@ TSUNIT_REGISTER(HLSTest);
 //----------------------------------------------------------------------------
 // Initialization.
 //----------------------------------------------------------------------------
-
-// Constructor.
-HLSTest::HLSTest() :
-    _previousSeverity(0)
-{
-}
 
 // Test suite initialization method.
 void HLSTest::beforeTest()
@@ -98,7 +61,7 @@ void HLSTest::afterTest()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void HLSTest::testMasterPlaylist()
+TSUNIT_DEFINE_TEST(MasterPlaylist)
 {
     // Test file downloaded from TSDuck web site.
     // Copied from Apple test file at
@@ -119,7 +82,7 @@ void HLSTest::testMasterPlaylist()
     TSUNIT_EQUAL(0, pl.segmentCount());
     TSUNIT_EQUAL(24, pl.playListCount());
     TSUNIT_EQUAL(5, pl.altPlayListCount());
-    TSUNIT_EQUAL(0, pl.targetDuration());
+    TSUNIT_EQUAL(0, pl.targetDuration().count());
     TSUNIT_EQUAL(0, pl.mediaSequence());
     TSUNIT_ASSERT(!pl.endList());
     TSUNIT_EQUAL(ts::hls::PlayListType::MASTER, pl.type());
@@ -162,7 +125,7 @@ void HLSTest::testMasterPlaylist()
     TSUNIT_EQUAL(7, pl.selectPlayListLowestResolution());
 }
 
-void HLSTest::testMasterPlaylistWithAlternate()
+TSUNIT_DEFINE_TEST(MasterPlaylistWithAlternate)
 {
     // Test file downloaded from TSDuck web site.
 
@@ -175,7 +138,7 @@ void HLSTest::testMasterPlaylistWithAlternate()
     TSUNIT_EQUAL(0, pl.segmentCount());
     TSUNIT_EQUAL(7, pl.playListCount());
     TSUNIT_EQUAL(2, pl.altPlayListCount());
-    TSUNIT_EQUAL(0, pl.targetDuration());
+    TSUNIT_EQUAL(0, pl.targetDuration().count());
     TSUNIT_EQUAL(0, pl.mediaSequence());
     TSUNIT_ASSERT(!pl.endList());
     TSUNIT_EQUAL(ts::hls::PlayListType::MASTER, pl.type());
@@ -223,7 +186,7 @@ void HLSTest::testMasterPlaylistWithAlternate()
     TSUNIT_ASSERT(!pl.altPlayList(1).forced);
 }
 
-void HLSTest::testMediaPlaylist()
+TSUNIT_DEFINE_TEST(MediaPlaylist)
 {
     // Test file downloaded from TSDuck web site.
     // Copied from Apple test file at
@@ -241,20 +204,20 @@ void HLSTest::testMediaPlaylist()
     TSUNIT_EQUAL(100, pl.segmentCount());
     TSUNIT_EQUAL(0, pl.playListCount());
     TSUNIT_EQUAL(0, pl.altPlayListCount());
-    TSUNIT_EQUAL(6, pl.targetDuration());
+    TSUNIT_EQUAL(6, pl.targetDuration().count());
     TSUNIT_EQUAL(0, pl.mediaSequence());
     TSUNIT_ASSERT(pl.endList());
 
     TSUNIT_EQUAL(u"fileSequence0.ts", pl.segment(0).relativeURI);
     TSUNIT_EQUAL(u"", pl.segment(0).title);
     TSUNIT_EQUAL(2060 * 1024, pl.segment(0).bitrate.toInt());
-    TSUNIT_EQUAL(6000, pl.segment(0).duration);
+    TSUNIT_EQUAL(6000, pl.segment(0).duration.count());
     TSUNIT_ASSERT(!pl.segment(0).gap);
 
     TSUNIT_EQUAL(u"fileSequence99.ts", pl.segment(99).relativeURI);
     TSUNIT_EQUAL(u"", pl.segment(99).title);
     TSUNIT_EQUAL(2055 * 1024, pl.segment(99).bitrate.toInt());
-    TSUNIT_EQUAL(6000, pl.segment(99).duration);
+    TSUNIT_EQUAL(6000, pl.segment(99).duration.count());
     TSUNIT_ASSERT(!pl.segment(99).gap);
 
     ts::hls::MediaSegment seg;
@@ -264,11 +227,11 @@ void HLSTest::testMediaPlaylist()
     TSUNIT_EQUAL(u"fileSequence0.ts", seg.relativeURI);
     TSUNIT_EQUAL(u"", seg.title);
     TSUNIT_EQUAL(2060 * 1024, seg.bitrate.toInt());
-    TSUNIT_EQUAL(6000, seg.duration);
+    TSUNIT_EQUAL(6000, seg.duration.count());
     TSUNIT_ASSERT(!seg.gap);
 }
 
-void HLSTest::testBuildMasterPlaylist()
+TSUNIT_DEFINE_TEST(BuildMasterPlaylist)
 {
     ts::hls::PlayList pl;
     pl.reset(ts::hls::PlayListType::MASTER, u"/c/test/path/master/test.m3u8");
@@ -319,7 +282,7 @@ void HLSTest::testBuildMasterPlaylist()
     TSUNIT_EQUAL(refContent, pl.textContent());
 }
 
-void HLSTest::testBuildMediaPlaylist()
+TSUNIT_DEFINE_TEST(BuildMediaPlaylist)
 {
     ts::hls::PlayList pl;
     pl.reset(ts::hls::PlayListType::LIVE, u"/c/test/path/master/test.m3u8");
@@ -331,7 +294,7 @@ void HLSTest::testBuildMediaPlaylist()
     TSUNIT_EQUAL(0, pl.playListCount());
 
     TSUNIT_ASSERT(pl.setMediaSequence(7));
-    TSUNIT_ASSERT(pl.setTargetDuration(5));
+    TSUNIT_ASSERT(pl.setTargetDuration(cn::seconds(5)));
     TSUNIT_ASSERT(!pl.endList());
     TSUNIT_ASSERT(pl.setEndList(true));
     TSUNIT_ASSERT(pl.endList());
@@ -341,13 +304,13 @@ void HLSTest::testBuildMediaPlaylist()
     ts::hls::MediaSegment seg1;
     seg1.relativeURI = u"/c/test/path/segments/seg-0001.ts";
     seg1.title = u"Segment1";
-    seg1.duration = 4920;
+    seg1.duration = cn::milliseconds(4920);
     seg1.bitrate = 1233920;
     TSUNIT_ASSERT(pl.addSegment(seg1));
 
     ts::hls::MediaSegment seg2;
     seg2.relativeURI = u"/c/test/path/segments/seg-0002.ts";
-    seg2.duration = 4971;
+    seg2.duration = cn::milliseconds(4971);
     seg2.bitrate = 1653760;
     TSUNIT_ASSERT(pl.addSegment(seg2));
 
@@ -372,7 +335,7 @@ void HLSTest::testBuildMediaPlaylist()
 
     ts::hls::MediaSegment seg3;
     seg3.relativeURI = u"/c/test/path/segments/seg-0003.ts";
-    seg3.duration = 4984;
+    seg3.duration = cn::milliseconds(4984);
     seg3.bitrate = 1653760;
     TSUNIT_ASSERT(pl.addSegment(seg3));
 

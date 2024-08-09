@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -48,12 +27,12 @@ namespace ts {
     //!
     //! Safe pointer to a tuner (not thread-safe).
     //!
-    typedef SafePtr<TunerBase, NullMutex> TunerPtr;
+    using TunerPtr = std::shared_ptr<TunerBase>;
 
     //!
     //! Vector of safe pointers to tuners (not thread-safe).
     //!
-    typedef std::vector<TunerPtr> TunerPtrVector;
+    using TunerPtrVector = std::vector<TunerPtr>;
 
     //!
     //! Base class for Digital TV tuners.
@@ -213,7 +192,7 @@ namespace ts {
         //!
         //! Default timeout before getting a signal on start.
         //!
-        static constexpr MilliSecond DEFAULT_SIGNAL_TIMEOUT = 5000; // 5 seconds
+        static constexpr cn::milliseconds DEFAULT_SIGNAL_TIMEOUT = cn::seconds(5);
 
         //!
         //! Set the timeout before getting a signal on start.
@@ -221,7 +200,7 @@ namespace ts {
         //! Must be set before start().
         //! @param [in] t Number of milliseconds to wait after start() before receiving a signal.
         //!
-        virtual void setSignalTimeout(MilliSecond t);
+        virtual void setSignalTimeout(cn::milliseconds t);
 
         //!
         //! Set if an error should be reported on timeout before getting a signal on start.
@@ -237,19 +216,19 @@ namespace ts {
         //! timeout is applied.
         //! @return True on success, false on error.
         //!
-        virtual bool setReceiveTimeout(MilliSecond t);
+        virtual bool setReceiveTimeout(cn::milliseconds t);
 
         //!
         //! Get the timeout for receive operation.
         //! @return The timeout for receive operation.
         //! @see setReceiveTimeout()
         //!
-        virtual MilliSecond receiveTimeout() const;
+        virtual cn::milliseconds receiveTimeout() const;
 
         //!
         //! Default poll interval for signal timeout (Linux-specific).
         //!
-        static constexpr MilliSecond DEFAULT_SIGNAL_POLL = 100;
+        static constexpr cn::milliseconds DEFAULT_SIGNAL_POLL = cn::milliseconds(100);
 
         //!
         //! Set the poll interval for signal timeout (Linux-specific).
@@ -257,7 +236,7 @@ namespace ts {
         //! This is a Linux-specific method which does nothing on other systems.
         //! @param [in] t Poll interval in milliseconds.
         //!
-        virtual void setSignalPoll(MilliSecond t);
+        virtual void setSignalPoll(cn::milliseconds t);
 
         //!
         //! Default demux buffer size in bytes (Linux-specific).

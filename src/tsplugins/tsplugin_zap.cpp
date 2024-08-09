@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -52,10 +31,9 @@
 namespace ts {
     class ZapPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(ZapPlugin);
+        TS_PLUGIN_CONSTRUCTORS(ZapPlugin);
     public:
         // Implementation of plugin API
-        ZapPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
@@ -67,21 +45,21 @@ namespace ts {
             TS_NOBUILD_NOCOPY(ServiceContext);
         public:
             // Command line options:
-            const UString     service_spec;  // Service name or id.
-            bool              spec_by_id;    // Service is specified by id (ie. not by name).
+            const UString     service_spec;        // Service name or id.
+            bool              spec_by_id = false;  // Service is specified by id (ie. not by name).
 
             // Working data:
-            uint16_t          service_id;    // Service id.
-            bool              id_known;      // Service id is known.
-            CyclingPacketizer pzer_pmt;      // Packetizer for modified PMT.
-            std::set<PID>     pids;          // Set of component PID's.
-            PID               pmt_pid;       // PID for the PMT (PID _NULL if unknown).
+            uint16_t          service_id = 0;      // Service id.
+            bool              id_known = false;    // Service id is known.
+            CyclingPacketizer pzer_pmt;            // Packetizer for modified PMT.
+            std::set<PID>     pids {};             // Set of component PID's.
+            PID               pmt_pid = PID_NULL;  // PID for the PMT (PID _NULL if unknown).
 
             // Constructor:
             ServiceContext(DuckContext& duck, const UString& parameter);
         };
-        typedef SafePtr<ServiceContext> ServiceContextPtr;
-        typedef std::vector<ServiceContextPtr> ServiceContextVector;
+        using ServiceContextPtr = std::shared_ptr<ServiceContext>;
+        using ServiceContextVector = std::vector<ServiceContextPtr>;
 
         // Each PID is described by one byte
         enum : uint8_t {
@@ -96,29 +74,29 @@ namespace ts {
         };
 
         // Plugin command line options:
-        ServiceContextVector _services;           // Description of services.
-        UStringVector        _audio_langs;        // Audio language codes to keep
-        std::set<PID>        _audio_pids;         // Audio PID's to keep
-        UStringVector        _subtitles_langs;    // Subtitles language codes to keep
-        std::set<PID>        _subtitles_pids;     // Subtitles PID's to keep
-        bool                 _no_subtitles;       // Remove all subtitles
-        bool                 _no_ecm;             // Remove all ECM PIDs
-        bool                 _include_cas;        // Include CAS info (CAT & EMM)
-        bool                 _include_eit;        // Include EIT's for the specified service
-        bool                 _pes_only;           // Keep PES streams only
-        bool                 _ignore_absent;      // Do not stop if a service is not present
-        Status               _drop_status;        // Status for dropped packets
+        ServiceContextVector _services {};             // Description of services.
+        UStringVector        _audio_langs {};          // Audio language codes to keep
+        std::set<PID>        _audio_pids {};           // Audio PID's to keep
+        UStringVector        _subtitles_langs {};      // Subtitles language codes to keep
+        std::set<PID>        _subtitles_pids {};       // Subtitles PID's to keep
+        bool                 _no_subtitles = false;    // Remove all subtitles
+        bool                 _no_ecm = false;          // Remove all ECM PIDs
+        bool                 _include_cas = false;     // Include CAS info (CAT & EMM)
+        bool                 _include_eit = false;     // Include EIT's for the specified service
+        bool                 _pes_only = false;        // Keep PES streams only
+        bool                 _ignore_absent = false;   // Do not stop if a service is not present
+        Status               _drop_status = TSP_DROP;  // Status for dropped packets
 
         // Plugin working data:
-        bool                 _abort;              // Error (service not found, etc)
-        uint8_t              _pat_version;        // Version of next PAT.
-        uint8_t              _sdt_version;        // Version of next SDT.
-        PAT                  _last_pat;           // Last received PAT.
-        SectionDemux         _demux;              // Section demux
-        CyclingPacketizer    _pzer_sdt;           // Packetizer for modified SDT
-        CyclingPacketizer    _pzer_pat;           // Packetizer for modified PAT
-        EITProcessor         _eit_process;        // Modify EIT's
-        uint8_t              _pid_state[PID_MAX]; // Status of each PID.
+        bool                 _abort = false;           // Error (service not found, etc)
+        uint8_t              _pat_version = 0;         // Version of next PAT.
+        uint8_t              _sdt_version = 0;         // Version of next SDT.
+        PAT                  _last_pat {};             // Last received PAT.
+        SectionDemux         _demux {duck, this};
+        CyclingPacketizer    _pzer_sdt {duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer    _pzer_pat {duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        EITProcessor         _eit_process {duck, PID_EIT};
+        uint8_t              _pid_state[PID_MAX] {};   // Status of each PID.
 
         // Implementation of TableHandlerInterface.
         virtual void handleTable(SectionDemux& demux, const BinaryTable& table) override;
@@ -162,28 +140,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"zap", ts::ZapPlugin);
 //----------------------------------------------------------------------------
 
 ts::ZapPlugin::ZapPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Zap on one or more services, remove all other services", u"[options] service ..."),
-    _services(),
-    _audio_langs(),
-    _audio_pids(),
-    _subtitles_langs(),
-    _subtitles_pids(),
-    _no_subtitles(false),
-    _no_ecm(false),
-    _include_cas(false),
-    _include_eit(false),
-    _pes_only(false),
-    _ignore_absent(false),
-    _drop_status(TSP_DROP),
-    _abort(false),
-    _pat_version(0),
-    _sdt_version(0),
-    _last_pat(),
-    _demux(duck, this),
-    _pzer_sdt(duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_pat(duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _eit_process(duck, PID_EIT),
-    _pid_state()
+    ProcessorPlugin(tsp_, u"Zap on one or more services, remove all other services", u"[options] service ...")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -273,7 +230,7 @@ bool ts::ZapPlugin::getOptions()
     _services.clear();
     _services.resize(count(u""));
     for (size_t i = 0; i < _services.size(); ++i) {
-        _services[i] = new ServiceContext(duck, value(u"", u"", i));
+        _services[i] = std::make_shared<ServiceContext>(duck, value(u"", u"", i));
     }
 
     getValues(_audio_langs, u"audio");
@@ -290,7 +247,7 @@ bool ts::ZapPlugin::getOptions()
 
     // Check option conflicts.
     if (_no_subtitles && (!_subtitles_langs.empty() || !_subtitles_pids.empty())) {
-        tsp->error(u"option --no-subtitles is incompatile with --subtitles and --subtitles-pid");
+        error(u"option --no-subtitles is incompatible with --subtitles and --subtitles-pid");
         return false;
     }
 
@@ -304,12 +261,7 @@ bool ts::ZapPlugin::getOptions()
 
 ts::ZapPlugin::ServiceContext::ServiceContext(DuckContext& duck, const UString& parameter) :
     service_spec(parameter),
-    spec_by_id(false),
-    service_id(0),
-    id_known(false),
-    pzer_pmt(duck, PID_NULL, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    pids(),
-    pmt_pid(PID_NULL)
+    pzer_pmt(duck, PID_NULL, CyclingPacketizer::StuffingPolicy::ALWAYS)
 {
     id_known = spec_by_id = parameter.toInteger(service_id, UString::DEFAULT_THOUSANDS_SEPARATOR);
 }
@@ -342,7 +294,7 @@ bool ts::ZapPlugin::start()
 
     // All PIDs are dropped by default.
     // Selected PIDs will be added when discovered.
-    ::memset(_pid_state, TSPID_DROP, sizeof(_pid_state));
+    MemSet(_pid_state, TSPID_DROP, sizeof(_pid_state));
 
     // The TOT and TDT are always passed (same PID).
     _pid_state[PID_TOT] = TSPID_PASS;
@@ -425,20 +377,20 @@ void ts::ZapPlugin::sendNewPAT()
 void ts::ZapPlugin::forgetServiceComponents(ServiceContext& ctx)
 {
     // Loop on all known component of the service.
-    for (auto pid = ctx.pids.begin(); pid != ctx.pids.end(); ++pid) {
+    for (auto pid : ctx.pids) {
 
         // Loop on all other services to check if the component is shared or not.
         bool shared = false;
         for (size_t i = 0; !shared && i < _services.size(); ++i) {
             // Do not test on the service itself.
             if (_services[i]->id_known && _services[i]->service_id != ctx.service_id) {
-                shared = Contains(_services[i]->pids, *pid);
+                shared = Contains(_services[i]->pids, pid);
             }
         }
 
         // If the PID is not shared, we no longer need to pass it.
         if (!shared) {
-            _pid_state[*pid] = TSPID_DROP;
+            _pid_state[pid] = TSPID_DROP;
         }
     }
 
@@ -455,7 +407,7 @@ void ts::ZapPlugin::serviceNotPresent(ServiceContext& ctx, const UChar* table_na
 {
     if (_ignore_absent) {
         // Service not present is not an error, waiting for it to reappear.
-        tsp->verbose(u"service %s not found in %s, waiting for the service...", {ctx.service_spec, table_name});
+        verbose(u"service %s not found in %s, waiting for the service...", ctx.service_spec, table_name);
         // Make sure the service PMT will be notified again if on the same PID.
         if (ctx.pmt_pid != PID_NULL) {
             _demux.resetPID(ctx.pmt_pid);
@@ -470,7 +422,7 @@ void ts::ZapPlugin::serviceNotPresent(ServiceContext& ctx, const UChar* table_na
     }
     else {
         // Service not found is a fatal error.
-        tsp->error(u"service %s not found in %s", {ctx.service_spec, table_name});
+        error(u"service %s not found in %s", ctx.service_spec, table_name);
         _abort = true;
     }
 }
@@ -485,7 +437,7 @@ void ts::ZapPlugin::setServiceId(ServiceContext& ctx, uint16_t service_id)
     // Ignore case where the service was already known with the same service id.
     if (!ctx.id_known || ctx.service_id != service_id) {
 
-        tsp->verbose(u"found service %s, service id 0x%X (%<d)", {ctx.service_spec, service_id});
+        verbose(u"found service %s, service id %n", ctx.service_spec, service_id);
 
         // Forget the previous service.
         ctx.pmt_pid = PID_NULL;
@@ -601,7 +553,7 @@ void ts::ZapPlugin::handlePAT(PAT& pat)
                 // Need to process the PMT on that PID.
                 ctx.pmt_pid = it->second;
                 _demux.addPID(ctx.pmt_pid);
-                tsp->verbose(u"found service id 0x%X, PMT PID is 0x%X", {ctx.service_id,ctx.pmt_pid});
+                verbose(u"found service id 0x%X, PMT PID is 0x%X", ctx.service_id, ctx.pmt_pid);
                 need_new_pat = true;
             }
         }
@@ -689,24 +641,24 @@ void ts::ZapPlugin::handleVCT(VCT& vct)
 // This method processes a Program Map Table (PMT).
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::handlePMT(PMT& pmt, PID pid)
+void ts::ZapPlugin::handlePMT(PMT& pmt, PID pmt_pid)
 {
     // Filter out any unexpected PMT.
     ServiceContextPtr ctx;
-    for (size_t i = 0; ctx.isNull() && i < _services.size(); ++i) {
+    for (size_t i = 0; ctx == nullptr && i < _services.size(); ++i) {
         const ServiceContextPtr& ci(_services[i]);
         if (ci->id_known && ci->service_id == pmt.service_id) {
             ctx = ci;
         }
     }
-    if (ctx.isNull()) {
+    if (ctx == nullptr) {
         // Not a selected service.
         return;
     }
 
     // If the PMT PID changed, update it and start a new PAT.
-    if (ctx->pmt_pid != pid) {
-        ctx->pmt_pid = pid;
+    if (ctx->pmt_pid != pmt_pid) {
+        ctx->pmt_pid = pmt_pid;
         sendNewPAT();
     }
 
@@ -732,10 +684,10 @@ void ts::ZapPlugin::handlePMT(PMT& pmt, PID pid)
 
         // Process audio and subtitles tracks.
         if (stream.isAudio(duck)) {
-            keep = keepComponent(pid, stream.descs, _audio_langs, _audio_pids);
+            keep = keepComponent(cpid, stream.descs, _audio_langs, _audio_pids);
         }
         else if (stream.isSubtitles(duck)) {
-            keep = !_no_subtitles && keepComponent(pid, stream.descs, _subtitles_langs, _subtitles_pids);
+            keep = !_no_subtitles && keepComponent(cpid, stream.descs, _subtitles_langs, _subtitles_pids);
         }
 
         // Keep or remove the component.
@@ -840,8 +792,8 @@ bool ts::ZapPlugin::keepComponent(PID pid, const DescriptorList& descs, const US
     }
 
     // Test selected languages one by one.
-    for (auto it = languages.begin(); it != languages.end(); ++it) {
-        if (descs.searchLanguage(duck, *it) < descs.size()) {
+    for (const auto& it : languages) {
+        if (descs.searchLanguage(duck, it) < descs.size()) {
             return true; // language found.
         }
     }
@@ -914,7 +866,7 @@ ts::ProcessorPlugin::Status ts::ZapPlugin::processPacket(TSPacket& pkt, TSPacket
 
         default:
             // Should never get there...
-            tsp->error(u"internal error, invalid PID state %d", {_pid_state[pid]});
+            error(u"internal error, invalid PID state %d", _pid_state[pid]);
             return TSP_END;
     }
 }

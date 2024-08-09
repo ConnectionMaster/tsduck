@@ -1,33 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsContinuityAnalyzer.h"
+#include "tsjsonObject.h"
 #include "tsNullReport.h"
 
 
@@ -36,27 +16,8 @@
 //----------------------------------------------------------------------------
 
 ts::ContinuityAnalyzer::ContinuityAnalyzer(const PIDSet& pid_filter, Report* report) :
-    _report(report != nullptr ? report : NullReport::Instance()),
-    _severity(Severity::Info),
-    _display_errors(false),
-    _fix_errors(false),
-    _replicate_dup(true),
-    _generator(false),
-    _prefix(),
-    _total_packets(0),
-    _processed_packets(0),
-    _fix_count(0),
-    _error_count(0),
-    _pid_filter(pid_filter),
-    _pid_states()
-{
-}
-
-ts::ContinuityAnalyzer::PIDState::PIDState() :
-    first_cc(INVALID_CC),
-    last_cc_out(INVALID_CC),
-    dup_count(0),
-    last_pkt_in()
+    _report(report != nullptr ? report : &NULLREP),
+    _pid_filter(pid_filter)
 {
 }
 
@@ -67,7 +28,7 @@ ts::ContinuityAnalyzer::PIDState::PIDState() :
 
 void ts::ContinuityAnalyzer::setReport(Report* report)
 {
-    _report = report != nullptr ? report : NullReport::Instance();
+    _report = report != nullptr ? report : &NULLREP;
 }
 
 
@@ -173,8 +134,10 @@ ts::TSPacket ts::ContinuityAnalyzer::lastPacket(PID pid) const
 //  Return the number of missing packets between two continuity counters
 //----------------------------------------------------------------------------
 
-int ts::ContinuityAnalyzer::MissingPackets(int cc1, int cc2)
+size_t ts::ContinuityAnalyzer::MissingPackets(int cc1, int cc2)
 {
+    cc1 &= CC_MASK;
+    cc2 &= CC_MASK;
     return (cc2 <= cc1 ? 16 : 0) + cc2 - cc1 - 1;
 }
 
@@ -185,7 +148,24 @@ int ts::ContinuityAnalyzer::MissingPackets(int cc1, int cc2)
 
 ts::UString ts::ContinuityAnalyzer::linePrefix(PID pid) const
 {
-    return UString::Format(u"%spacket index: %'d, PID: 0x%04X", {_prefix, _total_packets, pid});
+    return UString::Format(u"%spacket index: %'d, PID: 0x%04X", _prefix, _total_packets, pid);
+}
+
+
+//----------------------------------------------------------------------------
+// Log a JSON message.
+//----------------------------------------------------------------------------
+
+void ts::ContinuityAnalyzer::logJSON(PID pid, const UChar* type, size_t packet_count)
+{
+    json::Object root;
+    root.add(u"index", _total_packets);
+    root.add(u"pid", pid);
+    root.add(u"type", type);
+    if (packet_count != NPOS) {
+        root.add(u"packets", packet_count);
+    }
+    _report->log(_severity, _prefix + root.oneLiner(*_report));
 }
 
 
@@ -238,7 +218,12 @@ bool ts::ContinuityAnalyzer::feedPacketInternal(TSPacket* pkt, bool update)
             if (++state.dup_count >= 2) {
                 // The standard allows at most 2 duplicate packets.
                 if (_display_errors) {
-                    _report->log(_severity, u"%s, %d duplicate packets", {linePrefix(pid), state.dup_count + 1});
+                    if (_json) {
+                        logJSON(pid, u"duplicate", state.dup_count + 1);
+                    }
+                    else {
+                        _report->log(_severity, u"%s, %d duplicate packets", linePrefix(pid), state.dup_count + 1);
+                    }
                 }
                 // There is nothing we can do to fix this.
                 _error_count++;
@@ -263,10 +248,20 @@ bool ts::ContinuityAnalyzer::feedPacketInternal(TSPacket* pkt, bool update)
                 if (_display_errors) {
                     // Display a specific message depending on the error.
                     if (!has_payload && cc == ((last_cc_in + 1) & CC_MASK)) {
-                        _report->log(_severity, u"%s, incorrect CC increment without payload", {linePrefix(pid)});
+                        if (_json) {
+                            logJSON(pid, u"increment-without-payload");
+                        }
+                        else {
+                            _report->log(_severity, u"%s, incorrect CC increment without payload", linePrefix(pid));
+                        }
                     }
                     else {
-                        _report->log(_severity, u"%s, missing %d packets", {linePrefix(pid), MissingPackets(last_cc_in, cc)});
+                        if (_json) {
+                            logJSON(pid, u"missing", MissingPackets(last_cc_in, cc));
+                        }
+                        else {
+                            _report->log(_severity, u"%s, missing %d packets", linePrefix(pid), MissingPackets(last_cc_in, cc));
+                        }
                     }
                 }
                 _error_count++;

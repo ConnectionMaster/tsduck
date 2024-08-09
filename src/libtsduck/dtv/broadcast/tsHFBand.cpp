@@ -1,64 +1,16 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsHFBand.h"
 #include "tsDuckConfigFile.h"
-#include "tsGuardMutex.h"
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
 #include "tsAlgorithm.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors
-//----------------------------------------------------------------------------
-
-ts::HFBand::HFBand(const UString band_name) :
-    _band_name(band_name),
-    _channel_count(0),
-    _regions(),
-    _channels()
-{
-}
-
-ts::HFBand::ChannelsRange::ChannelsRange() :
-    first_channel(0),
-    last_channel(0),
-    base_frequency(0),
-    channel_width(0),
-    first_offset(0),
-    last_offset(0),
-    offset_width(0),
-    even_polarity(POL_NONE),
-    odd_polarity(POL_NONE)
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -67,37 +19,32 @@ ts::HFBand::ChannelsRange::ChannelsRange() :
 
 const ts::HFBand* ts::HFBand::GetBand(const UString& region, const UString& band, Report& report, bool silent_band)
 {
-    HFBandRepository* repo = HFBandRepository::Instance();
-    repo->load(report);
-    return repo->get(band, region, silent_band ? NULLREP : report);
+    HFBandRepository::Instance().load(report);
+    return HFBandRepository::Instance().get(band, region, silent_band ? NULLREP : report);
 }
 
 ts::UString ts::HFBand::DefaultRegion(Report& report)
 {
-    HFBandRepository* repo = HFBandRepository::Instance();
-    repo->load(report);
-    return repo->defaultRegion();
+    HFBandRepository::Instance().load(report);
+    return HFBandRepository::Instance().defaultRegion();
 }
 
 void ts::HFBand::SetDefaultRegion(const ts::UString& region, ts::Report& report)
 {
-    HFBandRepository* repo = HFBandRepository::Instance();
-    repo->load(report);
-    repo->setDefaultRegion(region);
+    HFBandRepository::Instance().load(report);
+    HFBandRepository::Instance().setDefaultRegion(region);
 }
 
 ts::UStringList ts::HFBand::GetAllRegions(Report& report)
 {
-    HFBandRepository* repo = HFBandRepository::Instance();
-    repo->load(report);
-    return repo->allRegions();
+    HFBandRepository::Instance().load(report);
+    return HFBandRepository::Instance().allRegions();
 }
 
 ts::UStringList ts::HFBand::GetAllBands(const UString& region, Report& report)
 {
-    HFBandRepository* repo = HFBandRepository::Instance();
-    repo->load(report);
-    return repo->allBands(region);
+    HFBandRepository::Instance().load(report);
+    return HFBandRepository::Instance().allBands(region);
 }
 
 
@@ -126,11 +73,11 @@ ts::HFBand::ChannelsRangeList::const_iterator ts::HFBand::getRange(uint32_t chan
 ts::UString ts::HFBand::channelList() const
 {
     UString list;
-    for (auto it = _channels.begin(); it != _channels.end(); ++it) {
+    for (const auto& it : _channels) {
         if (!list.empty()) {
             list.append(u", ");
         }
-        list.format(u"%d-%d", {it->first_channel, it->last_channel});
+        list.format(u"%d-%d", it.first_channel, it.last_channel);
     }
     return list;
 }
@@ -286,19 +233,19 @@ uint32_t ts::HFBand::ChannelsRange::channelNumber(uint64_t frequency) const
 bool ts::HFBand::inBand(uint64_t frequency, bool strict) const
 {
     // Loop on all ranges of channels.
-    for (auto it = _channels.begin(); it != _channels.end(); ++it) {
+    for (const auto& it : _channels) {
         // If the frequency is in this range.
-        if (frequency >= it->lowestFrequency(strict) && frequency <= it->highestFrequency(strict)) {
+        if (frequency >= it.lowestFrequency(strict) && frequency <= it.highestFrequency(strict)) {
             if (strict) {
                 // Check all channels individually.
-                uint64_t freq = it->base_frequency;
-                for (int32_t off = it->first_offset; off <= it->last_offset; ++off) {
-                    if (frequency >= freq + int64_t(it->first_offset) * int64_t(it->offset_width) &&
-                        frequency <= freq + int64_t(it->last_offset) * int64_t(it->offset_width))
+                uint64_t freq = it.base_frequency;
+                for (int32_t off = it.first_offset; off <= it.last_offset; ++off) {
+                    if (frequency >= freq + int64_t(it.first_offset) * int64_t(it.offset_width) &&
+                        frequency <= freq + int64_t(it.last_offset) * int64_t(it.offset_width))
                     {
                         return true;
                     }
-                    freq += it->channel_width;
+                    freq += it.channel_width;
                 }
                 return false; // not in a strict channel
             }
@@ -313,9 +260,9 @@ bool ts::HFBand::inBand(uint64_t frequency, bool strict) const
 
 uint32_t ts::HFBand::channelNumber(uint64_t frequency) const
 {
-    for (auto it = _channels.begin(); it != _channels.end(); ++it) {
-        if (frequency >= it->lowestFrequency(true) && frequency <= it->highestFrequency(true)) {
-            return it->channelNumber(frequency);
+    for (const auto& it : _channels) {
+        if (frequency >= it.lowestFrequency(true) && frequency <= it.highestFrequency(true)) {
+            return it.channelNumber(frequency);
         }
     }
     return 0; // not found
@@ -323,10 +270,10 @@ uint32_t ts::HFBand::channelNumber(uint64_t frequency) const
 
 int32_t ts::HFBand::offsetCount(uint64_t frequency) const
 {
-    for (auto it = _channels.begin(); it != _channels.end(); ++it) {
-        if (it->offset_width > 0 && frequency >= it->lowestFrequency(true) && frequency <= it->highestFrequency(true)) {
-            const int32_t off = int32_t(int64_t(frequency) - int64_t(it->frequency(it->channelNumber(frequency), 0)));
-            const int32_t count = (std::abs(off) + int32_t(it->offset_width / 2)) / int32_t(it->offset_width);
+    for (const auto& it : _channels) {
+        if (it.offset_width > 0 && frequency >= it.lowestFrequency(true) && frequency <= it.highestFrequency(true)) {
+            const int32_t off = int32_t(int64_t(frequency) - int64_t(it.frequency(it.channelNumber(frequency), 0)));
+            const int32_t count = (std::abs(off) + int32_t(it.offset_width / 2)) / int32_t(it.offset_width);
             return off < 0 ? -count : count;
         }
     }
@@ -343,13 +290,13 @@ ts::UString ts::HFBand::description(uint32_t channel, int32_t offset) const
     const uint64_t freq = frequency(channel, offset);
     const int mhz = int(freq / 1000000);
     const int khz = int((freq % 1000000) / 1000);
-    UString desc(UString::Format(u"%s channel %d", {_band_name, channel}));
+    UString desc(UString::Format(u"%s channel %d", _band_name, channel));
     if (offset != 0) {
-        desc += UString::Format(u", offset %+d", {offset});
+        desc += UString::Format(u", offset %+d", offset);
     }
-    desc += UString::Format(u" (%d", {mhz});
+    desc += UString::Format(u" (%d", mhz);
     if (khz > 0) {
-        desc += UString::Format(u".%03d", {khz});
+        desc += UString::Format(u".%03d", khz);
     }
     desc += u" MHz)";
     return desc;
@@ -372,7 +319,7 @@ ts::HFBand::HFBandPtr ts::HFBand::FromXML(const xml::Element* elem)
         elem->getChildren(xchannels, u"channels", 1);
 
     if (!success) {
-        elem->report().error(u"Error in <%s> at line %d", {elem->name(), elem->lineNumber()});
+        elem->report().error(u"Error in <%s> at line %d", elem->name(), elem->lineNumber());
         return HFBandPtr();
     }
 
@@ -380,9 +327,9 @@ ts::HFBand::HFBandPtr ts::HFBand::FromXML(const xml::Element* elem)
     HFBandPtr hf(new HFBand(band_type));
 
     // Build list of regions.
-    for (auto it = xregions.begin(); it != xregions.end(); ++it) {
+    for (const auto& it : xregions) {
         UString name;
-        if ((*it)->getAttribute(name, u"name", true)) {
+        if (it->getAttribute(name, u"name", true)) {
             hf->_regions.push_back(name);
         }
         else {
@@ -391,18 +338,18 @@ ts::HFBand::HFBandPtr ts::HFBand::FromXML(const xml::Element* elem)
     }
 
     // Build ranges of channels.
-    for (auto it = xchannels.begin(); it != xchannels.end(); ++it) {
+    for (const auto& it : xchannels) {
         ChannelsRange chan;
         const bool ok =
-            (*it)->getIntAttribute<uint32_t>(chan.first_channel, u"first_channel", true) &&
-            (*it)->getIntAttribute<uint32_t>(chan.last_channel, u"last_channel", true, 0, chan.first_channel) &&
-            (*it)->getIntAttribute<uint64_t>(chan.base_frequency, u"base_frequency", true) &&
-            (*it)->getIntAttribute<uint64_t>(chan.channel_width, u"channel_width", true) &&
-            (*it)->getIntAttribute<int32_t>(chan.first_offset, u"first_offset", false, 0) &&
-            (*it)->getIntAttribute<int32_t>(chan.last_offset, u"last_offset", false, 0, chan.first_offset) &&
-            (*it)->getIntAttribute<uint64_t>(chan.offset_width, u"offset_width", false, 0) &&
-            (*it)->getIntEnumAttribute<Polarization>(chan.even_polarity, PolarizationEnum, u"even_polarity", false, POL_NONE) &&
-            (*it)->getIntEnumAttribute<Polarization>(chan.odd_polarity, PolarizationEnum, u"odd_polarity", false, POL_NONE);
+            it->getIntAttribute<uint32_t>(chan.first_channel, u"first_channel", true) &&
+            it->getIntAttribute<uint32_t>(chan.last_channel, u"last_channel", true, 0, chan.first_channel) &&
+            it->getIntAttribute<uint64_t>(chan.base_frequency, u"base_frequency", true) &&
+            it->getIntAttribute<uint64_t>(chan.channel_width, u"channel_width", true) &&
+            it->getIntAttribute<int32_t>(chan.first_offset, u"first_offset", false, 0) &&
+            it->getIntAttribute<int32_t>(chan.last_offset, u"last_offset", false, 0, chan.first_offset) &&
+            it->getIntAttribute<uint64_t>(chan.offset_width, u"offset_width", false, 0) &&
+            it->getIntEnumAttribute<Polarization>(chan.even_polarity, PolarizationEnum, u"even_polarity", false, POL_NONE) &&
+            it->getIntEnumAttribute<Polarization>(chan.odd_polarity, PolarizationEnum, u"odd_polarity", false, POL_NONE);
         success = success && ok;
         if (ok) {
             // Insert the channels range in the list.
@@ -412,7 +359,7 @@ ts::HFBand::HFBandPtr ts::HFBand::FromXML(const xml::Element* elem)
                 ++next;
             }
             if (next != hf->_channels.end() && next->first_channel <= chan.last_channel) {
-                elem->report().error(u"overlapping channel numbers, line %s", {(*it)->lineNumber()});
+                elem->report().error(u"overlapping channel numbers, line %s", it->lineNumber());
                 success = false;
             }
             else {
@@ -438,7 +385,7 @@ ts::HFBand::HFBandIndex::HFBandIndex(const UString& typ, const UString& reg) :
 
 ts::UString ts::HFBand::HFBandIndex::toString() const
 {
-    return UString::Format(u"%s band in region %s", {band, region});
+    return UString::Format(u"%s band in region %s", band, region);
 }
 
 bool ts::HFBand::HFBandIndex::operator==(const HFBandIndex& other) const
@@ -459,10 +406,6 @@ bool ts::HFBand::HFBandIndex::operator<(const HFBandIndex& other) const
 TS_DEFINE_SINGLETON(ts::HFBand::HFBandRepository);
 
 ts::HFBand::HFBandRepository::HFBandRepository() :
-    _mutex(),
-    _default_region(),
-    _objects(),
-    _allRegions(),
     _voidBand(new HFBand(u""))
 {
 }
@@ -475,7 +418,7 @@ ts::HFBand::HFBandRepository::HFBandRepository() :
 bool ts::HFBand::HFBandRepository::load(Report& report)
 {
     // Lock access to the repository.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // If already loaded, fine.
     if (!_objects.empty()) {
@@ -484,7 +427,7 @@ bool ts::HFBand::HFBandRepository::load(Report& report)
 
     // Get the default region from configuration file.
     setDefaultRegion(UString());
-    report.debug(u"default HF band region: %s", {_default_region});
+    report.debug(u"default HF band region: %s", _default_region);
 
     // A set of region names (to build a list of unique names).
     std::set<UString> regionSet;
@@ -515,7 +458,7 @@ bool ts::HFBand::HFBandRepository::load(Report& report)
     for (const xml::Element* node = root == nullptr ? nullptr : root->firstChildElement(); node != nullptr; node = node->nextSiblingElement()) {
         // Since the document was validated, we assume that all elements in root are <hfband>.
         HFBandPtr hf(FromXML(node));
-        if (hf.isNull()) {
+        if (hf == nullptr) {
             success = false;
         }
         else {
@@ -526,7 +469,7 @@ bool ts::HFBand::HFBandRepository::load(Report& report)
                 // Build a set of unique entries for region names.
                 regionSet.insert(*it);
                 if (Contains(_objects, index)) {
-                    report.error(u"duplicate definition for %s, line %d", {index, node->lineNumber()});
+                    report.error(u"duplicate definition for %s, line %d", index, node->lineNumber());
                     success = false;
                 }
                 else {
@@ -537,8 +480,8 @@ bool ts::HFBand::HFBandRepository::load(Report& report)
     }
 
     // Build a sorted list of region names.
-    for (auto it = regionSet.begin(); it != regionSet.end(); ++it) {
-        _allRegions.push_back(*it);
+    for (const auto& it : regionSet) {
+        _allRegions.push_back(it);
     }
 
     return success;
@@ -551,15 +494,15 @@ bool ts::HFBand::HFBandRepository::load(Report& report)
 
 ts::UString ts::HFBand::HFBandRepository::defaultRegion() const
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     return _default_region;
 }
 
 void ts::HFBand::HFBandRepository::setDefaultRegion(const UString& region)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     // If the region is empty, get the one for configuration file.
-    _default_region = region.empty() ? DuckConfigFile::Instance()->value(u"default.region", u"europe") : region;
+    _default_region = region.empty() ? DuckConfigFile::Instance().value(u"default.region", u"europe") : region;
 }
 
 
@@ -570,17 +513,30 @@ void ts::HFBand::HFBandRepository::setDefaultRegion(const UString& region)
 const ts::HFBand* ts::HFBand::HFBandRepository::get(const UString& band, const UString& region, Report& report) const
 {
     // Lock access to the repository.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     const HFBandIndex index(band, region.empty() ? _default_region : region);
     const auto it = _objects.find(index);
     if (it != _objects.end()) {
-        return it->second.pointer();
+        return it->second.get();
     }
     else {
-        report.warning(u"no definition for %s", {index});
-        return _voidBand.pointer();
+        report.warning(u"no definition for %s", index);
+        return _voidBand.get();
     }
+}
+
+
+//----------------------------------------------------------------------------
+// List of available regions.
+//----------------------------------------------------------------------------
+
+const ts::UStringList& ts::HFBand::HFBandRepository::allRegions() const
+{
+    // Lock access to the repository.
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+    return _allRegions;
 }
 
 
@@ -591,7 +547,7 @@ const ts::HFBand* ts::HFBand::HFBandRepository::get(const UString& band, const U
 const ts::UStringList ts::HFBand::HFBandRepository::allBands(const UString& region) const
 {
     // Lock access to the repository.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // Actual region name to seach, in HFBandIndex format.
     UString reg(region);
@@ -603,9 +559,9 @@ const ts::UStringList ts::HFBand::HFBandRepository::allBands(const UString& regi
 
     // Browse through the list of bands/regions.
     UStringList bands;
-    for (auto it = _objects.begin(); it != _objects.end(); ++it) {
-        if (it->first.region == reg) {
-            bands.push_back(it->second->_band_name);
+    for (const auto& it : _objects) {
+        if (it.first.region == reg) {
+            bands.push_back(it.second->_band_name);
         }
     }
     bands.sort();

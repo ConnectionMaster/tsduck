@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -170,6 +149,14 @@ namespace ts {
         void setMessagePrefix(const UString& prefix) { _prefix = prefix; }
 
         //!
+        //! Specify to log messages in JSON format.
+        //! If a message prefix is set, it is logged just before the JSON structure
+        //! and can be used to locate the appropriate JSON messages in a flow of logs.
+        //! @param [in] on Set the JSON mode on or off.
+        //!
+        void setJSON(bool on) { _json = on; }
+
+        //!
         //! Replace the list of PID's to process.
         //! @param [in] pid_filter The list of PID's to process.
         //!
@@ -249,37 +236,38 @@ namespace ts {
         //! @param [in] cc2 Second continuity counter.
         //! @return Number of missing packets between @a cc1 and @a cc2.
         //!
-        static int MissingPackets(int cc1, int cc2);
+        static size_t MissingPackets(int cc1, int cc2);
 
     private:
         // PID analysis state
         class PIDState
         {
         public:
-            PIDState();            // Constructor
-            uint8_t  first_cc;     // First CC value in a PID.
-            uint8_t  last_cc_out;  // Last output CC value in a PID.
-            size_t   dup_count;    // Consecutive duplicate count.
-            TSPacket last_pkt_in;  // Last input packet (before modification, if any).
+            PIDState() = default;              // Constructor
+            uint8_t  first_cc = INVALID_CC;    // First CC value in a PID.
+            uint8_t  last_cc_out = INVALID_CC; // Last output CC value in a PID.
+            size_t   dup_count = 0;            // Consecutive duplicate count.
+            TSPacket last_pkt_in {};           // Last input packet (before modification, if any).
         };
 
         // A map of PID state, indexed by PID.
-        typedef std::map<PID,PIDState> PIDStateMap;
+        using PIDStateMap = std::map<PID,PIDState>;
 
         // Private members.
-        Report*       _report;            // Where to report errors, never null.
-        int           _severity;          // Severity level for error messages.
-        bool          _display_errors;    // Display discontinuity errors.
-        bool          _fix_errors;        // Fix discontinuity errors.
-        bool          _replicate_dup;     // With _fix_errors, replicate duplicate packets.
-        bool          _generator;         // Use generator mode.
-        UString       _prefix;            // Message prefix.
-        PacketCounter _total_packets;     // Total number of packets.
-        PacketCounter _processed_packets; // Number of processed packets.
-        PacketCounter _fix_count;         // Number of fixed (modified) packets.
-        PacketCounter _error_count;       // Number of discontinuity errors.
-        PIDSet        _pid_filter;        // Current set of filtered PID's.
-        PIDStateMap   _pid_states;        // State of all PID's.
+        Report*       _report;                    // Where to report errors, never null.
+        int           _severity = Severity::Info; // Severity level for error messages.
+        bool          _display_errors = false;    // Display discontinuity errors.
+        bool          _fix_errors = false;        // Fix discontinuity errors.
+        bool          _replicate_dup = true;      // With _fix_errors, replicate duplicate packets.
+        bool          _generator = false;         // Use generator mode.
+        bool          _json = false;              // Log JSON messages.
+        UString       _prefix {};                 // Message prefix.
+        PacketCounter _total_packets = 0;         // Total number of packets.
+        PacketCounter _processed_packets = 0;     // Number of processed packets.
+        PacketCounter _fix_count = 0;             // Number of fixed (modified) packets.
+        PacketCounter _error_count = 0;           // Number of discontinuity errors.
+        PIDSet        _pid_filter {};             // Current set of filtered PID's.
+        PIDStateMap   _pid_states {};             // State of all PID's.
 
         // Internal version of feedPacket.
         // The packet is modified only if update is true.
@@ -287,5 +275,8 @@ namespace ts {
 
         // Build the first part of an error message.
         UString linePrefix(PID pid) const;
+
+        // Log a JSON message.
+        void logJSON(PID pid, const UChar* type, size_t packet_count = NPOS);
     };
 }

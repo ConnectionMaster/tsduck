@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,39 +13,35 @@
 
 #pragma once
 #include "tsUString.h"
+#include "tsByteBlock.h"
+#include "tsCryptoLibrary.h"
 
 namespace ts {
     //!
-    //! Abstract interface of hash functions.
+    //! Base class for all hash functions.
     //! @ingroup crypto
     //!
     class TSDUCKDLL Hash
     {
+        TS_NOBUILD_NOCOPY(Hash);
     public:
         //!
         //! Algorithm name (informational only).
         //! @return The algorithm name.
         //!
-        virtual UString name() const = 0;
+        UString name() const { return _name; }
 
         //!
         //! Size in bytes of the resulting hash.
         //! @return The size in bytes of the resulting hash.
         //!
-        virtual size_t hashSize() const = 0;
-
-        //!
-        //! Size in bytes of the block used by the algorithm.
-        //! @return The size in bytes of the block used by the algorithm.
-        //! Informational only. Can be zero if non significant.
-        //!
-        virtual size_t blockSize() const = 0;
+        size_t hashSize() const { return _hash_size; }
 
         //!
         //! Reinitialize the computation of the hash.
         //! @return True on success, false on error.
         //!
-        virtual bool init() = 0;
+        virtual bool init();
 
         //!
         //! Add some part of the message to hash.
@@ -75,7 +50,7 @@ namespace ts {
         //! @param [in] size Size in bytes of message part.
         //! @return True on success, false on error.
         //!
-        virtual bool add(const void* data, size_t size) = 0;
+        virtual bool add(const void* data, size_t size);
 
         //!
         //! Get the resulting hash value.
@@ -85,7 +60,7 @@ namespace ts {
         //! the actual returned hash size. Can be a null pointer (ignored).
         //! @return True on success, false on error.
         //!
-        virtual bool getHash(void* hash, size_t bufsize, size_t* retsize = nullptr) = 0;
+        virtual bool getHash(void* hash, size_t bufsize, size_t* retsize = nullptr);
 
         //!
         //! Compute a hash in one operation.
@@ -114,5 +89,41 @@ namespace ts {
         //! Virtual destructor.
         //!
         virtual ~Hash();
+
+    protected:
+        //!
+        //! Constructor for subclasses.
+        //! @param [in] name Algorithm name.
+        //! @param [in] hash_size Size in bytes of the hash value.
+        //!
+        Hash(const UChar* name, size_t hash_size);
+
+#if defined(TS_WINDOWS) || defined(DOXYGEN)
+        //!
+        //! Get the algorithm handle and subobject size, when the subclass uses Microsoft BCrypt library.
+        //! @param [out] algo Handle to hash algorithm.
+        //! @param [out] length Length in bytes of the subobject to allocate.
+        //!
+        virtual void getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length) const;
+#endif
+
+#if !defined(TS_WINDOWS) || defined(DOXYGEN)
+        //!
+        //! Get reference hash context, when the subclass uses OpenSSL.
+        //! @return Reference EVP hash context. To be copied into each new hash object.
+        //!
+        virtual const EVP_MD_CTX* referenceContext() const;
+#endif
+
+    private:
+        const UChar* const _name;
+        const size_t _hash_size;
+#if defined(TS_WINDOWS)
+        ::BCRYPT_ALG_HANDLE _algo = nullptr;
+        ::BCRYPT_HASH_HANDLE _hash = nullptr;
+        ByteBlock _obj {};
+#else
+        EVP_MD_CTX* _context = nullptr;
+#endif
     };
 }

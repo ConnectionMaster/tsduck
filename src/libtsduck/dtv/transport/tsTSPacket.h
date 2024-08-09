@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -70,24 +49,13 @@ namespace ts {
         //!
         //! Equality operator.
         //! @param [in] p Other packet to compare.
-        //! @return True is this object is equal to @a p.
+        //! @return True if this object is equal to @a p.
         //!
         bool operator==(const TSPacket& p) const
         {
-            return ::memcmp(b, p.b, PKT_SIZE) == 0;
+            return MemEqual(b, p.b, PKT_SIZE);
         }
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! @param [in] p Other packet to compare.
-        //! @return True is this object is different from @a p.
-        //!
-        bool operator!=(const TSPacket& p) const
-        {
-            return ::memcmp(b, p.b, PKT_SIZE) != 0;
-        }
-#endif
+        TS_UNEQUAL_OPERATOR(TSPacket)
 
         //!
         //! Initialize a TS packet.
@@ -551,7 +519,7 @@ namespace ts {
         //! @param [in] pcr A 42-bit PCR value.
         //!
         static void PutPCR(uint8_t* b, const uint64_t& pcr);
-        
+
         //!
         //! Check if packet has splicing point countdown
         //! @return True if packet has a splicing point countdown.
@@ -801,7 +769,8 @@ namespace ts {
             DUMP_RAW        = 0x00010000,  //!< Complete packet in hexadecimal (default)
             DUMP_TS_HEADER  = 0x00020000,  //!< Decode/format TS header
             DUMP_PES_HEADER = 0x00040000,  //!< Decode/format PES header
-            DUMP_PAYLOAD    = 0x00080000   //!< Payload in hexadecimal
+            DUMP_PAYLOAD    = 0x00080000,  //!< Payload in hexadecimal
+            DUMP_AF         = 0x00100000,  //!< Decode/format adaptation field
         };
 
         //!
@@ -919,14 +888,19 @@ namespace ts {
     TSDUCKDLL extern const TSPacket EmptyPacket;
 
     //!
+    //! Safe pointer for TSPacket.
+    //!
+    using TSPacketPtr = std::shared_ptr<TSPacket>;
+
+    //!
     //! Vector of packets.
     //!
-    typedef std::vector<TSPacket> TSPacketVector;
+    using TSPacketVector = std::vector<TSPacket>;
 
     //!
     //! TS packet are accessed in a memory-resident buffer.
     //!
-    typedef ResidentBuffer<TSPacket> PacketBuffer;
+    using PacketBuffer = ResidentBuffer<TSPacket>;
 }
 
 //!

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -49,6 +28,9 @@ namespace ts {
     //!
     class TSDUCKDLL IPv6SocketAddress: public IPv6Address
     {
+        TS_RULE_OF_FIVE(IPv6SocketAddress, override);
+    private:
+        uint16_t _port {AnyPort};  // Port in host byte order
     public:
         //!
         //! Wildcard socket address, unspecified address and port.
@@ -58,11 +40,7 @@ namespace ts {
         //!
         //! Default constructor
         //!
-        IPv6SocketAddress() :
-            IPv6Address(),
-            _port(AnyPort)
-        {
-        }
+        IPv6SocketAddress() = default;
 
         //!
         //! Constructor from an IPv6 address and optional port
@@ -147,11 +125,6 @@ namespace ts {
             IPv6SocketAddress::resolve(name, report);
         }
 
-        //!
-        //! Virtual destructor
-        //!
-        virtual ~IPv6SocketAddress() override;
-
         // Inherited methods.
         virtual Port port() const override;
         virtual void setPort(Port port) override;
@@ -230,15 +203,7 @@ namespace ts {
         //! @return True if both object contains the same address, false otherwise.
         //!
         bool operator==(const IPv6SocketAddress& other) const { return IPv6Address::operator==(other) && _port == other._port; }
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! @param [in] other Another instance to compare with.
-        //! @return True if both object contains distinct addresses, false otherwise.
-        //!
-        bool operator!=(const IPv6SocketAddress& other) const { return IPv6Address::operator!=(other) || _port != other._port; }
-#endif
+        TS_UNEQUAL_OPERATOR(IPv6SocketAddress)
 
         //!
         //! Comparison "less than" operator.
@@ -247,18 +212,15 @@ namespace ts {
         //! @return True if this instance is less than to @a other.
         //!
         bool operator<(const IPv6SocketAddress& other) const;
-
-    private:
-        uint16_t _port;  // Port in host byte order
     };
 
     //!
     //! Vector of socket addresses.
     //!
-    typedef std::vector<IPv6SocketAddress> IPv6SocketAddressVector;
+    using IPv6SocketAddressVector = std::vector<IPv6SocketAddress>;
 
     //!
     //! Set of socket addresses.
     //!
-    typedef std::set<IPv6SocketAddress> IPv6SocketAddressSet;
+    using IPv6SocketAddressSet = std::set<IPv6SocketAddress>;
 }

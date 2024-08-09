@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -36,8 +15,10 @@
 #include "tsVersionInfo.h"
 #include "tsGitHubRelease.h"
 #include "tsWebRequest.h"
-#include "tsFileUtils.h"
+#include "tsSysUtils.h"
 #include "tsSysInfo.h"
+#include "tsErrCodeReport.h"
+#include "tsNullReport.h"
 #include "tsForkPipe.h"
 #include "tsDuckExtensionRepository.h"
 #if defined(TS_WINDOWS)
@@ -47,7 +28,7 @@ TS_MAIN(MainCode);
 
 
 //----------------------------------------------------------------------------
-//  Command line options
+// Command line options
 //----------------------------------------------------------------------------
 
 namespace {
@@ -60,9 +41,9 @@ namespace {
         // The following options apply to the current instance of TSDuck.
         // They are always available.
 
-        bool        current;    // Display current version of TSDuck, this executable.
-        bool        integer;    // Display current version of TSDuck as integer value.
-        bool        extensions; // List extensions.
+        bool        current = false;    // Display current version of TSDuck, this executable.
+        bool        integer = false;    // Display current version of TSDuck as integer value.
+        bool        extensions = false; // List extensions.
 
         // The following options are used to detect, download and upgrade new versions of TSDuck.
         // They are disabled when TS_NO_GITHUB is defined. With this macro, TSDuck is unlinked
@@ -70,42 +51,26 @@ namespace {
         // repositories of a given Linux distro.
 
 #if !defined(TS_NO_GITHUB)
-        bool        latest;     // Display the latest version of TSDuck.
-        bool        check;      // Check if a new version of TSDuck is available.
-        bool        all;        // List all available versions of TSDuck.
-        bool        download;   // Download the latest version.
-        bool        force;      // Force downloads.
-        bool        binary;     // With --download, fetch the binaries.
-        bool        source;     // With --download, feth the source code instead of the binaries.
-        bool        upgrade;    // Upgrade TSDuck to the latest version.
-        ts::UString name;       // Use the specified version, not the latest one.
-        ts::UString out_dir;    // Output directory for downloaded files.
+        bool        latest = false;     // Display the latest version of TSDuck.
+        bool        check = false;      // Check if a new version of TSDuck is available.
+        bool        all = false;        // List all available versions of TSDuck.
+        bool        download = false;   // Download the latest version.
+        bool        force = false;      // Force downloads.
+        bool        binary = false;     // With --download, fetch the binaries.
+        bool        source = false;     // With --download, feth the source code instead of the binaries.
+        bool        upgrade = false;    // Upgrade TSDuck to the latest version.
+        ts::UString name {};            // Use the specified version, not the latest one.
+        ts::UString out_dir {};         // Output directory for downloaded files.
 #endif
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-
 #if !defined(TS_NO_GITHUB)
-    Args(u"Check version, download and upgrade TSDuck", u"[options]"),
-    current(false),
-    integer(false),
-    extensions(false),
-    latest(false),
-    check(false),
-    all(false),
-    download(false),
-    force(false),
-    binary(false),
-    source(false),
-    upgrade(false),
-    name(),
-    out_dir()
+    Args(u"Check version, download and upgrade TSDuck", u"[options]")
 #else
     Args(u"Display TSDuck version and extensions", u"[options]"),
-    current(true),
-    integer(false),
-    extensions(false)
+    current(true)
 #endif
 {
     option(u"extensions", 'e');
@@ -116,6 +81,16 @@ Options::Options(int argc, char *argv[]) :
          u"Display the current version of TSDuck in integer format, suitable for "
          u"comparison in a script. Example: " + ts::VersionInfo::GetVersion(ts::VersionInfo::Format::INTEGER) +
          u" for " + ts::VersionInfo::GetVersion(ts::VersionInfo::Format::SHORT) + u".");
+
+    // Enumeration of support options. The values are 0 or 1, indicating support.
+    // Add a negative value meaning list all.
+    ts::Enumeration support(ts::VersionInfo::SupportEnum);
+    support.add(u"all", -1);
+
+    option(u"support", 0, support);
+    help(u"support",
+         u"Check support for a specific feature. Using 'all' displays all features. "
+         u"Other options simply exit with a success or failure status, depending if the corresponding feature is implemented or not.");
 
     // The following options are used to detect, download and upgrade new versions of TSDuck.
     // They are disabled when TS_NO_GITHUB is defined. With this macro, TSDuck is unlinked
@@ -142,6 +117,7 @@ Options::Options(int argc, char *argv[]) :
          u"GitHub. By default, download the binary installers for the current "
          u"operating system and architecture. Specify --source to download the "
          u"source code.");
+
     option(u"force", 'f');
     help(u"force", u"Force downloads even if a file with same name and size already exists.");
 
@@ -182,6 +158,25 @@ Options::Options(int argc, char *argv[]) :
     extensions = present(u"extensions");
     integer = present(u"integer");
 
+    // Option --support is full handled inside the constructor.
+    // It exits the application with a specific status.
+    if (present(u"support")) {
+        const int feature = intValue<int>(u"support");
+        if (feature < 0) {
+            // Display all features.
+            ts::UStringList names;
+            support.getAllNames(names);
+            names.sort();
+            for (const auto& fname : names) {
+                const int value = support.value(fname);
+                if (value >= 0) {
+                    std::cout << fname << ": " << ts::UString::YesNo(value != 0) << std::endl;
+                }
+            }
+        }
+        std::exit(feature ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+
 #if !defined(TS_NO_GITHUB)
 
     all = present(u"all");
@@ -217,12 +212,12 @@ Options::Options(int argc, char *argv[]) :
 
     // Check output directory.
     if (!out_dir.empty()) {
-        if (!ts::IsDirectory(out_dir)) {
-            error(u"directory not found: %s", {out_dir});
+        if (!fs::is_directory(out_dir)) {
+            error(u"directory not found: %s", out_dir);
         }
-        else if (!out_dir.endWith(ts::UString(1, ts::PathSeparator))) {
+        else if (!out_dir.endWith(ts::UString(1, fs::path::preferred_separator))) {
             // Make sure we can use out_dir directly with a file name.
-            out_dir.append(ts::PathSeparator);
+            out_dir.append(fs::path::preferred_separator);
         }
     }
 
@@ -248,8 +243,8 @@ namespace {
 
         // In non-verbose mode, simply list the versions in the same order as returned by GitHub.
         if (!opt.verbose()) {
-            for (auto it = rels.begin(); it != rels.end(); ++it) {
-                std::cout << (*it)->version() << std::endl;
+            for (const auto& it : rels) {
+                std::cout << it->version() << std::endl;
             }
             return true;
         }
@@ -267,8 +262,8 @@ namespace {
         size_t downloadsWidth = downloadsHeader.width();
         size_t dlPerDayWidth = dlPerDayHeader.width();
 
-        for (auto it = rels.begin(); it != rels.end(); ++it) {
-            versionWidth = std::max(versionWidth, (*it)->version().width());
+        for (const auto& it : rels) {
+            versionWidth = std::max(versionWidth, it->version().width());
         }
 
         // List them all.
@@ -284,14 +279,14 @@ namespace {
                   << ts::UString(dlPerDayWidth, u'-') << std::endl;
 
         ts::Time endDate(ts::Time::CurrentUTC());
-        for (auto it = rels.begin(); it != rels.end(); ++it) {
+        for (const auto& it : rels) {
             ts::GitHubRelease::AssetList assets;
-            (*it)->getAssets(assets);
-            const ts::Time startDate((*it)->publishDate());
-            const int days = int((endDate - startDate) / ts::MilliSecPerDay);
-            const int downloads = (*it)->assetDownloadCount();
+            it->getAssets(assets);
+            const ts::Time startDate(it->publishDate());
+            const cn::days::rep days = cn::duration_cast<cn::days>(endDate - startDate).count();
+            const int downloads = it->assetDownloadCount();
             const int dlPerDay = days <= 0 ? downloads : downloads / days;
-            std::cout << (*it)->version().toJustifiedLeft(versionWidth) << "  "
+            std::cout << it->version().toJustifiedLeft(versionWidth) << "  "
                       << startDate.format(ts::Time::DATE).toJustifiedLeft(dateWidth) << "  "
                       << ts::UString::Decimal(assets.size()).toJustifiedRight(binariesWidth) << "  "
                       << ts::UString::Decimal(downloads).toJustifiedRight(downloadsWidth) << "  "
@@ -335,21 +330,21 @@ namespace {
         else {
             std::cout << "Binary packages:" << std::endl;
             size_t applyCount = 0;
-            for (auto it = assets.begin(); it != assets.end();  ++it) {
-                if (ts::GitHubRelease::IsPlatformAsset(it->name)) {
+            for (const auto& it : assets) {
+                if (ts::GitHubRelease::IsPlatformAsset(it.name)) {
                     ++applyCount;
                 }
-                std::cout << "  " << it->name << " (" << ts::UString::HumanSize(it->size);
-                if (it->downloadCount > 0) {
-                    std::cout << ts::UString::Format(u", %'d downloads", {it->downloadCount});
+                std::cout << "  " << it.name << " (" << ts::UString::HumanSize(it.size);
+                if (it.downloadCount > 0) {
+                    std::cout << ts::UString::Format(u", %'d downloads", it.downloadCount);
                 }
                 std::cout << ")" << std::endl;
             }
             if (applyCount > 0) {
                 std::cout << "Available downloads for your system:" << std::endl;
-                for (auto it = assets.begin(); it != assets.end();  ++it) {
-                    if (ts::GitHubRelease::IsPlatformAsset(it->name)) {
-                        std::cout << "  " << it->url << std::endl;
+                for (const auto& it : assets) {
+                    if (ts::GitHubRelease::IsPlatformAsset(it.name)) {
+                        std::cout << "  " << it.url << std::endl;
                     }
                 }
             }
@@ -367,13 +362,13 @@ namespace {
 
 #if !defined(TS_NO_GITHUB)
 namespace {
-    bool DownloadFile(Options& opt, const ts::UString& url, const ts::UString& file, int64_t size)
+    bool DownloadFile(Options& opt, const ts::UString& url, const ts::UString& file, std::uintmax_t size)
     {
         // Without --force, don't download when a file exists with same size.
         if (!opt.force) {
             // If the size is unknown, do not download again if the file is not empty, trust the size.
-            const int64_t fileSize = ts::GetFileSize(file);
-            if ((size == 0 && fileSize > 0) || (size > 0 && fileSize == size)) {
+            const std::uintmax_t fileSize = fs::file_size(file, &ts::ErrCodeReport());
+            if ((size == 0 && fileSize != ts::FS_ERROR) || (size > 0 && fileSize == size)) {
                 if (opt.verbose()) {
                     std::cout << "File already downloaded: " << file << std::endl;
                 }
@@ -423,8 +418,8 @@ namespace {
                 }
             }
             else {
-                for (auto it = assets.begin(); it != assets.end();  ++it) {
-                    success = DownloadFile(opt, it->url, opt.out_dir + it->name, it->size) && success;
+                for (const auto& it : assets) {
+                    success = DownloadFile(opt, it.url, opt.out_dir + it.name, it.size) && success;
                 }
             }
         }
@@ -487,23 +482,22 @@ namespace {
         ts::GitHubRelease::AssetList assets;
         rel.getPlatformAssets(assets);
         ts::UStringList files;
-        for (auto it = assets.begin(); it != assets.end();  ++it) {
-            files.push_back(opt.out_dir + it->name);
+        for (const auto& it : assets) {
+            files.push_back(opt.out_dir + it.name);
         }
 
         // Get system info to determine which command to run.
-        const ts::SysInfo& sys(*ts::SysInfo::Instance());
-        const ts::UString sysName(sys.systemName().empty() ? u"this system" : sys.systemName());
+        const ts::SysInfo& sys(ts::SysInfo::Instance());
 
-        if (files.empty() && !sys.isMacOS()) {
-            opt.error(u"no binary installer available for %s", {sysName});
+        if (files.empty() && sys.os() != ts::SysInfo::MACOS) {
+            opt.error(u"no binary installer available for your system");
             return false;
         }
 
-        if (sys.isWindows()) {
+        if (sys.os() == ts::SysInfo::WINDOWS) {
             // On Windows, there should be only one installer.
             if (files.size() != 1) {
-                opt.error(u"found %d installers for this version, manually run one of: %s", {files.size(), ts::UString::Join(files, u" ")});
+                opt.error(u"found %d installers for this version, manually run one of: %s", files.size(), ts::UString::Join(files, u" "));
                 return false;
             }
             // We require a privileged execution.
@@ -512,17 +506,17 @@ namespace {
             // tsduck.dll, which would be locked if tsversion is still executing.
             return RunUpgradeCommand(opt, files.front(), true);
         }
-        else if (sys.isMacOS()) {
+        else if (sys.os() == ts::SysInfo::MACOS) {
             return RunUpgradeCommand(opt, u"brew upgrade tsduck", false);
         }
-        else if (sys.isFedora() || sys.isRedHat()) {
+        else if (sys.osFlavor() == ts::SysInfo::FEDORA || sys.osFlavor() == ts::SysInfo::REDHAT) {
             return RunUpgradeCommand(opt, u"rpm -Uvh " + ts::UString::Join(files, u" "), true);
         }
-        else if (sys.isUbuntu() || sys.isDebian() || sys.isRaspbian()) {
+        else if (sys.osFlavor() == ts::SysInfo::UBUNTU || sys.osFlavor() == ts::SysInfo::DEBIAN || sys.osFlavor() == ts::SysInfo::RASPBIAN) {
             return RunUpgradeCommand(opt, u"dpkg -i " + ts::UString::Join(files, u" "), true);
         }
         else {
-            opt.error(u"don't know how to upgrade on %s, rebuild from sources", {sysName});
+            opt.error(u"don't know how to upgrade on %s, rebuild from sources", sys.systemName());
             return false;
         }
     }
@@ -560,8 +554,8 @@ namespace {
         std::cout << "New version " << remote << " is available (yours is " << current << ")" << std::endl;
         if (opt.verbose() && !assets.empty()) {
             std::cout << "Available downloads for your system:" << std::endl;
-            for (auto it = assets.begin(); it != assets.end(); ++it) {
-                std::cout << "  " << it->url << std::endl;
+            for (const auto& it : assets) {
+                std::cout << "  " << it.url << std::endl;
             }
         }
 
@@ -637,7 +631,7 @@ int MainCode(int argc, char *argv[])
     if (opt.extensions) {
         // Display list of available extensions.
         // The returned string is either empty or ends with a new-line.
-        std::cout << ts::DuckExtensionRepository::Instance()->listExtensions(opt);
+        std::cout << ts::DuckExtensionRepository::Instance().listExtensions(opt);
     }
     else if (opt.integer) {
         // Display current version in integer format.

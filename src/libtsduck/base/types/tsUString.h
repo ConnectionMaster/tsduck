@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,6 +14,22 @@
 #pragma once
 #include "tsUChar.h"
 #include "tsArgMix.h"
+#include "tsMemory.h"
+
+//!
+//! Do not declare legacy method as "deprecated".
+//!
+//! The UString class contains printf-like and scanf-like features. Initially,
+//! these methods used initializer lists for the variable list of arguments. The new
+//! declarations use variadic templates instead of explicit initializer lists. Calling
+//! the new overloaded functions is identical, without the brackets. When TS_NODEPRECATE
+//! is defined, using the legacy functions does not generate "deprecation" warnings.
+//!
+#if defined(TS_NODEPRECATE)
+    #define TS_DEPRECATED
+#else
+    #define TS_DEPRECATED [[deprecated("remove brackets '{}'")]]
+#endif
 
 namespace ts {
 
@@ -50,14 +45,25 @@ namespace ts {
     };
 
     //!
+    //! Options used on string comparisons.
+    //! Can be combined with or.
+    //!
+    enum StringComparison : uint32_t {
+        SCOMP_DEFAULT          = 0x0000,  //!< Default, strict comparison.
+        SCOMP_CASE_INSENSITIVE = 0x0001,  //!< Case insensitive comparison.
+        SCOMP_IGNORE_BLANKS    = 0x0002,  //!< Skip blank characters in comparison.
+        SCOMP_NUMERIC          = 0x0004,  //!< Sort numeric fields according to numeric values.
+    };
+
+    //!
     //! Vector of strings
     //!
-    typedef std::vector<UString> UStringVector;
+    using UStringVector = std::vector<UString>;
 
     //!
     //! List of strings
     //!
-    typedef std::list<UString> UStringList;
+    using UStringList = std::list<UString>;
 
     //!
     //! An implementation of UTF-16 strings.
@@ -133,7 +139,7 @@ namespace ts {
         //!
         //! Explicit reference to superclass.
         //!
-        typedef std::u16string SuperClass;
+        using SuperClass = std::u16string;
 
         //!
         //! The 3-byte so-called "UTF-8 Byte Order Mark".
@@ -149,6 +155,11 @@ namespace ts {
         //! Maximum size in bytes of an UTF-8 encoded character.
         //!
         static constexpr size_type UTF8_CHAR_MAX_SIZE = 4;
+
+        //!
+        //! End-of-line sequence for the operating system.
+        //!
+        static const UString EOL;
 
         //!
         //! Default separator string for groups of thousands, a comma.
@@ -181,6 +192,10 @@ namespace ts {
             COMPACT     = 0x0200,  //!< Same as SINGLE_LINE but use a compact display without space.
         };
 
+        //--------------------------------------------------------------------
+        // Constructors
+        //--------------------------------------------------------------------
+
         //!
         //! Default constructor.
         //!
@@ -206,7 +221,7 @@ namespace ts {
         //! @param [in,out] other Other instance to move. Upon return, @a other is left in valid, but unspecified state.
         //!
         UString(SuperClass&& other) noexcept :
-            SuperClass(other) {}
+            SuperClass(std::move(other)) {}
 
         //!
         //! Constructor using a repetition of the same character.
@@ -316,6 +331,10 @@ namespace ts {
         UString(std::initializer_list<UChar> init, const allocator_type& alloc = allocator_type()) :
             SuperClass(init, alloc) {}
 
+        //--------------------------------------------------------------------
+        // Extensions to Windows wide characters
+        //--------------------------------------------------------------------
+
 #if defined(TS_WINDOWS) || defined(DOXYGEN)
         //!
         //! Constructor using a Windows Unicode string (Windows-specific).
@@ -331,7 +350,23 @@ namespace ts {
         //! @param [in] alloc Allocator.
         //!
         UString(const ::WCHAR* s, const allocator_type& alloc = allocator_type());
+
+        //!
+        //! Get the address of the underlying null-terminated Unicode string (Windows-specific).
+        //! @return The address of the underlying null-terminated Unicode string .
+        //!
+        const ::WCHAR* wc_str() const;
+
+        //!
+        //! Get the address of the underlying null-terminated Unicode string (Windows-specific).
+        //! @return The address of the underlying null-terminated Unicode string .
+        //!
+        ::WCHAR* wc_str();
 #endif
+
+        //--------------------------------------------------------------------
+        // UTF conversions
+        //--------------------------------------------------------------------
 
 #if defined(TS_ALLOW_IMPLICIT_UTF8_CONVERSION) || defined(DOXYGEN)
         //!
@@ -534,7 +569,10 @@ namespace ts {
         //! @param [in] wstr Address of a nul-terminated "wide string". Can be null.
         //! @return A reference to this object.
         //!
-        UString& assignFromWChar(const wchar_t* wstr);
+        UString& assignFromWChar(const wchar_t* wstr)
+        {
+            return assignFromWChar(wstr, wstr == nullptr ? 0 : ::wcslen(wstr));
+        }
 
         //!
         //! Convert a C++ "wide string" into this object.
@@ -543,6 +581,63 @@ namespace ts {
         //! @return A reference to this object.
         //!
         UString& assignFromWChar(const wchar_t* wstr, size_type count);
+
+        //--------------------------------------------------------------------
+        // Equivalences with std::filesystem::path
+        //--------------------------------------------------------------------
+
+        //!
+        //! Constructor from a std::filesystem::path.
+        //! @param [in] p A standard path instance.
+        //!
+        UString(const fs::path& p) : SuperClass(p.u16string()) {}
+
+        //!
+        //! Conversion operator from ts::UString to std::filesystem::path
+        //! @return A path value.
+        //!
+        operator fs::path() const { return fs::path(begin(), end()); }
+
+        //!
+        //! Comparison operator with std::filesystem::path.
+        //! @param [in] other A path to compare.
+        //! @return True if this string object is equal to the path string, false otherwise.
+        //!
+        bool operator==(const fs::path& other) const
+        {
+#if defined(TS_WINDOWS)
+            // Faster on Windows sice paths are already UTF-16.
+            static_assert(sizeof(fs::path::value_type) == sizeof(UChar));
+            return operator==(reinterpret_cast<const UChar*>(other.c_str()));
+#else
+            return operator==(other.u16string());
+#endif
+        }
+#if defined(TS_NEED_UNEQUAL_OPERATOR) && !defined(DOXYGEN)
+        bool operator!=(const fs::path& other) const { return ! operator==(other); }
+#endif
+
+        //--------------------------------------------------------------------
+        // Operations on string content
+        //--------------------------------------------------------------------
+
+        //!
+        //! Get the address after the last character in the string.
+        //! @return The address after the last character in the string.
+        //!
+        const UChar* last() const
+        {
+            return data() + size();
+        }
+
+        //!
+        //! Get the address after the last character in the string.
+        //! @return The address after the last character in the string.
+        //!
+        UChar* last()
+        {
+            return data() + size();
+        }
 
         //!
         //! Get the display width in characters.
@@ -588,40 +683,6 @@ namespace ts {
         //! @return A copy of the string, truncated to the given display width.
         //!
         UString toTruncatedWidth(size_type maxWidth, StringDirection direction = LEFT_TO_RIGHT) const;
-
-#if defined(TS_WINDOWS) || defined(DOXYGEN)
-        //!
-        //! Get the address of the underlying null-terminated Unicode string (Windows-specific).
-        //! @return The address of the underlying null-terminated Unicode string .
-        //!
-        const ::WCHAR* wc_str() const;
-
-        //!
-        //! Get the address of the underlying null-terminated Unicode string (Windows-specific).
-        //! @return The address of the underlying null-terminated Unicode string .
-        //!
-        ::WCHAR* wc_str();
-#endif
-
-        //!
-        //! Get the address after the last character in the string.
-        //! @return The address after the last character in the string.
-        //!
-        const UChar* last() const
-        {
-            return data() + size();
-        }
-
-#if defined(TS_CXX17) || defined(DOXYGEN)
-        //!
-        //! Get the address after the last character in the string (C++17).
-        //! @return The address after the last character in the string.
-        //!
-        UChar* last()
-        {
-            return data() + size();
-        }
-#endif
 
         //!
         //! Reverse the order of characters in the string.
@@ -926,7 +987,7 @@ namespace ts {
         //! @param [in] trimSpaces If true (the default), each segment is trimmed, i.e. all leading and trailing space characters are removed.
         //!
         template <class CONTAINER>
-        void splitBlocks(CONTAINER& container, UChar startWith = UChar('['), UChar endWith = UChar(']'), bool trimSpaces = true) const
+        void splitBlocks(CONTAINER& container, UChar startWith = u'[', UChar endWith = u']', bool trimSpaces = true) const
         {
             container.clear();
             splitBlocksAppend(container, startWith, endWith, trimSpaces);
@@ -942,7 +1003,7 @@ namespace ts {
         //! @param [in] trimSpaces If true (the default), each segment is trimmed, i.e. all leading and trailing space characters are removed.
         //!
         template <class CONTAINER>
-        void splitBlocksAppend(CONTAINER& container, UChar startWith = UChar('['), UChar endWith = UChar(']'), bool trimSpaces = true) const;
+        void splitBlocksAppend(CONTAINER& container, UChar startWith = u'[', UChar endWith = u']', bool trimSpaces = true) const;
 
         //!
         //! Split a string into multiple lines which are not longer than a specified maximum width.
@@ -1146,6 +1207,10 @@ namespace ts {
         //!
         UString toJustified(const UString& right, size_type width, UChar pad = SPACE, size_t spacesAroundPad = 0) const;
 
+        //--------------------------------------------------------------------
+        // Format transformations
+        //--------------------------------------------------------------------
+
         //!
         //! The default list of characters to be protected by quoted().
         //!
@@ -1264,6 +1329,10 @@ namespace ts {
         //!
         UString fromJSON() const;
 
+        //--------------------------------------------------------------------
+        // Preformatted strings
+        //--------------------------------------------------------------------
+
         //!
         //! Format a boolean value as "yes" or "no".
         //! @param [in] b A boolean value.
@@ -1324,20 +1393,64 @@ namespace ts {
 
         //!
         //! Format a percentage string.
-        //! @tparam INT An integer type.
         //! @param [in] value An integer value, a portion of @a total.
         //! @param [in] total The total value.
-        //! @return A string reprenting the percentage of @a value in @a total.
+        //! @return A string representing the percentage of @a value in @a total.
         //!
-        template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
-        static UString Percentage(INT value, INT total);
+        template <typename Int1, typename Int2, typename std::enable_if<std::is_integral<Int1>::value && std::is_integral<Int2>::value>::type* = nullptr>
+        static UString Percentage(Int1 value, Int2 total);
+
+        //!
+        //! Format a percentage string between duration values.
+        //! @param [in] value A duration value, a portion of @a total.
+        //! @param [in] total The total duration value.
+        //! @return A string representing the percentage of @a value in @a total.
+        //!
+        template <class Rep1, class Period1, class Rep2, class Period2>
+        static UString Percentage(const cn::duration<Rep1,Period1>& value, const cn::duration<Rep2,Period2>& total);
+
+        //--------------------------------------------------------------------
+        // Comparison operations
+        //--------------------------------------------------------------------
+
+        //!
+        //! Compare two strings using various comparison options.
+        //! @param [in] other Other string to compare.
+        //! @param [in] flags A bitmask of StringComparison values. By default, use a strict comparison.
+        //! @return -1, 0, or 1, if this string is respectively before, equal to, or after @a other according to @a flags.
+        //!
+        int superCompare(const UString& other, uint32_t flags = SCOMP_DEFAULT) const { return SuperCompare(c_str(), other.c_str(), flags); }
+
+        //!
+        //! Compare two strings using various comparison options.
+        //! @param [in] other Address of a nul-terminated UTF-16 string..
+        //! @param [in] flags A bitmask of StringComparison values. By default, use a strict comparison.
+        //! @return -1, 0, or 1, if this string is respectively before, equal to, or after @a other according to @a flags.
+        //!
+        int superCompare(const UChar* other, uint32_t flags = SCOMP_DEFAULT) const { return SuperCompare(c_str(), other, flags); }
+
+        //!
+        //! Compare two strings using various comparison options.
+        //! @param [in] s1 Address of a nul-terminated UTF-16 string..
+        //! @param [in] s2 Address of a nul-terminated UTF-16 string..
+        //! @param [in] flags A bitmask of StringComparison values. By default, use a strict comparison.
+        //! @return -1, 0, or 1, if @a s1 is respectively before, equal to, or after @a s2 according to @a flags.
+        //!
+        static int SuperCompare(const UChar* s1, const UChar* s2, uint32_t flags = SCOMP_DEFAULT);
 
         //!
         //! Check if two strings are identical, case-insensitive and ignoring blanks
         //! @param [in] other Other string to compare.
         //! @return True if this string and @a other are "similar", ie. identical, case-insensitive and ignoring blanks.
         //!
-        bool similar(const UString& other) const;
+        bool similar(const UString& other) const { return superCompare(other, SCOMP_CASE_INSENSITIVE | SCOMP_IGNORE_BLANKS) == 0; }
+
+        //!
+        //! Check if two strings are identical, case-insensitive and ignoring blanks
+        //! @param [in] other Other string to compare.
+        //! @return True if this string and @a other are "similar", ie. identical, case-insensitive and ignoring blanks.
+        //!
+        bool similar(const UChar* other) const { return superCompare(other, SCOMP_CASE_INSENSITIVE | SCOMP_IGNORE_BLANKS) == 0; }
 
         //!
         //! Check if two strings are identical, case-insensitive and ignoring blanks
@@ -1368,6 +1481,10 @@ namespace ts {
         template <class CONTAINER>
         typename CONTAINER::const_iterator findSimilar(const CONTAINER& container) const;
 
+        //--------------------------------------------------------------------
+        // Operations on text files
+        //--------------------------------------------------------------------
+
         //!
         //! Save this string into a file, in UTF-8 format.
         //! @param [in] fileName The name of the text file where to save this string.
@@ -1376,7 +1493,7 @@ namespace ts {
         //! @param [in] enforceLastLineFeed If true and this string does not end with a line feed, force a final line feed.
         //! @return True on success, false on error (mostly file errors).
         //!
-        bool save(const UString& fileName, bool append = false, bool enforceLastLineFeed = false) const;
+        bool save(const fs::path& fileName, bool append = false, bool enforceLastLineFeed = false) const;
 
         //!
         //! Save strings from a container into a file, in UTF-8 format, one per line.
@@ -1390,7 +1507,7 @@ namespace ts {
         //! @return True on success, false on error (mostly file errors).
         //!
         template <class ITERATOR>
-        static bool Save(ITERATOR begin, ITERATOR end, const UString& fileName, bool append = false);
+        static bool Save(ITERATOR begin, ITERATOR end, const fs::path& fileName, bool append = false);
 
         //!
         //! Save strings from a container into a file, in UTF-8 format, one per line.
@@ -1402,7 +1519,7 @@ namespace ts {
         //! @return True on success, false on error (mostly file errors).
         //!
         template <class CONTAINER>
-        static bool Save(const CONTAINER& container, const UString& fileName, bool append = false);
+        static bool Save(const CONTAINER& container, const fs::path& fileName, bool append = false);
 
         //!
         //! Save strings from a container into a stream, in UTF-8 format, one per line.
@@ -1434,7 +1551,7 @@ namespace ts {
         //! @return True on success, false on error (mostly file errors).
         //!
         template <class CONTAINER>
-        static bool Load(CONTAINER& container, const UString& fileName);
+        static bool Load(CONTAINER& container, const fs::path& fileName);
 
         //!
         //! Load all lines of a text file in UTF-8 format as UString's and append them in a container.
@@ -1445,7 +1562,7 @@ namespace ts {
         //! @return True on success, false on error (mostly file errors).
         //!
         template <class CONTAINER>
-        static bool LoadAppend(CONTAINER& container, const UString& fileName);
+        static bool LoadAppend(CONTAINER& container, const fs::path& fileName);
 
         //!
         //! Load all lines of a text file in UTF-8 format as UString's into a container.
@@ -1473,6 +1590,10 @@ namespace ts {
         //! @return True on success, false on error (mostly file errors).
         //!
         bool getLine(std::istream& strm);
+
+        //--------------------------------------------------------------------
+        // Conversions from string to elementary data types
+        //--------------------------------------------------------------------
 
         //!
         //! Convert a string into a bool value.
@@ -1524,13 +1645,17 @@ namespace ts {
         //! All extra decimals are accepted but ignored.
         //! @param [in] decimalSeparators A string of characters which are interpreted as decimal point.
         //! A decimal point is allowed only in base 10.
+        //! @param [in] minValue minimum allowed value for the decoded integer.
+        //! @param [in] maxValue maximum allowed value for the decoded integer.
         //! @return True on success, false on error (invalid string).
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
         bool toInteger(INT& value,
                        const UString& thousandSeparators = UString(),
                        size_type decimals = 0,
-                       const UString& decimalSeparators = u".") const;
+                       const UString& decimalSeparators = u".",
+                       INT minValue = std::numeric_limits<INT>::min(),
+                       INT maxValue = std::numeric_limits<INT>::max()) const;
 
         //!
         //! Convert a string containing a list of integers into a container of integers.
@@ -1558,6 +1683,8 @@ namespace ts {
         //! All extra decimals are accepted but ignored.
         //! @param [in] decimalSeparators A string of characters which are interpreted as decimal point.
         //! A decimal point is allowed only in base 10.
+        //! @param [in] minValue minimum allowed value for the decoded integers.
+        //! @param [in] maxValue maximum allowed value for the decoded integers.
         //! @return True on success, false on error (invalid string).
         //!
         template <class CONTAINER, typename std::enable_if<std::is_integral<typename CONTAINER::value_type>::value>::type* = nullptr>
@@ -1565,7 +1692,26 @@ namespace ts {
                         const UString& thousandSeparators = UString(),
                         const UString& listSeparators = UString(u",; "),
                         size_type decimals = 0,
-                        const UString& decimalSeparators = UString(u".")) const;
+                        const UString& decimalSeparators = UString(u"."),
+                        typename CONTAINER::value_type minValue = std::numeric_limits<typename CONTAINER::value_type>::min(),
+                        typename CONTAINER::value_type maxValue = std::numeric_limits<typename CONTAINER::value_type>::max()) const;
+
+        //!
+        //! Convert a string into a floating-point.
+        //!
+        //! This string must contain the representation of a floating-point value.
+        //!
+        //! @tparam FLT A floating-point type.
+        //! The toFloat() function decodes floating-point values of this type.
+        //! @param [out] value The returned decoded value.
+        //! @param [in] minValue Minimum allowed value for the decoded value.
+        //! @param [in] maxValue Maximum allowed value for the decoded value.
+        //! @return True on success, false on error (invalid string).
+        //!
+        template <typename FLT, typename std::enable_if<std::is_floating_point<FLT>::value>::type* = nullptr>
+        bool toFloat(FLT& value,
+                     FLT minValue = std::numeric_limits<FLT>::lowest(),
+                     FLT maxValue = std::numeric_limits<FLT>::max()) const;
 
         //!
         //! Format a string containing a decimal value.
@@ -1581,13 +1727,26 @@ namespace ts {
         //! @param [in] pad The padding character to adjust the width.
         //! @return The formatted string.
         //!
-        template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
+        template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type* = nullptr>
         static UString Decimal(INT value,
                                size_type min_width = 0,
                                bool right_justified = true,
                                const UString& separator = DEFAULT_THOUSANDS_SEPARATOR,
                                bool force_sign = false,
                                UChar pad = SPACE);
+
+        //!
+        //! Format a string containing a list of decimal values.
+        //! @tparam CONTAINER A container class of any integer type as defined by the C++ Standard Template Library (STL).
+        //! @param [in] values The integer values to format.
+        //! @param [in] separator Separator string between values, a comma by default.
+        //! @param [in] force_sign If true, force a '+' sign for positive values.
+        //! @return The formatted string.
+        //!
+        template <class CONTAINER, typename std::enable_if<std::is_integral<typename CONTAINER::value_type>::value || std::is_enum<typename CONTAINER::value_type>::value>::type* = nullptr>
+        static UString Decimal(const CONTAINER& values,
+                               const UString& separator = UString(u", "),
+                               bool force_sign = false);
 
         //!
         //! Format a string containing an hexadecimal value.
@@ -1630,14 +1789,147 @@ namespace ts {
         //! Format a string containing a floating point value.
         //! @param [in] value The floating point value to format.
         //! @param [in] width Width of the formatted number, not including the optional prefix and separator.
-        //! @param [in] precision Precision to use after the decimal point.  Default is 6 digits.
+        //! @param [in] precision Precision to use after the decimal point. Default is 6 digits when set to zero.
         //! @param [in] force_sign If true, force a '+' sign for positive values.
         //! @return The formatted string.
         //!
         static UString Float(double value,
                              size_type width = 0,
-                             size_type precision = 6,
+                             size_type precision = 0,
                              bool force_sign = false);
+        //!
+        //! Convert a string into a std::chrono::duration value.
+        //! No suffix is decoded. The string shall contain an integer value which
+        //! is interpreted in units of the temaplte std::chrono::duration type.
+        //! @param [out] value The returned decoded value. On error (invalid string), @a value
+        //! contains what could be decoded up to the first invalid character.
+        //! @param [in] thousandSeparators A string of characters which are interpreted as thousands
+        //! separators and are ignored. <i>Any character</i> from the @a thousandSeparators string
+        //! is interpreted as a separator. Note that this implies that the optional thousands separators
+        //! may have one character only.
+        //! @param [in] minValue minimum allowed value for the decoded value.
+        //! @param [in] maxValue maximum allowed value for the decoded value.
+        //! @return True on success, false on error (invalid string).
+        //!
+        template <class Rep, class Period>
+        bool toChrono(cn::duration<Rep, Period>& value,
+                      const UString& thousandSeparators = UString(),
+                      const cn::duration<Rep, Period>& minValue = cn::duration<Rep, Period>::min(),
+                      const cn::duration<Rep, Period>& maxValue = cn::duration<Rep, Period>::max()) const;
+
+        //!
+        //! Format a string containing a std::chrono::duration value, with units.
+        //! @param [in] value The chrono value to format.
+        //! @param [in] short_format When true, use short unit format (e.g. "ms").
+        //! By default, use a full unit name (e.g. "millisecond").
+        //! @param [in] separator Separator string for groups of thousands, a comma by default.
+        //! @param [in] force_sign If true, force a '+' sign for positive values.
+        //! @return The formatted string.
+        //!
+        template <class Rep, class Period>
+        static UString Chrono(const cn::duration<Rep, Period>& value,
+                              bool short_format = false,
+                              const UString& separator = DEFAULT_THOUSANDS_SEPARATOR,
+                              bool force_sign = false)
+        {
+            return Decimal(value.count(), 0, true, separator, force_sign) + u" " + ChronoUnit(Period::num, Period::den, short_format, value.count() > 1);
+        }
+
+        //!
+        //! Format the name of an instance of std::chrono::duration.
+        //! @tparam DURATION An instance of std::chrono::duration.
+        //! @param [in] short_format When true, use short unit format (e.g. "ms").
+        //! By default, use a full unit name (e.g. "millisecond").
+        //! @param [in] plural When true, use the plural form (full unit name only, e.g. "milliseconds").
+        //! @return A string representing the unit of the @a DURATION.
+        //!
+        template <class DURATION, typename std::enable_if<std::is_integral<typename DURATION::rep>::value, int>::type = 0>
+        static UString ChronoUnit(bool short_format = false, bool plural = false)
+        {
+            return ChronoUnit(DURATION::period::num, DURATION::period::den, short_format, plural);
+        }
+
+        //!
+        //! Format the name of an instance of std::chrono::duration based on its ratio values.
+        //! @param [in] num Ratio numerator.
+        //! @param [in] den Ratio denominator.
+        //! @param [in] short_format When true, use short unit format (e.g. "ms").
+        //! By default, use a full unit name (e.g. "millisecond").
+        //! @param [in] plural When true, use the plural form (full unit name only, e.g. "milliseconds").
+        //! @return A string representing the unit of the @a DURATION.
+        //!
+        static UString ChronoUnit(std::intmax_t num, std::intmax_t den, bool short_format = false, bool plural = false);
+
+        //!
+        //! A class to register new std::chrono::duration units.
+        //! The registration is performed using constructors.
+        //! Thus, it is possible to perform a registration in a source file, outside any code.
+        //! @see TS_REGISTER_CHRONO_UNIT
+        //!
+        class TSDUCKDLL RegisterChronoUnit
+        {
+            TS_NOBUILD_NOCOPY(RegisterChronoUnit);
+        public:
+            //!
+            //! The constructor registers a new std::chrono::duration unit name.
+            //! @param [in] num Ratio numerator.
+            //! @param [in] den Ratio denominator.
+            //! @param [in] sname The short name to assign to the corresponding std::chrono::duration type.
+            //! @param [in] lname The long name to assign to the corresponding std::chrono::duration type. Default: same as @a lname.
+            //! @param [in] pname The plural form of long name. Default: add "s" to @a lname.
+            //!
+            RegisterChronoUnit(std::intmax_t num, std::intmax_t den, const UChar* sname, const UChar* lname = nullptr, const UChar* pname = nullptr);
+        };
+
+        //--------------------------------------------------------------------
+        // String formatting (freely inspired from printf)
+        //--------------------------------------------------------------------
+
+        // Legacy functions using initializer lists.
+        // The new declarations use variadic templates instead of explicit initializer lists.
+        // Calling the new overloaded functions is identical, without the brackets.
+        //! @cond nodoxygen
+        TS_DEPRECATED void format(const UChar* fmt, std::initializer_list<ArgMixIn> args)
+        {
+            formatHelper(fmt, args);
+        }
+        TS_DEPRECATED void format(const UString& fmt, std::initializer_list<ArgMixIn> args)
+        {
+            formatHelper(fmt.c_str(), args);
+        }
+        TS_DEPRECATED static inline UString Format(const UChar* fmt, std::initializer_list<ArgMixIn> args)
+        {
+            UString result;
+            result.formatHelper(fmt, args);
+            return result;
+        }
+        TS_DEPRECATED static inline UString Format(const UString& fmt, std::initializer_list<ArgMixIn> args)
+        {
+            UString result;
+            result.formatHelper(fmt.c_str(), args);
+            return result;
+        }
+        TS_DEPRECATED bool scan(size_t& extractedCount, size_type& endIndex, const UChar* fmt, std::initializer_list<ArgMixOut> args) const
+        {
+            return scanHelper(extractedCount, endIndex, fmt, args);
+        }
+        TS_DEPRECATED bool scan(size_t& extractedCount, size_type& endIndex, const UString& fmt, std::initializer_list<ArgMixOut> args) const
+        {
+            return scanHelper(extractedCount, endIndex, fmt.c_str(), args);
+        }
+        TS_DEPRECATED bool scan(const UChar* fmt, std::initializer_list<ArgMixOut> args) const
+        {
+            size_t extractedCount;
+            size_type endIndex;
+            return scanHelper(extractedCount, endIndex, fmt, args);
+        }
+        TS_DEPRECATED bool scan(const UString& fmt, std::initializer_list<ArgMixOut> args) const
+        {
+            size_t extractedCount;
+            size_type endIndex;
+            return scanHelper(extractedCount, endIndex, fmt.c_str(), args);
+        }
+        //! @endcond
 
         //!
         //! Format a string using a template and arguments.
@@ -1653,11 +1945,13 @@ namespace ts {
         //!
         //! The available '\%' sequences are:
         //! - @c \%s : String. Treated as @c \%d if the argument is an integer. Print @c true or @c false if the argument is a @c bool.
+        //!            With @c std::chrono::duration value, add the unit (e.g. "seconds", "milliseconds", etc.)
         //! - @c \%c : Character. Use integer argument as Unicode code point. Treated as @c \%s if the argument is a string.
         //! - @c \%d : Integer in decimal. Treated as @c \%s if the argument is a string.
         //!            If argument os a fixed point value, print its integral part.
         //! - @c \%x : Integer in lowercase hexadecimal. Treated as @c \%s if the argument is a string.
         //! - @c \%X : Integer in uppercase hexadecimal. Treated as @c \%s if the argument is a string.
+        //! - @c \%n : Integer in "normalized" hexadecimal and decimal format. Equivalent to <code>0x%X (%<d)</code>. Treated as @c \%s if the argument is a string.
         //! - @c \%f : Floating or fixed point value. Treated as @c \%s if the argument is a string.
         //! - @c \%\% : Insert a literal \%.
         //!
@@ -1671,6 +1965,7 @@ namespace ts {
         //!   (e.g. 8 digits for a @c uint32_t value without thousands separator).
         //! - @c . @e digits : Starting with a dot. Maximum field width for strings or precision for floating point values. Ignored for integers.
         //! - @c ' : For integer conversions, use a separator for groups of thousands.
+        //! - @c ! : Short format. With @c std::chrono::duration value, use "ms" instead of "milliseconds", etc.
         //! - @c * : Can be used instead of @e digits. The integer value is taken from the argument list.
         //!
         //! Since the argument list is typed, it is possible to mix integers and strings of various types and sizes.
@@ -1680,7 +1975,7 @@ namespace ts {
         //! uint16_t u16 = 128;
         //! ts::UString us(u"abc");
         //! std::string s("def");
-        //! std::cout << ts::UString::Format(u"i = %'d, u16 = 0x%X, %d %s %s %s %s", {i, u16, 27, us, s, u"ghi", "jkl"});
+        //! std::cout << ts::UString::Format(u"i = %'d, u16 = 0x%X, %d %s %s %s %s", i, u16, 27, us, s, u"ghi", "jkl");
         //! @endcode
         //! displays:
         //! @code
@@ -1694,12 +1989,12 @@ namespace ts {
         //!
         //! Sample incorrect formats or combination of arguments:
         //! @code
-        //! ts::UString::Format(u"a) %d %d", {1, 2, 3, 4});  // return "a) 1 2"
-        //! ts::UString::Format(u"b) %d %d", {1});           // return "b) 1 "
-        //! ts::UString::Format(u"c) %d %d", {1, u"abc"});   // return "c) 1 abc"
-        //! ts::UString::Format(u"d) %d %s", {1, 2});        // return "d) 1 2"
-        //! ts::UString::Format(u"e) ab%scd%sef", {u"X"});   // return "e) abXcdef"
-        //! ts::UString::Format(u"f) %d %01", {1, 2, 3});    // return "f) 1 "
+        //! ts::UString::Format(u"a) %d %d", 1, 2, 3, 4);  // return "a) 1 2"
+        //! ts::UString::Format(u"b) %d %d", 1);           // return "b) 1 "
+        //! ts::UString::Format(u"c) %d %d", 1, u"abc");   // return "c) 1 abc"
+        //! ts::UString::Format(u"d) %d %s", 1, 2);        // return "d) 1 2"
+        //! ts::UString::Format(u"e) ab%scd%sef", u"X");   // return "e) abXcdef"
+        //! ts::UString::Format(u"f) %d %01", 1, 2, 3);    // return "f) 1 "
         //! @endcode
         //!
         //! To report errors which are otherwise silently fixed:
@@ -1721,7 +2016,11 @@ namespace ts {
         //! @param [in] fmt Format string with embedded '\%' sequences.
         //! @param [in] args List of arguments to substitute in the format string.
         //!
-        void format(const UChar* fmt, std::initializer_list<ArgMixIn> args);
+        template <class... Args>
+        void format(const UChar* fmt, Args&&... args)
+        {
+            formatHelper(fmt, {std::forward<ArgMixIn>(args)...});
+        }
 
         //!
         //! Format a string using a template and arguments.
@@ -1730,9 +2029,10 @@ namespace ts {
         //! @param [in] args List of arguments to substitute in the format string.
         //! @see format()
         //!
-        void format(const UString& fmt, std::initializer_list<ArgMixIn> args)
+        template <class... Args>
+        void format(const UString& fmt, Args&&... args)
         {
-            format(fmt.c_str(), args);
+            formatHelper(fmt.c_str(), {std::forward<ArgMixIn>(args)...});
         }
 
         //!
@@ -1742,7 +2042,13 @@ namespace ts {
         //! @return The formatted string.
         //! @see format()
         //!
-        static UString Format(const UChar* fmt, std::initializer_list<ArgMixIn> args);
+        template <class... Args>
+        static inline UString Format(const UChar* fmt, Args&&... args)
+        {
+            UString result;
+            result.formatHelper(fmt, {std::forward<ArgMixIn>(args)...});
+            return result;
+        }
 
         //!
         //! Format a string using a template and arguments.
@@ -1751,9 +2057,12 @@ namespace ts {
         //! @return The formatted string.
         //! @see format()
         //!
-        static UString Format(const UString& fmt, std::initializer_list<ArgMixIn> args)
+        template <class... Args>
+        static inline UString Format(const UString& fmt, Args&&... args)
         {
-            return Format(fmt.c_str(), args);
+            UString result;
+            result.formatHelper(fmt.c_str(), {std::forward<ArgMixIn>(args)...});
+            return result;
         }
 
         //!
@@ -1777,6 +2086,7 @@ namespace ts {
         //! - @c \%i : Same as \%d.
         //! - @c \%x : Matches an integer in hexadecimal, case-insensitive, without 0x or 0X prefix.
         //! - @c \%X : Same as \%x.
+        //! - @c \%f : Matches a floating point value.
         //! - @c \%c : Matches the next non-space character. The Unicode code point is returned.
         //! - @c \%\% : Matches a literal \%.
         //!
@@ -1793,7 +2103,11 @@ namespace ts {
         //! exactly matches the format in @a fmt.
         //! @see Format(const UChar*, std::initializer_list<ArgMixIn>)
         //!
-        bool scan(size_t& extractedCount, size_type& endIndex, const UChar* fmt, std::initializer_list<ArgMixOut> args) const;
+        template <class... Args>
+        bool scan(size_t& extractedCount, size_type& endIndex, const UChar* fmt, Args&&... args) const
+        {
+            return scanHelper(extractedCount, endIndex, fmt, {std::forward<ArgMixOut>(args)...});
+        }
 
         //!
         //! Scan this string for integer or character values using a template and arguments.
@@ -1807,9 +2121,10 @@ namespace ts {
         //! exactly matches the format in @a fmt.
         //! @see scan()
         //!
-        bool scan(size_t& extractedCount, size_type& endIndex, const UString& fmt, std::initializer_list<ArgMixOut> args) const
+        template <class... Args>
+        bool scan(size_t& extractedCount, size_type& endIndex, const UString& fmt, Args&&... args) const
         {
-            return scan(extractedCount, endIndex, fmt.c_str(), args);
+            return scanHelper(extractedCount, endIndex, fmt.c_str(), {std::forward<ArgMixOut>(args)...});
         }
 
         //!
@@ -1822,11 +2137,12 @@ namespace ts {
         //! exactly matches the format in @a fmt.
         //! @see scan(size_t&, size_type&, const UChar*, std::initializer_list<ArgMixOut>)
         //!
-        bool scan(const UChar* fmt, std::initializer_list<ArgMixOut> args) const
+        template <class... Args>
+        bool scan(const UChar* fmt, Args&&... args) const
         {
             size_t extractedCount;
             size_type endIndex;
-            return scan(extractedCount, endIndex, fmt, args);
+            return scanHelper(extractedCount, endIndex, fmt, {std::forward<ArgMixOut>(args)...});
         }
 
         //!
@@ -1839,12 +2155,17 @@ namespace ts {
         //! exactly matches the format in @a fmt.
         //! @see scan(size_t&, size_type&, const UChar*, std::initializer_list<ArgMixOut>)
         //!
-        bool scan(const UString& fmt, std::initializer_list<ArgMixOut> args) const
+        template <class... Args>
+        bool scan(const UString& fmt, Args&&... args) const
         {
             size_t extractedCount;
             size_type endIndex;
-            return scan(extractedCount, endIndex, fmt.c_str(), args);
+            return scanHelper(extractedCount, endIndex, fmt.c_str(), {std::forward<ArgMixOut>(args)...});
         }
+
+        //--------------------------------------------------------------------
+        // Hexadecimal formatting
+        //--------------------------------------------------------------------
 
         //!
         //! Build a multi-line string containing the hexadecimal dump of a memory area.
@@ -1950,6 +2271,10 @@ namespace ts {
         //!
         bool hexaDecodeAppend(ByteBlock& result, bool c_style = false) const;
 
+        //--------------------------------------------------------------------
+        // Operations on string containers
+        //--------------------------------------------------------------------
+
         //!
         //! Append an array of C-strings to a container of strings.
         //! All C-strings from an array are appended at the end of a container.
@@ -2013,11 +2338,13 @@ namespace ts {
             return Append(container, argc, argv);
         }
 
-        //
-        // Override methods which return strings so that they return the new class.
-        // Define additional overloads with char and strings. Not documented in
-        // Doxygen since they are equivalent to their counterparts in superclass.
-        //
+        //--------------------------------------------------------------------
+        // Override methods which return strings so that they return the new
+        // class. Define additional overloads with char and strings. Not
+        // documented in Doxygen since they are equivalent to their
+        // counterparts in superclass.
+        //--------------------------------------------------------------------
+
 #if !defined(DOXYGEN)
 
         bool operator==(const SuperClass& other) const { return static_cast<SuperClass>(*this) == other; }
@@ -2033,10 +2360,8 @@ namespace ts {
         UString substr(size_type pos = 0, size_type count = NPOS) const { return SuperClass::substr(pos, count); }
 
         UString& erase(size_type index = 0, size_type count = NPOS) { SuperClass::erase(index, count); return *this; }
-#if defined(TS_CXX11_STRING)
         iterator erase(const_iterator position) { return SuperClass::erase(position); }
         iterator erase(const_iterator first, const_iterator last) { return SuperClass::erase(first, last); }
-#endif
 
         UString& append(size_type count, UChar ch) { SuperClass::append(count, ch); return *this; }
         UString& append(size_type count, char ch) { return append(count, UChar(ch)); }
@@ -2047,6 +2372,7 @@ namespace ts {
         UString& append(UChar c) { push_back(c); return *this; }
         UString& append(char c) { push_back(UChar(c)); return *this; }
         UString& append(uint32_t c);
+        UString& append(wchar_t c) { return append(uint32_t(c)); }
         template<class It> UString& append(It first, It last) { SuperClass::append<It>(first, last); return *this; }
         UString& append(std::initializer_list<UChar> ilist) { SuperClass::append(ilist); return *this; }
 
@@ -2054,10 +2380,11 @@ namespace ts {
         UString& operator+=(const UChar* s) { return append(s); }
         UString& operator+=(UChar c) { return append(c); }
         UString& operator+=(char c) { return append(c); }
+        UString& operator+=(wchar_t c) { return append(uint32_t(c)); }
         UString& operator+=(std::initializer_list<UChar> ilist) { return append(ilist); }
 
         UString& operator=(const SuperClass& s) { SuperClass::assign(s); return *this; }
-        UString& operator=(SuperClass&& s) { SuperClass::assign(s); return *this; }
+        UString& operator=(SuperClass&& s) { SuperClass::assign(std::move(s)); return *this; }
         UString& operator=(const UChar* s) { SuperClass::assign(s); return *this; }
         UString& operator=(UChar c) { SuperClass::assign(1, c); return *this; }
         UString& operator=(char c) { SuperClass::assign(1, UChar(c)); return *this; }
@@ -2066,7 +2393,7 @@ namespace ts {
         UString& assign(size_type count, UChar ch) { SuperClass::assign(count, ch); return *this; }
         UString& assign(const SuperClass& str) { SuperClass::assign(str); return *this; }
         UString& assign(const SuperClass& str, size_type pos, size_type count = NPOS) { SuperClass::assign(str, pos, count); return *this; }
-        UString& assign(SuperClass&& str) { SuperClass::assign(str); return *this; }
+        UString& assign(SuperClass&& str) { SuperClass::assign(std::move(str)); return *this; }
         UString& assign(const UChar* s, size_type count) { SuperClass::assign(s, count); return *this; }
         UString& assign(const UChar* s) { SuperClass::assign(s); return *this; }
         UString& assign(std::initializer_list<UChar> ilist) { SuperClass::assign(ilist); return *this; }
@@ -2077,12 +2404,10 @@ namespace ts {
         UString& insert(size_type index, const UChar* s, size_type count) { SuperClass::insert(index, s, count); return *this; }
         UString& insert(size_type index, const SuperClass& str) { SuperClass::insert(index, str); return *this; }
         UString& insert(size_type index, const SuperClass& str, size_type index_str, size_type count = NPOS) { SuperClass::insert(index, str, index_str, count); return *this; }
-#if defined(TS_CXX11_STRING)
         iterator insert(iterator pos, UChar ch) { return SuperClass::insert(pos, ch); }
         iterator insert(const_iterator pos, UChar ch) { return SuperClass::insert(pos, ch); }
         iterator insert(const_iterator pos, size_type count, UChar ch) { return SuperClass::insert(pos, count, ch); }
         template<class It> iterator insert(const_iterator pos, It first, It last) { return SuperClass::insert<It>(pos, first, last); }
-#endif
 
         UString& replace(size_type pos, size_type count, const SuperClass& str) { SuperClass::replace(pos, count, str); return *this; }
         UString& replace(size_type pos, size_type count, const SuperClass& str, size_type pos2, size_type count2 = NPOS) { SuperClass::replace(pos, count, str, pos2, count2); return *this; }
@@ -2090,13 +2415,11 @@ namespace ts {
         UString& replace(size_type pos, size_type count, const UChar* cstr, size_type count2) { SuperClass::replace(pos, count, cstr, count2); return *this; }
         UString& replace(size_type pos, size_type count, const UChar* cstr) { SuperClass::replace(pos, count, cstr); return *this; }
         UString& replace(size_type pos, size_type count, size_type count2, UChar ch) { SuperClass::replace(pos, count, count2, ch); return *this; }
-#if defined(TS_CXX11_STRING)
         UString& replace(const_iterator first, const_iterator last, const SuperClass& str) { SuperClass::replace(first, last, str); return *this; }
         UString& replace(const_iterator first, const_iterator last, const UChar* cstr, size_type count2) { SuperClass::replace(first, last, cstr, count2); return *this; }
         UString& replace(const_iterator first, const_iterator last, const UChar* cstr) { SuperClass::replace(first, last, cstr); return *this; }
         UString& replace(const_iterator first, const_iterator last, size_type count2, UChar ch) { SuperClass::replace(first, last, count2, ch); return *this; }
         UString& replace(const_iterator first, const_iterator last, std::initializer_list<UChar> ilist) { SuperClass::replace(first, last, ilist); return *this; }
-#endif
 
 #if defined(TS_ALLOW_IMPLICIT_UTF8_CONVERSION)
         bool operator==(const std::string& other) const { return operator==(FromUTF8(other)); }
@@ -2120,10 +2443,12 @@ namespace ts {
 
 #endif // DOXYGEN
 
-        //
-        // On Windows, all methods which take 'npos' as default argument need to be overriden
-        // using NPOS instead. Otherwise, an undefined symbol error will occur at link time.
-        //
+        //--------------------------------------------------------------------
+        // On Windows, all methods which take 'npos' as default argument need
+        // to be overriden using NPOS instead. Otherwise, an undefined symbol
+        // error will occur at link time.
+        //--------------------------------------------------------------------
+
 #if defined(TS_WINDOWS) && !defined(DOXYGEN)
         int compare(const SuperClass& str) const { return SuperClass::compare(str); }
         int compare(size_type pos1, size_type count1, const SuperClass& str) const { return SuperClass::compare(pos1, count1, str); }
@@ -2146,6 +2471,10 @@ namespace ts {
 #endif
 
     private:
+        // Internal helper for assignFromWChar(), depending on the size of wchar_t.
+        template<size_type WCHAR_SIZE>
+        void assignFromWCharHelper(const wchar_t* wstr, size_type count);
+
         // Internal helpers for toInteger(), signed and unsigned versions.
         // Work on trimmed strings, with leading '+' skipped.
         template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type* = nullptr>
@@ -2169,6 +2498,10 @@ namespace ts {
 
         template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value && sizeof(INT) < 8>::type* = nullptr>
         static void DecimalMostNegative(UString& result, const UString& separator);
+
+        // Internal helpers for string formatting.
+        void formatHelper(const UChar* fmt, std::initializer_list<ArgMixIn> args);
+        bool scanHelper(size_t& extractedCount, size_type& endIndex, const UChar* fmt, std::initializer_list<ArgMixOut> args) const;
 
         //!
         //! Analysis context of a Format or Scan string, base class.
@@ -2226,7 +2559,7 @@ namespace ts {
             ArgMixInContext(UString& result, const UChar* fmt, std::initializer_list<ArgMixIn> args);
 
         private:
-            typedef std::initializer_list<ts::ArgMixIn>::const_iterator ArgIterator;
+            using ArgIterator = std::initializer_list<ts::ArgMixIn>::const_iterator;
 
             UString&          _result;  //!< Result string.
             ArgIterator       _arg;     //!< Current argument.
@@ -2262,7 +2595,7 @@ namespace ts {
             ArgMixOutContext(size_t& extractedCount, const UChar*& input, const UChar*& fmt, std::initializer_list<ArgMixOut> args);
 
         private:
-            typedef std::initializer_list<ts::ArgMixOut>::const_iterator ArgIterator;
+            using ArgIterator = std::initializer_list<ts::ArgMixOut>::const_iterator;
 
             const UChar*      _input;   //!< Current pointer into input string.
             ArgIterator       _arg;     //!< Current argument.
@@ -2277,6 +2610,14 @@ namespace ts {
         };
     };
 }
+
+//!
+//! @hideinitializer
+//! Registration of a new std::chrono::duration unit name.
+//! @param classname An instance of std::chrono::duration.
+//!
+#define TS_REGISTER_CHRONO_UNIT(classname, ...) \
+    static ts::UString::RegisterChronoUnit TS_UNIQUE_NAME(_Registrar)(classname::period::num, classname::period::den, __VA_ARGS__)
 
 //!
 //! Output operator for ts::UString on standard text streams with UTF-8 conversion.
@@ -2354,6 +2695,18 @@ TSDUCKDLL inline ts::UString operator+(const ts::UChar* s1, const ts::UString& s
     return s1 + *static_cast<const ts::UString::SuperClass*>(&s2);
 }
 
+// Equivalence with std::filesystem::path
+TSDUCKDLL inline bool operator==(const fs::path& s1, const ts::UString& s2) { return s2 == s1; }
+#if defined(TS_NEED_UNEQUAL_OPERATOR)
+TSDUCKDLL inline bool operator!=(const fs::path& s1, const ts::UString& s2) { return s2 != s1; }
+#endif
+TSDUCKDLL inline bool operator==(const fs::path& s1, const ts::UChar* s2) { return ts::UString(s2) == s1; }
+TSDUCKDLL inline bool operator==(const ts::UChar* s1, const fs::path& s2) { return ts::UString(s1) == s2; }
+#if defined(TS_NEED_UNEQUAL_OPERATOR)
+TSDUCKDLL inline bool operator!=(const fs::path& s1, const ts::UChar* s2) { return !(s1 == s2); }
+TSDUCKDLL inline bool operator!=(const ts::UChar* s1, const fs::path& s2) { return !(s1 == s2); }
+#endif
+
 #if defined(TS_ALLOW_IMPLICIT_UTF8_CONVERSION)
 TSDUCKDLL inline bool operator==(const std::string& s1, const ts::UString& s2) { return s2 == s1; }
 TSDUCKDLL inline bool operator==(const char* s1, const ts::UString& s2) { return s2 == s1; }
@@ -2382,4 +2735,1078 @@ TSDUCKDLL inline ts::UString operator+(const char* s1, const ts::UString& s2)
 
 #endif // DOXYGEN
 
-#include "tsUStringTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+#if !defined(DOXYGEN)
+
+// With Microsoft compiler:
+// warning C4127: conditional expression is constant
+// for expression: if (sizeof(CHARTYPE) == sizeof(UChar)) {
+TS_PUSH_WARNING()
+TS_MSC_NOWARNING(4127)
+
+template <typename CHARTYPE, typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString& ts::UString::assign(const std::vector<CHARTYPE>& vec, INT count)
+{
+    // The character type must be 16 bits.
+    assert(sizeof(CHARTYPE) == sizeof(UChar));
+    if (sizeof(CHARTYPE) == sizeof(UChar)) {
+
+        // Maximum number of characters to check.
+        // Take care, carefully crafted expression.
+        const size_t last = std::min<std::size_t>(vec.size(), static_cast<size_t>(std::max<INT>(0, count)));
+
+        // Compute actual string length.
+        size_type n = 0;
+        while (n < last && vec[n] != static_cast<CHARTYPE>(0)) {
+            ++n;
+        }
+
+        // Assign string.
+        assign(reinterpret_cast<const UChar*>(vec.data()), n);
+    }
+    return *this;
+}
+
+template <typename CHARTYPE, std::size_t SIZE, typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString& ts::UString::assign(const std::array<CHARTYPE, SIZE>& arr, INT count)
+{
+    // The character type must be 16 bits.
+    assert(sizeof(CHARTYPE) == sizeof(UChar));
+    if (sizeof(CHARTYPE) == sizeof(UChar)) {
+
+        // Maximum number of characters to check.
+        // Take care, carefully crafted expression.
+        const std::size_t last = std::min<std::size_t>(arr.size(), static_cast<std::size_t>(std::max<INT>(0, count)));
+
+        // Compute actual string length.
+        size_type n = 0;
+        while (n < last && arr[n] != static_cast<CHARTYPE>(0)) {
+            ++n;
+        }
+
+        // Assign string.
+        assign(reinterpret_cast<const UChar*>(arr.data()), n);
+    }
+    return *this;
+}
+
+TS_POP_WARNING()
+
+template <typename CHARTYPE>
+ts::UString& ts::UString::assign(const std::vector<CHARTYPE>& vec)
+{
+    return assign(vec, vec.size());
+}
+
+template <typename CHARTYPE, std::size_t SIZE>
+ts::UString& ts::UString::assign(const std::array<CHARTYPE, SIZE>& arr)
+{
+    return assign(arr, arr.size());
+}
+
+template<> inline void ts::UString::assignFromWCharHelper<1>(const wchar_t* wstr, size_type count)
+{
+    // Specialization for sizeof(wchar_t) == 1 : Convert from UTF-8.
+    assignFromUTF8(reinterpret_cast<const char*>(wstr), count);
+}
+
+template<> inline void ts::UString::assignFromWCharHelper<2>(const wchar_t* wstr, size_type count)
+{
+    // Specialization for sizeof(wchar_t) == 2 : Already in UTF-16, direct binary copy.
+    resize(count);
+    MemCopy(&(*this)[0], wstr, 2 * count);
+}
+
+template <ts::UString::size_type WCHAR_SIZE>
+void ts::UString::assignFromWCharHelper(const wchar_t* wstr, size_type count)
+{
+    // General case, outside specializations for sizeof(wchar_t) == 1 or 2.
+    // Assume that wchar_t is a full Unicode code point.
+    while (count-- > 0) {
+        const char32_t cp = *wstr++;
+        if (NeedSurrogate(cp)) {
+            append(LeadingSurrogate(cp));
+            append(TrailingSurrogate(cp));
+        }
+        else {
+            append(UChar(cp));
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Template constructors.
+//----------------------------------------------------------------------------
+
+template <typename CHARTYPE, typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString::UString(const std::vector<CHARTYPE>& vec, INT count, const allocator_type& alloc) :
+    SuperClass(alloc)
+{
+    assign(vec, count);
+}
+
+template <typename CHARTYPE>
+ts::UString::UString(const std::vector<CHARTYPE>& vec, const allocator_type& alloc) :
+    SuperClass(alloc)
+{
+    assign(vec);
+}
+
+template <typename CHARTYPE, std::size_t SIZE, typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString::UString(const std::array<CHARTYPE, SIZE>& arr, INT count, const allocator_type& alloc) :
+    SuperClass(alloc)
+{
+    assign(arr, count);
+}
+
+template <typename CHARTYPE, std::size_t SIZE>
+ts::UString::UString(const std::array<CHARTYPE, SIZE>& arr, const allocator_type& alloc) :
+    SuperClass(alloc)
+{
+    assign(arr);
+}
+
+
+//----------------------------------------------------------------------------
+// Split a string based on a separator character.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::splitAppend(CONTAINER& container, UChar separator, bool trimSpaces, bool removeEmpty) const
+{
+    const UChar* sep = nullptr;
+    const UChar* input = data();
+    const UChar* const end = data() + size();
+
+    do {
+        // Locate next separator
+        for (sep = input; sep < end && *sep != separator; ++sep) {
+        }
+        // Extract segment
+        UString segment(input, sep - input);
+        if (trimSpaces) {
+            segment.trim();
+        }
+        if (!removeEmpty || !segment.empty()) {
+            container.push_back(segment);
+        }
+        // Move to beginning of next segment
+        input = sep + 1;
+    } while (sep < end);
+}
+
+
+//----------------------------------------------------------------------------
+// Split the string into shell-style arguments.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::splitShellStyleAppend(CONTAINER& container) const
+{
+    const size_t end = this->size();
+    size_t pos = 0;
+
+    // Loop on all arguments.
+    while (pos < end) {
+        // Skip all spaces.
+        while (pos < end && IsSpace(this->at(pos))) {
+            pos++;
+        }
+        if (pos >= end) {
+            break;
+        }
+        // Start of an argument.
+        UString arg;
+        UChar quote = 0;
+        while (pos < end && (quote != 0 || !IsSpace(this->at(pos)))) {
+            // Process opening and closing quotes.
+            const UChar c = this->at(pos++);
+            if (quote == 0 && (c == '"' || c == '\'')) {
+                // Opening quote.
+                quote = c;
+            }
+            else if (quote != 0 && c == quote) {
+                // Closing quote.
+                quote = 0;
+            }
+            else if (c == '\\' && pos < end) {
+                // Get next character without interpretation.
+                arg.append(this->at(pos++));
+            }
+            else {
+                // Literal character.
+                arg.append(c);
+            }
+        }
+        // Argument completed.
+        container.push_back(arg);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Split a string into segments by starting / ending characters.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::splitBlocksAppend(CONTAINER& container, UChar startWith, UChar endWith, bool trimSpaces) const
+{
+    const UChar *sep = nullptr;
+    const UChar* input = c_str();
+
+    do {
+        int blocksStillOpen = 0;
+        // Locate next block-opening character
+        while (*input != startWith && *input != 0) {
+            // Input now points to the first block opening character
+            ++input;
+        }
+
+        // Locate the next block-ending character corresponding to the considered block
+        for (sep = input; *sep != 0; ++sep) {
+            if (*sep == startWith) {
+                ++blocksStillOpen;
+                continue;
+            }
+            if (*sep == endWith) {
+                --blocksStillOpen;
+                if (blocksStillOpen == 0) {
+                    break;
+                }
+            }
+
+        }
+        // Extract segment
+        UString segment(input, sep - input + (*sep == 0 ? 0 : 1));
+        // trim spaces if needed
+        if (trimSpaces) {
+            segment.trim();
+        }
+        container.push_back(segment);
+        // Move to beginning of next segment
+        input = *sep == 0 ? sep : sep + 1;
+    } while (*sep != 0 && *(sep + 1) != 0);
+}
+
+
+//----------------------------------------------------------------------------
+// Split a string into multiple lines which are not larger than a maximum.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::splitLinesAppend(CONTAINER& lines, size_t maxWidth, const UString& otherSeparators, const UString& nextMargin, bool forceSplit) const
+{
+    // If line smaller than max size or next margin too wide, return one line
+    if (length() <= maxWidth || nextMargin.length() >= maxWidth) {
+        lines.push_back(*this);
+        return;
+    }
+
+    size_t marginLength = 0; // No margin on first line (supposed to be in str)
+    size_t start = 0;        // Index in str of start of current line
+    size_t eol = 0;          // Index in str of last possible end-of-line
+    size_t cur = 0;          // Current index in str
+
+    // Cut lines
+    while (cur < length()) {
+        // If @cur is a space or if the previous character is a possible separator, we may cut at cur.
+        if (IsSpace(at(cur)) || (cur > start && otherSeparators.find(at(cur-1)) != NPOS)) {
+            // Possible end of line here
+            eol = cur;
+        }
+        // Determine if we need to cut here.
+        bool cut = at(cur) == LINE_FEED;
+        if (!cut && marginLength + cur - start >= maxWidth) { // Reached max width
+            if (eol > start) {
+                // Found a previous possible end-of-line
+                cut = true;
+            }
+            else if (forceSplit) {
+                // No previous possible end-of-line but force cut
+                eol = cur;
+                cut = true;
+            }
+        }
+        // Perform line cut if necessary.
+        if (cut) {
+            // Add current line.
+            UString line;
+            if (marginLength > 0) {
+                line.append(nextMargin);
+            }
+            line.append(substr(start, eol - start));
+            line.trim(false, true); // trim trailing spaces
+            lines.push_back(line);
+            // Start new line, skip leading spaces
+            marginLength = nextMargin.length();
+            start = eol < length() && at(eol) == LINE_FEED ? eol + 1 : eol;
+            while (start < length() && IsSpace(at(start)) && at(start) != LINE_FEED) {
+                start++;
+            }
+            cur = eol = start;
+        }
+        else {
+            cur++;
+        }
+    }
+
+    // Rest of string on last line
+    if (start < length()) {
+        lines.push_back(nextMargin + substr(start));
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Join a part of a container of strings into one big string.
+//----------------------------------------------------------------------------
+
+template <class ITERATOR>
+ts::UString ts::UString::Join(ITERATOR begin, ITERATOR end, const UString& separator, bool removeEmpty)
+{
+    UString res;
+    while (begin != end) {
+        if (!removeEmpty || !begin->empty()) {
+            if (!res.empty()) {
+                res.append(separator);
+            }
+            res.append(*begin);
+        }
+        ++begin;
+    }
+    return res;
+}
+
+
+//----------------------------------------------------------------------------
+// Check if a container of strings contains something similar to this string.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+bool ts::UString::isContainedSimilarIn(const CONTAINER& container) const
+{
+    for (const auto& it : container) {
+        if (similar(it)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+//----------------------------------------------------------------------------
+// Locate into a map an element with a similar string.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+typename CONTAINER::const_iterator ts::UString::findSimilar(const CONTAINER& container) const
+{
+    typename CONTAINER::const_iterator it = container.begin();
+    while (it != container.end() && !similar(it->first)) {
+        ++it;
+    }
+    return it;
+}
+
+
+//----------------------------------------------------------------------------
+// Save strings from a container into a file, one per line.
+//----------------------------------------------------------------------------
+
+template <class ITERATOR>
+bool ts::UString::Save(ITERATOR begin, ITERATOR end, const fs::path& fileName, bool append)
+{
+    std::ofstream file(fileName, append ? (std::ios::out | std::ios::app) : std::ios::out);
+    Save(begin, end, file);
+    file.close();
+    return !file.fail();
+}
+
+template <class ITERATOR>
+bool ts::UString::Save(ITERATOR begin, ITERATOR end, std::ostream& strm)
+{
+    while (strm && begin != end) {
+        strm << *begin << std::endl;
+        ++begin;
+    }
+    return !strm.fail();
+}
+
+template <class CONTAINER>
+bool ts::UString::Save(const CONTAINER& container, std::ostream& strm)
+{
+    return Save(container.begin(), container.end(), strm);
+}
+
+template <class CONTAINER>
+bool ts::UString::Save(const CONTAINER& container, const fs::path& fileName, bool append)
+{
+    return Save(container.begin(), container.end(), fileName, append);
+}
+
+
+//----------------------------------------------------------------------------
+// Load strings from a file, one per line, and insert them in a container.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+bool ts::UString::LoadAppend(CONTAINER& container, std::istream& strm)
+{
+    UString line;
+    while (line.getLine(strm)) {
+        container.push_back(line);
+        // Weird behaviour (bug?) with gcc 4.8.5: When we read 2 consecutive lines
+        // with the same length, the storage of the previous string *in the container*
+        // if overwritten by the new line. Maybe not in all cases. No problem with
+        // other versions or compilers. As a workaround, we clear the string
+        // between read operations.
+        line.clear();
+    }
+    return strm.eof();
+}
+
+template <class CONTAINER>
+bool ts::UString::Load(CONTAINER& container, std::istream& strm)
+{
+    container.clear();
+    return LoadAppend(container, strm);
+}
+
+template <class CONTAINER>
+bool ts::UString::LoadAppend(CONTAINER& container, const fs::path& fileName)
+{
+    std::ifstream file(fileName);
+    return LoadAppend(container, file);
+}
+
+template <class CONTAINER>
+bool ts::UString::Load(CONTAINER& container, const fs::path& fileName)
+{
+    container.clear();
+    return LoadAppend(container, fileName);
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a string into an integer.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::UString::toInteger(INT& value, const UString& thousandSeparators, size_type decimals, const UString& decimalSeparators, INT minValue, INT maxValue) const
+{
+    // Locate actual begin and end of integer value. Skip leading redundant '+' sign.
+    const UChar* start = data();
+    const UChar* end = start + length();
+    while (start < end && (IsSpace(*start) || *start == u'+')) {
+        ++start;
+    }
+    while (start < end && IsSpace(*(end-1))) {
+        --end;
+    }
+
+    // Decode the value. Use unsigned or signed version.
+    return ToIntegerHelper(start, end, value, thousandSeparators, decimals, decimalSeparators) && value >= minValue && value <= maxValue;
+}
+
+
+//----------------------------------------------------------------------------
+// Internal helper for toInteger, unsigned version.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+bool ts::UString::ToIntegerHelper(const UChar* start, const UChar* end, INT& value, const UString& thousandSeparators, size_type decimals, const UString& decimalSeparators)
+{
+    // Initial value, up to decode error.
+    value = static_cast<INT>(0);
+
+    // Look for hexadecimal prefix.
+    int base = 10;
+    if (start + 1 < end && start[0] == u'0' && (start[1] == u'x' || start[1] == u'X')) {
+        start += 2;
+        base = 16;
+    }
+
+    // Filter empty string.
+    if (start >= end) {
+        return false;
+    }
+
+    // Decimal digits handling.
+    bool dec_found = false;   // a decimal point was found
+    size_type dec_count = 0;  // number of decimal digits found
+
+    // Decode the string.
+    while (start < end) {
+        const int digit = ToDigit(*start, base);
+        if (digit >= 0) {
+            // Character is a valid digit. Ignore extraneous decimal digits.
+            if (!dec_found || dec_count < decimals) {
+                value = value * static_cast<INT>(base) + static_cast<INT>(digit);
+            }
+            // Count decimal digits, after the decimal point.
+            if (dec_found) {
+                ++dec_count;
+            }
+        }
+        else if (decimalSeparators.contain(*start)) {
+            // Found a decimal point. Only one is allowed.
+            // A decimal point is allowed only in base 10.
+            // By default (decimal == 0), no decimal point is allowed.
+            if (dec_found || base != 10 || decimals == 0) {
+                return false;
+            }
+            dec_found = true;
+        }
+        else if (!thousandSeparators.contain(*start)) {
+            // Character is not a possible thousands separator to ignore.
+            return false;
+        }
+        ++start;
+    }
+
+    // If decimals are missing, adjust the value.
+    while (dec_count < decimals) {
+        value = 10 * value;
+        ++dec_count;
+    }
+
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Internal helper for toInteger, signed version.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+bool ts::UString::ToIntegerHelper(const UChar* start, const UChar* end, INT& value, const UString& thousandSeparators, size_type decimals, const UString& decimalSeparators)
+{
+    // Skip optional minus sign.
+    bool negative = false;
+    if (start < end && *start == '-') {
+        ++start;
+        negative = true;
+    }
+
+    // Decode the string as an unsigned integer.
+    typename std::make_unsigned<INT>::type uvalue = 0;
+    const bool ok = ToIntegerHelper(start, end, uvalue, thousandSeparators, decimals, decimalSeparators);
+
+    // Convert the unsigned integer as signed integer with the appropriate sign.
+    value = static_cast<INT>(uvalue);
+    if (negative) {
+        value = -value;
+    }
+
+    return ok;
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a string containing a list of integers into a container of integers.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER, typename std::enable_if<std::is_integral<typename CONTAINER::value_type>::value>::type*>
+bool ts::UString::toIntegers(CONTAINER& container,
+                             const UString& thousandSeparators,
+                             const UString& listSeparators,
+                             size_type decimals,
+                             const UString& decimalSeparators,
+                             typename CONTAINER::value_type minValue,
+                             typename CONTAINER::value_type maxValue) const
+{
+    // Let's name int_type the integer type.
+    // In all STL standard containers, value_type is an alias for the element type.
+    using int_type = typename CONTAINER::value_type;
+
+    // Reset the content of the container
+    container.clear();
+
+    // Locate segments in the string
+    size_type start = 0;
+    size_type farEnd = length();
+
+    // Loop on segments
+    while (start < farEnd) {
+        // Skip spaces and list separators
+        while (start < farEnd && (IsSpace((*this)[start]) || listSeparators.find((*this)[start]) != NPOS)) {
+            ++start;
+        }
+        // Locate end of segment
+        size_type end = start;
+        while (end < farEnd && listSeparators.find((*this)[end]) == NPOS) {
+            ++end;
+        }
+        // Exit at end of string
+        if (start >= farEnd) {
+            break;
+        }
+        // Decode segment
+        int_type value = static_cast<int_type>(0);
+        if (!substr(start, end - start).toInteger<int_type>(value, thousandSeparators, decimals, decimalSeparators, minValue, maxValue)) {
+            return false;
+        }
+        container.push_back(value);
+
+        // Move to next segment
+        start = end;
+    }
+
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a string into a floating-point.
+//----------------------------------------------------------------------------
+
+template <typename FLT, typename std::enable_if<std::is_floating_point<FLT>::value>::type*>
+bool ts::UString::toFloat(FLT& value, FLT minValue, FLT maxValue) const
+{
+    // Convert to an 8-bit string.
+    std::string str;
+    toTrimmed().toUTF8(str);
+
+    // Use a good old scanf to decode the value.
+    // Use an additional dummy character to make sure there is nothing more to read.
+    double flt = 0.0;
+    char dummy = 0;
+    const int count = ::sscanf(str.c_str(), "%lf%c", &flt, &dummy);
+    value = FLT(flt);
+    return count == 1 && value >= minValue && value <= maxValue;
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a string into a std::chrono::duration value.
+//----------------------------------------------------------------------------
+
+template <class Rep, class Period>
+bool ts::UString::toChrono(cn::duration<Rep, Period>& value,
+                           const UString& thousandSeparators,
+                           const cn::duration<Rep, Period>& minValue,
+                           const cn::duration<Rep, Period>& maxValue) const
+{
+    using Duration = cn::duration<Rep, Period>;
+    typename Duration::rep ivalue = 0;
+    const bool ok = toInteger(ivalue, thousandSeparators, 0, UString(), minValue.count(), maxValue.count());
+    value = Duration(ivalue);
+    return ok;
+}
+
+
+//----------------------------------------------------------------------------
+// Append an array of C-strings to a container of strings.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+CONTAINER& ts::UString::Append(CONTAINER& container, int argc, const char* const argv[])
+{
+    const size_type size = argc < 0 ? 0 : size_type(argc);
+    for (size_type i = 0; i < size; ++i) {
+        container.push_back(UString::FromUTF8(argv[i]));
+    }
+    return container;
+}
+
+
+//----------------------------------------------------------------------------
+// Format a string containing a decimal value.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type*>
+ts::UString ts::UString::Decimal(INT value,
+                                 size_type min_width,
+                                 bool right_justified,
+                                 const UString& separator,
+                                 bool force_sign,
+                                 UChar pad)
+{
+    using type_t = typename underlying_type<INT>::type;
+
+    // We build the result string in s.
+    UString s;
+    DecimalHelper(s, type_t(value), separator, force_sign);
+
+    // Adjust string width.
+    if (s.size() < min_width) {
+        if (right_justified) {
+            s.insert(0, min_width - s.size(), pad);
+        }
+        else {
+            s.append(min_width - s.size(), pad);
+        }
+    }
+
+    // Return the formatted result
+    return s;
+}
+
+
+//----------------------------------------------------------------------------
+// Format a string containing a list of decimal values.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER, typename std::enable_if<std::is_integral<typename CONTAINER::value_type>::value || std::is_enum<typename CONTAINER::value_type>::value>::type*>
+ts::UString ts::UString::Decimal(const CONTAINER& values, const UString& separator, bool force_sign)
+{
+    using type_t = typename underlying_type<typename CONTAINER::value_type>::type;
+
+    UString result;
+    for (typename CONTAINER::value_type val : values) {
+        UString s;
+        DecimalHelper(s, type_t(val), u"", force_sign);
+        if (!result.empty()) {
+            result.append(separator);
+        }
+        result.append(s);
+    }
+    return result;
+}
+
+
+//----------------------------------------------------------------------------
+// Internal helpers for Decimal(), unsigned version.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+void ts::UString::DecimalHelper(UString& result, INT value, const UString& separator, bool force_sign)
+{
+    // Avoid reallocating (most of the time).
+    result.clear();
+    result.reserve(32);
+
+    // We build the result string IN REVERSE ORDER
+    // So, we need the separator in reverse order too.
+    UString sep(separator);
+    sep.reverse();
+
+    // Format the value
+    int count = 0;
+    do {
+        result.push_back(u'0' + UChar(value % 10));
+        value /= 10;
+        if (++count % 3 == 0 && value != 0) {
+            result.append(sep);
+        }
+    } while (value != 0);
+    if (force_sign) {
+        result.push_back(u'+');
+    }
+
+    // Reverse characters in the string
+    result.reverse();
+}
+
+
+//----------------------------------------------------------------------------
+// Internal helpers for Decimal(), signed version.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+void ts::UString::DecimalHelper(UString& result, INT value, const UString& separator, bool force_sign)
+{
+    // Unsigned version of the signed type (same size).
+    using UNSINT = typename std::make_unsigned<INT>::type;
+
+    if (value == std::numeric_limits<INT>::min()) {
+        DecimalMostNegative<INT>(result, separator);
+    }
+    else if (value < 0) {
+        DecimalHelper<UNSINT>(result, static_cast<UNSINT>(-value), separator, false);
+        result.insert(0, 1, u'-');
+    }
+    else {
+        DecimalHelper<UNSINT>(result, static_cast<UNSINT>(value), separator, force_sign);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Internal helper for Decimal() when the value is the most negative value of
+// a signed type (cannot be made positive inside the same signed type).
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value && sizeof(INT) == 8>::type*>
+void ts::UString::DecimalMostNegative(UString& result, const UString& separator)
+{
+    // Specialization for 64-bit signed type to avoid infinite recursion.
+    // Hard-coded value since there is no way to build it:
+    result = u"-9223372036854775808";
+    if (!separator.empty()) {
+        int count = 0;
+        for (size_t i = result.size() - 1; i > 0; --i) {
+            if (++count % 3 == 0) {
+                result.insert(i, separator);
+            }
+        }
+    }
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value && sizeof(INT) < 8>::type*>
+void ts::UString::DecimalMostNegative(UString& result, const UString& separator)
+{
+    // INT is less than 64-bit long. Use an intermediate 64-bit conversion to have a valid positive value.
+    DecimalHelper<int64_t>(result, static_cast<int64_t>(std::numeric_limits<INT>::min()), separator, false);
+}
+
+
+//----------------------------------------------------------------------------
+// Format a string containing an hexadecimal value.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString ts::UString::Hexa(INT svalue,
+                              size_type width,
+                              const UString& separator,
+                              bool use_prefix,
+                              bool use_upper)
+{
+    // We build the result string in s IN REVERSE ORDER
+    UString s;
+    s.reserve(32); // avoid reallocating (most of the time)
+
+    // So, we need the separator in reverse order too.
+    UString sep(separator);
+    sep.reverse();
+
+    // Default to the natural size of the type.
+    if (width == 0) {
+        width = 2 * sizeof(INT);
+    }
+
+    // In hexadecimal, always format the unsigned version of the binary value.
+    using UNSINT = typename std::make_unsigned<INT>::type;
+    UNSINT value = static_cast<UNSINT>(svalue);
+
+    // Format the value
+    int count = 0;
+    while (width != 0) {
+        const int nibble = int(value & 0xF);
+        value >>= 4;
+        --width;
+        if (nibble < 10) {
+            s.push_back(u'0' + UChar(nibble));
+        }
+        else if (use_upper) {
+            s.push_back(u'A' + UChar(nibble - 10));
+        }
+        else {
+            s.push_back(u'a' + UChar(nibble - 10));
+        }
+        if (++count % 4 == 0 && width > 0) {
+            s += sep;
+        }
+    }
+
+    // Add the optional prefix, still in reverse order.
+    if (use_prefix) {
+        s.push_back(u'x');
+        s.push_back(u'0');
+    }
+
+    // Reverse characters in string
+    return s.toReversed();
+}
+
+
+//----------------------------------------------------------------------------
+// Format a string containing an hexadecimal value (variant).
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+ts::UString ts::UString::HexaMin(INT svalue,
+                                 size_type min_width,
+                                 const UString& separator,
+                                 bool use_prefix,
+                                 bool use_upper)
+{
+    // We build the result string in s IN REVERSE ORDER
+    UString s;
+    s.reserve(32); // avoid reallocating (most of the time)
+
+    // So, we need the separator in reverse order too.
+    UString sep(separator);
+    sep.reverse();
+
+    // Minimum number of hexa digits to format.
+    size_type min_digit = min_width > 0 ? 0 : 2 * sizeof(INT);
+
+    // Remove prefix width from the minimum width.
+    if (use_prefix && min_width >= 2) {
+        min_width -= 2;
+    }
+
+    // In hexadecimal, always format the unsigned version of the binary value.
+    using UNSINT = typename std::make_unsigned<INT>::type;
+    UNSINT value = static_cast<UNSINT>(svalue);
+
+    // Format the value
+    for (size_type digit_count = 0; digit_count == 0 || digit_count < min_digit || s.size() < min_width || value != 0; digit_count++) {
+        const int nibble = int(value & 0xF);
+        value >>= 4;
+        if (digit_count % 4 == 0 && digit_count > 0) {
+            s += sep;
+        }
+        if (nibble < 10) {
+            s.push_back(u'0' + UChar(nibble));
+        }
+        else if (use_upper) {
+            s.push_back(u'A' + UChar(nibble - 10));
+        }
+        else {
+            s.push_back(u'a' + UChar(nibble - 10));
+        }
+    }
+
+    // Add the optional prefix, still in reverse order.
+    if (use_prefix) {
+        s.push_back(u'x');
+        s.push_back(u'0');
+    }
+
+    // Reverse characters in string
+    return s.toReversed();
+}
+
+
+//----------------------------------------------------------------------------
+// Format a percentage string.
+//----------------------------------------------------------------------------
+
+template <typename Int1, typename Int2, typename std::enable_if<std::is_integral<Int1>::value && std::is_integral<Int2>::value>::type*>
+ts::UString ts::UString::Percentage(Int1 value, Int2 total)
+{
+    if (total < 0) {
+        return u"?";
+    }
+    if (total == 0) {
+        return u"0.00%";
+    }
+    else {
+        // Integral percentage
+        const int p1 = int(std::abs((100 * std::intmax_t(value)) / std::intmax_t(total)));
+        // Percentage first 2 decimals
+        const int p2 = int(std::abs((10000 * std::intmax_t(value)) / std::intmax_t(total)) % 100);
+        return Format(u"%d.%02d%%", p1, p2);
+    }
+}
+
+template <class Rep1, class Period1, class Rep2, class Period2>
+ts::UString ts::UString::Percentage(const cn::duration<Rep1,Period1>& value, const cn::duration<Rep2,Period2>& total)
+{
+    using common = typename std::common_type<decltype(value), decltype(total)>::type;
+    return Percentage(cn::duration_cast<common>(value).count(), cn::duration_cast<common>(total).count());
+}
+
+
+//----------------------------------------------------------------------------
+// Reduce the size of the string to a given length from an alien integer type.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::UString::trimLength(INT length, bool trimTrailingSpaces)
+{
+    // We assume here that UString::size_type is the largest unsigned type
+    // and that it is safe to convert any positive value into this type.
+    resize(std::min<size_type>(size(), size_type(std::max<INT>(0, length))));
+    trim(false, trimTrailingSpaces);
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a container of strings into one big string where all elements are
+// properly quoted when necessary.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::quotedLine(const CONTAINER& container, UChar quoteCharacter, const UString& specialCharacters)
+{
+    clear();
+    for (const auto& it : container) {
+        if (!empty()) {
+            append(SPACE);
+        }
+        append(it.toQuoted(quoteCharacter, specialCharacters));
+    }
+}
+
+template <class CONTAINER>
+ts::UString ts::UString::ToQuotedLine(const CONTAINER& container, UChar quoteCharacter, const UString& specialCharacters)
+{
+    UString result;
+    result.quotedLine(container, quoteCharacter, specialCharacters);
+    return result;
+}
+
+
+//----------------------------------------------------------------------------
+// Split this string in space-separated possibly-quoted elements.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::fromQuotedLine(CONTAINER& container, const UString& quoteCharacters, const UString& specialCharacters) const
+{
+    container.clear();
+
+    // Loop on words.
+    size_type index = 0;
+    while (index < size()) {
+
+        // Skip spaces before next word.
+        while (index < size() && IsSpace(at(index))) {
+            ++index;
+        }
+
+        // Return when no more word is available.
+        if (index >= size()) {
+            return;
+        }
+
+        // Current word under construction.
+        UString word;
+        UChar quoteChar = CHAR_NULL;
+        bool quoteOpen = false;
+
+        // Accumulate characters from the current word.
+        while (index < size() && (quoteOpen || !IsSpace(at(index)))) {
+            UChar c = at(index++);
+            if (!quoteOpen && quoteCharacters.contain(c)) {
+                // Start of a quoted sequence.
+                quoteOpen = true;
+                quoteChar = c;
+            }
+            else if (quoteOpen && c == quoteChar) {
+                // End of quoted sequence.
+                quoteOpen = false;
+            }
+            else if (c == '\\' && index < size()) {
+                // Start of an escape sequence.
+                c = at(index++);
+                switch (c) {
+                    case u'b': c = BACKSPACE; break;
+                    case u'f': c = FORM_FEED; break;
+                    case u'n': c = LINE_FEED; break;
+                    case u'r': c = CARRIAGE_RETURN; break;
+                    case u't': c = HORIZONTAL_TABULATION; break;
+                    default: break;
+                }
+                word.push_back(c);
+            }
+            else {
+                // Just a regular character.
+                word.push_back(c);
+            }
+        }
+
+        // End of word, push it.
+        container.push_back(word);
+    }
+}
+
+#endif // DOXYGEN

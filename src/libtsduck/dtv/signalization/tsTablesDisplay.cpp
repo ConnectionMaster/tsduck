@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -38,24 +17,6 @@
 #include "tsATSCMultipleString.h"
 #include "tsNames.h"
 #include "tsIntegerUtils.h"
-
-
-//----------------------------------------------------------------------------
-// Constructor and destructors.
-//----------------------------------------------------------------------------
-
-ts::TablesDisplay::TablesDisplay(DuckContext& d) :
-    _duck(d),
-    _raw_dump(false),
-    _raw_flags(UString::HEXA),
-    _tlv_syntax(),
-    _min_nested_tlv(0)
-{
-}
-
-ts::TablesDisplay::~TablesDisplay()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -208,7 +169,7 @@ void ts::TablesDisplay::displayIntAndASCII(const UString& format, PSIBuffer& buf
     }
 
     // Now display the data.
-    _duck.out() << margin << UString::Format(format, {buf.getBits<uint64_t>(8 * size)});
+    _duck.out() << margin << UString::Format(format, buf.getBits<uint64_t>(8 * size));
     if (!ascii.empty()) {
         _duck.out() << " (\"" << ascii << "\")";
     }
@@ -248,10 +209,10 @@ void ts::TablesDisplay::displayTable(const BinaryTable& table, const UString& ma
     }
 
     // Display common header lines.
-    strm << margin << UString::Format(u"* %s, TID %d (0x%X)", {names::TID(_duck, tid, cas), table.tableId(), table.tableId()});
+    strm << margin << UString::Format(u"* %s, TID %n", names::TID(_duck, tid, cas), table.tableId());
     if (table.sourcePID() != PID_NULL) {
         // If PID is the null PID, this means "unknown PID"
-        strm << UString::Format(u", PID %d (0x%X)", {table.sourcePID(), table.sourcePID()});
+        strm << UString::Format(u", PID %n", table.sourcePID());
     }
     strm << std::endl;
     if (table.sectionCount() == 1 && table.sectionAt(0)->isShortSection()) {
@@ -300,10 +261,10 @@ void ts::TablesDisplay::displaySection(const Section& section, const UString& ma
 
     // Display common header lines.
     if (!no_header) {
-        strm << margin << UString::Format(u"* %s, TID %d (0x%<X)", {names::TID(_duck, tid, cas), tid});
+        strm << margin << UString::Format(u"* %s, TID %n", names::TID(_duck, tid, cas), tid);
         if (section.sourcePID() != PID_NULL) {
             // If PID is the null PID, this means "unknown PID"
-            strm << UString::Format(u", PID %d (0x%<X)", {section.sourcePID()});
+            strm << UString::Format(u", PID %n", section.sourcePID());
         }
         strm << std::endl;
         if (section.isShortSection()) {
@@ -321,6 +282,40 @@ void ts::TablesDisplay::displaySection(const Section& section, const UString& ma
         extra_margin = u"  ";
     }
 
+    // Validate reserved bits in the section header.
+    std::vector<size_t> errors;
+    const uint8_t byte1 = section.content()[1];
+    // The private_indicator must be zero in an MPEG-defined table.
+    if (section.tableId() <= TID_MPEG_LAST && (byte1 & 0x40) != 0) {
+        errors.push_back((1 << 4) | (1 << 1) | 0);
+    }
+    // The private_indicator must be set in a DVB-defined table.
+    // Other standards do not always follow the MPEG rules.
+    if (bool(section.definingStandards() & Standards::DVB) && (byte1 & 0x40) == 0) {
+        errors.push_back((1 << 4) | (1 << 1) | 1);
+    }
+    // Two reserved bits.
+    if ((byte1 & 0x20) == 0) {
+        errors.push_back((1 << 4) | (2 << 1) | 1);
+    }
+    if ((byte1 & 0x10) == 0) {
+        errors.push_back((1 << 4) | (3 << 1) | 1);
+    }
+    if (section.isLongSection()) {
+        const uint8_t byte5 = section.content()[5];
+        // Two reserved bits.
+        if ((byte5 & 0x80) == 0) {
+            errors.push_back((5 << 4) | (0 << 1) | 1);
+        }
+        if ((byte5 & 0x40) == 0) {
+            errors.push_back((5 << 4) | (1 << 1) | 1);
+        }
+    }
+    if (!errors.empty()) {
+        strm << margin << extra_margin << "Reserved bits incorrectly set in section header:" << std::endl;
+        strm << Buffer::ReservedBitsErrorString(errors, 0, margin + extra_margin + u"  ") << std::endl;
+    }
+
     // Display section body
     displaySectionData(section, margin + extra_margin, cas);
 }
@@ -336,15 +331,37 @@ void ts::TablesDisplay::displaySectionData(const Section& section, const UString
     cas = _duck.casId(cas);
 
     // Find the display handler for this table id (and maybe CAS).
-    DisplaySectionFunction handler = PSIRepository::Instance()->getSectionDisplay(section.tableId(), _duck.standards(), section.sourcePID(), cas);
+    DisplaySectionFunction handler = PSIRepository::Instance().getSectionDisplay(section.tableId(), _duck.standards(), section.sourcePID(), cas);
 
     if (handler != nullptr) {
         PSIBuffer buf(_duck, section.payload(), section.payloadSize());
         handler(*this, section, buf, margin);
         displayExtraData(buf, margin);
+        if (buf.reservedBitsError()) {
+            std::ostream& strm(_duck.out());
+            strm << margin << "Reserved bits incorrectly set:" << std::endl;
+            strm << buf.reservedBitsErrorString(section.headerSize(), margin + u"  ") << std::endl;
+        }
     }
     else {
         displayUnkownSectionData(section, margin);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Log a line, either on redirected output or on report if output was not redirected.
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::logLine(const UString& line)
+{
+    if (_duck.redirectedOutput()) {
+        // The output has been redirected, use it.
+        _duck.out() << line << std::endl;
+    }
+    else {
+        // Use the report object for logging.
+        _duck.report().info(line);
     }
 }
 
@@ -359,13 +376,13 @@ void ts::TablesDisplay::logSectionData(const Section& section, const UString& he
     cas = _duck.casId(cas);
 
     // Find the log handler for this table id (and maybe CAS).
-    LogSectionFunction handler = PSIRepository::Instance()->getSectionLog(section.tableId(), _duck.standards(), section.sourcePID(), cas);
+    LogSectionFunction handler = PSIRepository::Instance().getSectionLog(section.tableId(), _duck.standards(), section.sourcePID(), cas);
     if (handler == nullptr) {
         handler = LogUnknownSectionData;
     }
 
     // Output exactly one line.
-    _duck.out() << header << handler(section, max_bytes) << std::endl;
+    logLine(header + handler(section, max_bytes));
 }
 
 
@@ -411,12 +428,12 @@ void ts::TablesDisplay::displayInvalidSection(const DemuxedData& data, const USt
         }
         strm << std::endl << margin << "  ";
         if (tid != TID_NULL) {
-            strm << UString::Format(u"%s, TID %d (0x%<X), ", {names::TID(_duck, tid, cas), tid});
+            strm << UString::Format(u"%s, TID %n, ", names::TID(_duck, tid, cas), tid);
         }
         if (data.sourcePID() != PID_NULL) {
-            strm << UString::Format(u"PID %d (0x%<X), ", {data.sourcePID()});
+            strm << UString::Format(u"PID %n, ", data.sourcePID());
         }
-        strm << UString::Format(u"%'d bytes:", {data.size()}) << std::endl;
+        strm << UString::Format(u"%'d bytes:", data.size()) << std::endl;
     }
 
     // Display invalid section data
@@ -444,7 +461,7 @@ void ts::TablesDisplay::displayUnkownSectionData(const ts::Section& section, con
 
     // The table id extension was not yet displayed since it depends on the table id.
     if (section.isLongSection()) {
-        strm << margin << UString::Format(u"TIDext: %d (0x%X)", {section.tableIdExtension(), section.tableIdExtension()}) << std::endl;
+        strm << margin << UString::Format(u"TIDext: %n", section.tableIdExtension()) << std::endl;
     }
 
     // Section payload.
@@ -475,7 +492,7 @@ void ts::TablesDisplay::displayUnkownSectionData(const ts::Section& section, con
 
             // Display a separator after TLV area.
             if (index < payloadSize) {
-                strm << margin << UString::Format(u"%04X:  End of TLV area", {index}) << std::endl;
+                strm << margin << UString::Format(u"%04X:  End of TLV area", index) << std::endl;
             }
         }
     }
@@ -525,12 +542,12 @@ void ts::TablesDisplay::displayTLV(const uint8_t* data,
 
         // Description of the TLV record.
         strm << UString::Format(u"%*s%04X:  %*sTag: %*d (0x%0*X), length: %*d bytes, value: ",
-                                {indent, u"",
-                                 dataOffset + index,
-                                 innerIndent, u"",
-                                 MaxDecimalWidth(tlv.getTagSize()), tag,
-                                 MaxHexaWidth(tlv.getTagSize()), tag,
-                                 MaxDecimalWidth(tlv.getLengthSize()), valueSize});
+                                indent, u"",
+                                dataOffset + index,
+                                innerIndent, u"",
+                                MaxDecimalWidth(tlv.getTagSize()), tag,
+                                MaxHexaWidth(tlv.getTagSize()), tag,
+                                MaxDecimalWidth(tlv.getLengthSize()), valueSize);
 
         // Display the value field.
         size_t tlvInnerStart = 0;
@@ -555,7 +572,7 @@ void ts::TablesDisplay::displayTLV(const uint8_t* data,
 
     // Display a separator after TLV area.
     if (index > tlvStart && index < endIndex) {
-        strm << UString::Format(u"%*s%04X:  %*sEnd of TLV area", {indent, u"", index, innerIndent, u""}) << std::endl;
+        strm << UString::Format(u"%*s%04X:  %*sEnd of TLV area", indent, u"", index, innerIndent, u"") << std::endl;
     }
 
     // Display remaining binary data.
@@ -613,12 +630,12 @@ void ts::TablesDisplay::displayDescriptorList(const Section& section,
 //----------------------------------------------------------------------------
 
 void ts::TablesDisplay::displayDescriptorListWithLength(const Section& section,
-                                                                 PSIBuffer& buf,
-                                                                 const UString& margin,
-                                                                 const UString& title,
-                                                                 const UString& empty_text,
-                                                                 size_t length_bits,
-                                                                 uint16_t cas)
+                                                        PSIBuffer& buf,
+                                                        const UString& margin,
+                                                        const UString& title,
+                                                        const UString& empty_text,
+                                                        size_t length_bits,
+                                                        uint16_t cas)
 {
     const size_t length = buf.getUnalignedLength(length_bits);
     displayDescriptorList(section, buf, margin, title, empty_text, length, cas);
@@ -658,8 +675,12 @@ void ts::TablesDisplay::displayDescriptorList(const Section& section, const void
              << names::DID(desc_tag, pds, tid, NamesFlags::VALUE | NamesFlags::BOTH) << ", "
              << desc_length << " bytes" << std::endl;
 
-        // If the descriptor contains a private_data_specifier, keep it
-        // to establish a private context.
+        // If the descriptor contains a registration id, keep it in the TSDuck context.
+        if (desc_tag == DID_REGISTRATION && desc_length >= 4) {
+            _duck.addRegistrationId(GetUInt32(desc_start));
+        }
+
+        // If the descriptor contains a private_data_specifier, keep it to establish a private context.
         if (desc_tag == DID_PRIV_DATA_SPECIF && desc_length >= 4) {
             pds = GetUInt32(desc_start);
             // PDS zero means return to default value.
@@ -692,7 +713,7 @@ void ts::TablesDisplay::displayDescriptorList(const DescriptorList& list, const 
 
     for (size_t i = 0; i < list.count(); ++i) {
         const DescriptorPtr& desc(list[i]);
-        if (!desc.isNull()) {
+        if (desc != nullptr) {
             const PDS pds = list.privateDataSpecifier(i);
             strm << margin << "- Descriptor " << i << ": "
                  << names::DID(desc->tag(), _duck.actualPDS(pds), tid, NamesFlags::VALUE | NamesFlags::BOTH) << ", "
@@ -711,6 +732,9 @@ void ts::TablesDisplay::displayDescriptorData(DID did, const uint8_t* payload, s
 {
     std::ostream& strm(_duck.out());
 
+    // Descriptor header size, before payload.
+    size_t header_size = 2;
+
     // Compute extended descriptor id.
     EDID edid;
     if (did >= 0x80) {
@@ -721,14 +745,16 @@ void ts::TablesDisplay::displayDescriptorData(DID did, const uint8_t* payload, s
         // MPEG extension descriptor, the extension id is in the first byte of the payload.
         const uint8_t ext = *payload++;
         edid = EDID::ExtensionMPEG(ext);
+        header_size++;
         size--;
         // Display extended descriptor header
-        strm << margin << "MPEG extended descriptor: " << NameFromSection(u"MPEGExtendedDescriptorId", ext, NamesFlags::VALUE | NamesFlags::BOTH) << std::endl;
+        strm << margin << "MPEG extended descriptor: " << NameFromDTV(u"MPEGExtendedDescriptorId", ext, NamesFlags::VALUE | NamesFlags::BOTH) << std::endl;
     }
     else if (did == DID_DVB_EXTENSION && size >= 1) {
         // Extension descriptor, the extension id is in the first byte of the payload.
         const uint8_t ext = *payload++;
         edid = EDID::ExtensionDVB(ext);
+        header_size++;
         size--;
         // Display extended descriptor header
         strm << margin << "Extended descriptor: " << names::EDID(ext, NamesFlags::VALUE | NamesFlags::BOTH) << std::endl;
@@ -739,11 +765,15 @@ void ts::TablesDisplay::displayDescriptorData(DID did, const uint8_t* payload, s
     }
 
     // Locate the display handler for this descriptor payload.
-    DisplayDescriptorFunction handler = PSIRepository::Instance()->getDescriptorDisplay(edid, tid);
+    DisplayDescriptorFunction handler = PSIRepository::Instance().getDescriptorDisplay(edid, tid);
     if (handler != nullptr) {
         PSIBuffer buf(_duck, payload, size);
         handler(*this, buf, margin, did, tid, _duck.actualPDS(pds));
         displayExtraData(buf, margin);
+        if (buf.reservedBitsError()) {
+            strm << margin << "Reserved bits incorrectly set:" << std::endl;
+            strm << buf.reservedBitsErrorString(header_size, margin + u"  ") << std::endl;
+        }
     }
     else {
         displayUnkownDescriptor(did, payload, size, margin, tid, _duck.actualPDS(pds));
@@ -761,12 +791,12 @@ void ts::TablesDisplay::displayCRC32(const Section& section, const UString& marg
     const uint32_t sect_crc32 = GetUInt32(section.content() + section.size() - 4);
     const CRC32 comp_crc32(section.content(), section.size() - 4);
 
-    strm << margin << UString::Format(u"CRC32: 0x%X ", {sect_crc32});
+    strm << margin << UString::Format(u"CRC32: 0x%X ", sect_crc32);
     if (sect_crc32 == comp_crc32) {
         strm << "(OK)";
     }
     else {
-        strm << UString::Format(u"(WRONG, expected 0x%X)", {comp_crc32.value()});
+        strm << UString::Format(u"(WRONG, expected 0x%X)", comp_crc32.value());
     }
     strm << std::endl;
 }
@@ -809,4 +839,177 @@ void ts::TablesDisplay::displayATSCMultipleString(PSIBuffer& buf, size_t length_
     // Adjust read pointer after the structure.
     assert(size <= initial_size);
     buf.skipBytes(initial_size - size);
+}
+
+
+//----------------------------------------------------------------------------
+// Display the 32-bit values in a structured manner with specified number of
+// items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const std::vector<uint32_t>& values, const UString& margin, bool space_first, size_t num_per_line)
+{
+    if (!values.empty()) {
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << UString::Format(u"%08X",  values[j] );
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Display the 16-bit values in a structured manner with specified number of
+// items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const std::vector<uint16_t>& values, const UString& margin, bool space_first, size_t num_per_line)
+{
+    if (!values.empty()) {
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << UString::Format(u"%04X",  values[j] );
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Display the 8-bit values in a structured manner with specified number of
+// items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const std::vector<uint8_t>& values, const UString& margin, bool space_first, size_t num_per_line)
+{
+    if (!values.empty()) {
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << UString::Format(u"%02X",  values[j] );
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Display the signed 8-bit values in a structured manner with specified
+// number of items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const std::vector<int8_t>& values, const UString& margin, bool space_first, size_t num_per_line)
+{
+    if (!values.empty()) {
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        bool hasNegative = false;
+        for (size_t i = 0; !hasNegative && i < values.size(); i++) {
+            if (values[i] < 0) { hasNegative = true; }
+        }
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << UString::Format(u"%d",  values[j] ).toJustifiedRight(hasNegative?4:3);
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Display boolean values in a structured manner using the characters
+// specified and with the specified number of items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const std::vector<bool>& values, const UString& margin, bool space_first, size_t num_per_line, char true_val,
+    char false_val)
+{
+    if (!values.empty()) {
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << (values[j] ? true_val : false_val);
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
+}
+
+//----------------------------------------------------------------------------
+// Display string values in a tabular manner with the values being left
+// aligned and with the specified number of items on each line
+//----------------------------------------------------------------------------
+
+void ts::TablesDisplay::displayVector(const UString& title, const UStringVector& values, const UString& margin, bool space_first, size_t num_per_line)
+{
+    if (!values.empty()) {
+        size_t _maxlen = 0;
+        for (const auto& i : values) {
+            if (i.length() > _maxlen) {
+                _maxlen = i.length();
+            }
+        }
+
+        std::ostream& strm(_duck.out());
+        UString myMargin(margin.length() + title.length(), ' ');
+        strm << margin << title;
+        for (size_t j = 0; j < values.size(); j++) {
+            strm << (space_first ? " " : "") << values[j].toJustifiedLeft(_maxlen);
+            if ((j + 1) % num_per_line == 0) {
+                strm << std::endl;
+                if (j != (values.size() - 1)) {
+                    strm << myMargin;
+                }
+            }
+        }
+        if (values.size() % num_per_line != 0) {
+            strm << std::endl;
+        }
+    }
 }

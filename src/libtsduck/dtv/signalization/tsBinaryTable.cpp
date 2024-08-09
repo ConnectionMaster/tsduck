@@ -1,55 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsBinaryTable.h"
-#include "tsReportWithPrefix.h"
 #include "tsAbstractTable.h"
 #include "tsPSIRepository.h"
 #include "tsDuckContext.h"
 #include "tsSection.h"
 #include "tsxmlElement.h"
-
-
-//----------------------------------------------------------------------------
-// Constructor
-//----------------------------------------------------------------------------
-
-ts::BinaryTable::BinaryTable() :
-    _is_valid(false),
-    _tid(0xFF),
-    _tid_ext(0),
-    _version(0),
-    _source_pid(PID_NULL),
-    _missing_count(0),
-    _sections()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -65,10 +27,7 @@ ts::BinaryTable::BinaryTable(BinaryTable&& other) noexcept :
     _missing_count(other._missing_count),
     _sections(std::move(other._sections))
 {
-    // If section array was actually moved, reset related data.
-    if (other._sections.empty()) {
-        other._missing_count = 0;
-    }
+    other._missing_count = 0; // section array was moved
 }
 
 
@@ -95,11 +54,11 @@ ts::BinaryTable::BinaryTable(const BinaryTable& other, ShareMode mode) :
         case ShareMode::COPY: {
             _sections.resize(other._sections.size());
             for (size_t i = 0; i < _sections.size(); ++i) {
-                if (other._sections[i].isNull()) {
-                    _sections[i].clear();
+                if (other._sections[i] == nullptr) {
+                    _sections[i].reset();
                 }
                 else {
-                    _sections[i] = new Section(*other._sections[i], ShareMode::COPY);
+                    _sections[i] = std::make_shared<Section>(*other._sections[i], ShareMode::COPY);
                 }
             }
             break;
@@ -116,14 +75,7 @@ ts::BinaryTable::BinaryTable(const BinaryTable& other, ShareMode mode) :
 // Constructor from an array of sections.
 //----------------------------------------------------------------------------
 
-ts::BinaryTable::BinaryTable(const SectionPtrVector& sections, bool replace, bool grow) :
-    _is_valid(false),
-    _tid(0xFF),
-    _tid_ext(0),
-    _version(0),
-    _source_pid(PID_NULL),
-    _missing_count(0),
-    _sections()
+ts::BinaryTable::BinaryTable(const SectionPtrVector& sections, bool replace, bool grow)
 {
     if (!addSections(sections, replace, grow)) {
         clear();
@@ -165,10 +117,7 @@ ts::BinaryTable& ts::BinaryTable::operator=(BinaryTable&& other) noexcept
         _source_pid = other._source_pid;
         _missing_count = other._missing_count;
         _sections = std::move(other._sections);
-        // If section array was actually moved, reset related data.
-        if (other._sections.empty()) {
-            other._missing_count = 0;
-        }
+        other._missing_count = 0; // section array was moved
     }
     return *this;
 }
@@ -188,11 +137,11 @@ ts::BinaryTable& ts::BinaryTable::copy(const BinaryTable& table)
     _missing_count = table._missing_count;
     _sections.resize(table._sections.size());
     for (size_t i = 0; i < _sections.size(); ++i) {
-        if (table._sections[i].isNull()) {
-            _sections[i].clear();
+        if (table._sections[i] == nullptr) {
+            _sections[i].reset();
         }
         else {
-            _sections[i] = new Section(*table._sections[i], ShareMode::COPY);
+            _sections[i] = std::make_shared<Section>(*table._sections[i], ShareMode::COPY);
         }
     }
     return *this;
@@ -214,7 +163,7 @@ bool ts::BinaryTable::operator==(const BinaryTable& table) const
         _sections.size() == table._sections.size();
 
     for (size_t i = 0; equal && i < _sections.size(); ++i) {
-        equal = !_sections[i].isNull() && !table._sections[i].isNull() && *_sections[i] == *table._sections[i];
+        equal = _sections[i] != nullptr && table._sections[i] != nullptr && *_sections[i] == *table._sections[i];
     }
 
     return equal;
@@ -238,7 +187,7 @@ const ts::SectionPtr ts::BinaryTable::sectionAt(size_t index) const
 ts::Standards ts::BinaryTable::definingStandards() const
 {
     // The defining standard is taken from table id.
-    return PSIRepository::Instance()->getTableStandards(tableId(), _source_pid);
+    return PSIRepository::Instance().getTableStandards(tableId(), _source_pid);
 }
 
 
@@ -249,9 +198,9 @@ ts::Standards ts::BinaryTable::definingStandards() const
 void ts::BinaryTable::setTableIdExtension(uint16_t tid_ext, bool recompute_crc)
 {
     _tid_ext = tid_ext;
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        if (!it->isNull()) {
-            (*it)->setTableIdExtension(tid_ext, recompute_crc);
+    for (const auto& it : _sections) {
+        if (it != nullptr) {
+            it->setTableIdExtension(tid_ext, recompute_crc);
         }
     }
 }
@@ -259,9 +208,9 @@ void ts::BinaryTable::setTableIdExtension(uint16_t tid_ext, bool recompute_crc)
 void ts::BinaryTable::setVersion(uint8_t version, bool recompute_crc)
 {
     _version = version;
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        if (!it->isNull()) {
-            (*it)->setVersion(version, recompute_crc);
+    for (const auto& it : _sections) {
+        if (it != nullptr) {
+            it->setVersion(version, recompute_crc);
         }
     }
 }
@@ -269,9 +218,9 @@ void ts::BinaryTable::setVersion(uint8_t version, bool recompute_crc)
 void ts::BinaryTable::setSourcePID(PID pid)
 {
     _source_pid = pid;
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        if (!it->isNull()) {
-            (*it)->setSourcePID(pid);
+    for (const auto& it : _sections) {
+        if (it != nullptr) {
+            it->setSourcePID(pid);
         }
     }
 }
@@ -285,10 +234,10 @@ ts::PacketCounter ts::BinaryTable::firstTSPacketIndex() const
 {
     bool found = false;
     PacketCounter first = std::numeric_limits<PacketCounter>::max();
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        if (!it->isNull()) {
+    for (const auto& it : _sections) {
+        if (it != nullptr) {
             found = true;
-            first = std::min(first, (*it)->firstTSPacketIndex());
+            first = std::min(first, it->firstTSPacketIndex());
         }
     }
     return found ? first : 0;
@@ -297,9 +246,9 @@ ts::PacketCounter ts::BinaryTable::firstTSPacketIndex() const
 ts::PacketCounter ts::BinaryTable::lastTSPacketIndex() const
 {
     PacketCounter last = 0;
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        if (!it->isNull()) {
-            last = std::max(last, (*it)->lastTSPacketIndex());
+    for (const auto& it : _sections) {
+        if (it != nullptr) {
+            last = std::max(last, it->lastTSPacketIndex());
         }
     }
     return last;
@@ -330,13 +279,11 @@ void ts::BinaryTable::clear()
 size_t ts::BinaryTable::totalSize() const
 {
     size_t size = 0;
-
-    for (size_t i = 0; i < _sections.size(); ++i) {
-        if (!_sections[i].isNull() && _sections[i]->isValid()) {
-            size += _sections[i]->size();
+    for (const auto& it : _sections) {
+        if (it != nullptr && it->isValid()) {
+            size += it->size();
         }
     }
-
     return size;
 }
 
@@ -374,7 +321,7 @@ bool ts::BinaryTable::addSection(const SectionPtr& sect, bool replace, bool grow
 {
     // Reject invalid sections
 
-    if (sect.isNull() || !sect->isValid()) {
+    if (sect == nullptr || !sect->isValid()) {
         return false;
     }
 
@@ -413,7 +360,7 @@ bool ts::BinaryTable::addSection(const SectionPtr& sect, bool replace, bool grow
             assert(index < int(_sections.size()));
             // Modify all previously entered sections
             for (int si = 0; si < int(_sections.size()); ++si) {
-                if (!_sections[si].isNull()) {
+                if (_sections[si] != nullptr) {
                     _sections[si]->setLastSectionNumber(sect->lastSectionNumber());
                 }
             }
@@ -422,7 +369,7 @@ bool ts::BinaryTable::addSection(const SectionPtr& sect, bool replace, bool grow
 
     // Now add the section
 
-    if (_sections[index].isNull()) {
+    if (_sections[index] == nullptr) {
         // The section was not present, add it
         _sections[index] = sect;
         _missing_count--;
@@ -460,7 +407,7 @@ bool ts::BinaryTable::packSections()
 
         // Pack all section pointers.
         for (size_t n = 0; n < _sections.size(); ++n) {
-            if (!_sections[n].isNull()) {
+            if (_sections[n] != nullptr) {
                 if (next_section != n) {
                     _sections[next_section] = _sections[n];
                 }
@@ -475,7 +422,7 @@ bool ts::BinaryTable::packSections()
 
         // Now patch section numbers.
         for (size_t n = 0; n < _sections.size(); ++n) {
-            assert(!_sections[n].isNull());
+            assert(_sections[n] != nullptr);
             assert(next_section > 0);
             _sections[n]->setSectionNumber(uint8_t(n), false);
             _sections[n]->setLastSectionNumber(uint8_t(next_section - 1), true);
@@ -491,20 +438,7 @@ bool ts::BinaryTable::packSections()
 
 bool ts::BinaryTable::isShortSection() const
 {
-    return _sections.size() == 1 && !_sections[0].isNull() && _sections[0]->isShortSection();
-}
-
-
-//----------------------------------------------------------------------------
-// Options to convert a binary table into XML.
-//----------------------------------------------------------------------------
-
-ts::BinaryTable::XMLOptions::XMLOptions() :
-    forceGeneric(false),
-    setPID(false),
-    setLocalTime(false),
-    setPackets(false)
-{
+    return _sections.size() == 1 && _sections[0] != nullptr && _sections[0]->isShortSection();
 }
 
 
@@ -515,7 +449,7 @@ ts::BinaryTable::XMLOptions::XMLOptions() :
 ts::xml::Element* ts::BinaryTable::toXML(DuckContext& duck, xml::Element* parent, const XMLOptions& opt) const
 {
     // Filter invalid tables.
-    if (!_is_valid || _sections.size() == 0 || _sections[0].isNull()) {
+    if (!_is_valid || _sections.size() == 0 || _sections[0] == nullptr) {
         return nullptr;
     }
 
@@ -525,11 +459,11 @@ ts::xml::Element* ts::BinaryTable::toXML(DuckContext& duck, xml::Element* parent
     // Try to generate a specialized XML structure.
     if (!opt.forceGeneric) {
         // Do we know how to deserialize this table?
-        PSIRepository::TableFactory fac = PSIRepository::Instance()->getTableFactory(_tid, duck.standards(), _source_pid);
+        PSIRepository::TableFactory fac = PSIRepository::Instance().getTableFactory(_tid, duck.standards(), _source_pid);
         if (fac != nullptr) {
             // We know how to deserialize this table.
             AbstractTablePtr tp = fac();
-            if (!tp.isNull()) {
+            if (tp != nullptr) {
                 // Deserialize from binary to object.
                 tp->deserialize(duck, *this);
                 if (tp->isValid()) {
@@ -559,16 +493,16 @@ ts::xml::Element* ts::BinaryTable::toXML(DuckContext& duck, xml::Element* parent
             node->setBoolAttribute(u"private", _sections[0]->isPrivateSection());
 
             // Add each section in binary format.
-            for (size_t index = 0; index < _sections.size(); ++index) {
-                if (!_sections[index].isNull() && _sections[index]->isValid()) {
-                    node->addElement(u"section")->addHexaText(_sections[index]->payload(), _sections[index]->payloadSize());
+            for (const auto& sec : _sections) {
+                if (sec != nullptr && sec->isValid()) {
+                    node->addHexaTextChild(u"section", sec->payload(), sec->payloadSize());
                 }
             }
         }
     }
 
     // Add optional metadata.
-    if ((opt.setPID && _source_pid != PID_NULL) || opt.setLocalTime || opt.setPackets) {
+    if ((opt.setPID && _source_pid != PID_NULL) || opt.setLocalTime || opt.setPackets || opt.setSections) {
         // Add <metadata> element as first child of the table.
         // This element is not part of the table but describes how the table was collected.
         xml::Element* meta = new xml::Element(node, u"metadata", CASE_INSENSITIVE, false); // first position
@@ -581,6 +515,13 @@ ts::xml::Element* ts::BinaryTable::toXML(DuckContext& duck, xml::Element* parent
         if (opt.setPackets) {
             meta->setIntAttribute(u"first_ts_packet", firstTSPacketIndex());
             meta->setIntAttribute(u"last_ts_packet", lastTSPacketIndex());
+        }
+        if (opt.setSections) {
+            for (const auto& sec : _sections) {
+                if (sec != nullptr && sec->isValid()) {
+                    meta->addHexaTextChild(u"section", sec->content(), sec->size());
+                }
+            }
         }
     }
 
@@ -604,19 +545,19 @@ bool ts::BinaryTable::fromXML(DuckContext& duck, const xml::Element* node)
     }
 
     // Get the table factory for that kind of XML tag.
-    const PSIRepository::TableFactory fac = PSIRepository::Instance()->getTableFactory(node->name());
+    const PSIRepository::TableFactory fac = PSIRepository::Instance().getTableFactory(node->name());
     if (fac != nullptr) {
         // Create a table instance of the right type.
         AbstractTablePtr table = fac();
-        if (!table.isNull()) {
+        if (table != nullptr) {
             table->fromXML(duck, node);
         }
-        if (!table.isNull() && table->isValid()) {
+        if (table != nullptr && table->isValid()) {
             // Serialize the table.
             table->serialize(duck, *this);
             if (!isValid()) {
                 // Serialization failed.
-                node->report().error(u"<%s>, line %d, is correct but the binary serialization failed", {node->name(), node->lineNumber()});
+                node->report().error(u"<%s>, line %d, is correct but the binary serialization failed", node->name(), node->lineNumber());
                 return false;
             }
         }
@@ -633,7 +574,7 @@ bool ts::BinaryTable::fromXML(DuckContext& duck, const xml::Element* node)
             node->getBoolAttribute(priv, u"private", false, true) &&
             node->getHexaText(payload, 0, MAX_PSI_SHORT_SECTION_PAYLOAD_SIZE))
         {
-            addSection(SectionPtr(new Section(tid, priv, payload.data(), payload.size())));
+            addNewSection(tid, priv, payload.data(), payload.size());
         }
         // The XML element name was valid.
         return true;
@@ -657,7 +598,7 @@ bool ts::BinaryTable::fromXML(DuckContext& duck, const xml::Element* node)
                 assert(sectionNodes[index] != nullptr);
                 ByteBlock payload;
                 if (sectionNodes[index]->getHexaText(payload, 0, MAX_PSI_LONG_SECTION_PAYLOAD_SIZE)) {
-                    addSection(SectionPtr(new Section(tid, priv, tidExt, version, current, uint8_t(index), uint8_t(index), payload.data(), payload.size())));
+                    addNewSection(tid, priv, tidExt, version, current, uint8_t(index), uint8_t(index), payload.data(), payload.size());
                 }
                 else {
                     // Invalid <section> content.
@@ -671,6 +612,6 @@ bool ts::BinaryTable::fromXML(DuckContext& duck, const xml::Element* node)
     }
 
     // At this point, the table is invalid.
-    node->report().error(u"<%s>, line %d, is not a valid table", {node->name(), node->lineNumber()});
+    node->report().error(u"<%s>, line %d, is not a valid table", node->name(), node->lineNumber());
     return false;
 }

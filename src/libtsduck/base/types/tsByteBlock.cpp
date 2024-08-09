@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -59,7 +38,7 @@ ts::ByteBlock::ByteBlock(const void* data, size_type size) :
     ByteVector(size)
 {
     if (size > 0) {
-        ::memcpy(&(*this)[0], data, size);  // Flawfinder: ignore: memcpy()
+        MemCopy(&(*this)[0], data, size);
     }
 }
 
@@ -68,10 +47,10 @@ ts::ByteBlock::ByteBlock(const void* data, size_type size) :
 //----------------------------------------------------------------------------
 
 ts::ByteBlock::ByteBlock(const char* str) :
-    ByteVector(::strlen(str))  // Flawfinder: ignore: strlen()
+    ByteVector(std::strlen(str))
 {
     if (size() > 0) {
-        ::memcpy(data(), str, size());  // Flawfinder: ignore: memcpy()
+        MemCopy(data(), str, size());
     }
 }
 
@@ -85,6 +64,20 @@ ts::ByteBlock::ByteBlock(std::initializer_list<uint8_t> init) :
 }
 
 //----------------------------------------------------------------------------
+// Find the first occurence of a byte value in a byte block.
+//----------------------------------------------------------------------------
+
+ts::ByteBlock::size_type ts::ByteBlock::find(uint8_t value, size_type start)
+{
+    for (size_type i = start; i < size(); ++i) {
+        if ((*this)[i] == value) {
+            return i;
+        }
+    }
+    return NPOS;
+}
+
+//----------------------------------------------------------------------------
 // Replace the content of a byte block.
 //----------------------------------------------------------------------------
 
@@ -92,7 +85,7 @@ void ts::ByteBlock::copy(const void* data_, size_type size_)
 {
     resize(data_ == nullptr ? 0 : size_);
     if (size() > 0) {
-        ::memcpy(data(), data_, size());  // Flawfinder: ignore: memcpy()
+        MemCopy(data(), data_, size());
     }
 }
 
@@ -104,7 +97,7 @@ uint8_t* ts::ByteBlock::enlarge(size_type n)
 {
     const size_type oldsize = this->size();
     resize(oldsize + n);
-    return &(*this)[oldsize];
+    return data() + oldsize;
 }
 
 //----------------------------------------------------------------------------
@@ -169,7 +162,7 @@ bool ts::ByteBlock::appendFromFile(const UString& fileName, size_t maxSize, Repo
     std::ifstream strm(fileName.toUTF8().c_str(), std::ios::in | std::ios::binary);
     if (!strm.is_open()) {
         if (report != nullptr) {
-            report->error(u"cannot open %s", {fileName});
+            report->error(u"cannot open %s", fileName);
         }
         return false;
     }
@@ -181,7 +174,7 @@ bool ts::ByteBlock::appendFromFile(const UString& fileName, size_t maxSize, Repo
     const bool success = !strm.fail() || strm.eof();
     strm.close();
     if (!success && report != nullptr) {
-        report->error(u"error reading %s", {fileName});
+        report->error(u"error reading %s", fileName);
     }
     return success;
 }
@@ -243,7 +236,7 @@ bool ts::ByteBlock::writeToFile(const UString& fileName, std::ios::openmode mode
     std::ofstream strm(fileName.toUTF8().c_str(), mode);
     if (!strm.is_open()) {
         if (report != nullptr) {
-            report->error(u"cannot create %s", {fileName});
+            report->error(u"cannot create %s", fileName);
         }
         return false;
     }
@@ -253,7 +246,7 @@ bool ts::ByteBlock::writeToFile(const UString& fileName, std::ios::openmode mode
     const bool success = !strm.fail();
     strm.close();
     if (!success && report != nullptr) {
-        report->error(u"error writing %s", {fileName});
+        report->error(u"error writing %s", fileName);
     }
     return success;
 }

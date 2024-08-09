@@ -1,84 +1,18 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSProcessorArgs.h"
-#include "tsPluginRepository.h"
 #include "tsArgsWithPlugins.h"
 
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::TSProcessorArgs::DEFAULT_BUFFER_SIZE;
-constexpr size_t ts::TSProcessorArgs::MIN_BUFFER_SIZE;
-#endif
-
-#define DEF_BITRATE_INTERVAL               5  // seconds
-#define DEF_INIT_BITRATE_PKT_INTERVAL   1000  // packets
-#define DEF_MAX_FLUSH_PKT_OFL          10000  // packets
-#define DEF_MAX_FLUSH_PKT_RT            1000  // packets
-#define DEF_MAX_INPUT_PKT_OFL              0  // packets
-#define DEF_MAX_INPUT_PKT_RT            1000  // packets
-#define DEF_CONTROL_TIMEOUT             5000  // milliseconds
-
-
-//----------------------------------------------------------------------------
-// Constructor.
-//----------------------------------------------------------------------------
-
-ts::TSProcessorArgs::TSProcessorArgs() :
-    app_name(),
-    ignore_jt(false),
-    log_plugin_index(false),
-    ts_buffer_size(DEFAULT_BUFFER_SIZE),
-    max_flush_pkt(0),
-    max_input_pkt(0),
-    max_output_pkt(NPOS), // unlimited
-    init_input_pkt(0),
-    instuff_nullpkt(0),
-    instuff_inpkt(0),
-    instuff_start(0),
-    instuff_stop(0),
-    fixed_bitrate(0),
-    bitrate_adj(DEF_BITRATE_INTERVAL * MilliSecPerSec),
-    init_bitrate_adj(DEF_INIT_BITRATE_PKT_INTERVAL),
-    realtime(Tristate::Maybe),
-    receive_timeout(0),
-    final_wait(-1),
-    control_port(0),
-    control_local(),
-    control_reuse(false),
-    control_sources(),
-    control_timeout(DEF_CONTROL_TIMEOUT),
-    duck_args(),
-    input(),
-    plugins(),
-    output()
-{
-}
+#define DEF_MAX_FLUSH_PKT_OFL  10000  // packets
+#define DEF_MAX_FLUSH_PKT_RT    1000  // packets
+#define DEF_MAX_INPUT_PKT_OFL      0  // packets
+#define DEF_MAX_INPUT_PKT_RT    1000  // packets
 
 
 //----------------------------------------------------------------------------
@@ -112,11 +46,11 @@ void ts::TSProcessorArgs::defineArgs(Args& args)
               u"Specify the input bitrate, in bits/seconds. By default, the input "
               u"bitrate is provided by the input plugin or by analysis of the PCR.");
 
-    args.option(u"bitrate-adjust-interval", 0, Args::POSITIVE);
+    args.option<cn::seconds>(u"bitrate-adjust-interval");
     args.help(u"bitrate-adjust-interval",
               u"Specify the interval in seconds between bitrate adjustments, "
               u"ie. when the output bitrate is adjusted to the input one. "
-              u"The default is " TS_USTRINGIFY(DEF_BITRATE_INTERVAL) u" seconds. "
+              u"The default is " + UString::Chrono(cn::duration_cast<cn::seconds>(DEFAULT_BITRATE_INTERVAL)) + u". "
               u"Some output processors ignore this setting. Typically, ASI "
               u"or modulator devices use it, while file devices ignore it. "
               u"This option is ignored if --bitrate is specified. ");
@@ -132,8 +66,8 @@ void ts::TSProcessorArgs::defineArgs(Args& args)
               u"Specify the TCP port on which tsp listens for control commands. "
               u"If unspecified, no control commands are expected.");
 
-    args.option(u"control-local", 0, Args::STRING);
-    args.help(u"control-local", u"address",
+    args.option(u"control-local", 0, Args::IPADDR);
+    args.help(u"control-local",
               u"Specify the IP address of the local interface on which to listen for control commands. "
               u"It can be also a host name that translates to a local address. "
               u"By default, listen on all local interfaces.");
@@ -144,20 +78,20 @@ void ts::TSProcessorArgs::defineArgs(Args& args)
               u"This option is not enabled by default to avoid accidentally running "
               u"two tsp commands with the same control port.");
 
-    args.option(u"control-source", 0, Args::STRING);
-    args.help(u"control-source", u"address",
+    args.option(u"control-source", 0, Args::IPADDR);
+    args.help(u"control-source",
               u"Specify a remote IP address which is allowed to send control commands. "
               u"By default, as a security precaution, only the local host is allowed to connect. "
               u"Several --control-source options are allowed.");
 
-    args.option(u"control-timeout", 0, Args::UNSIGNED);
-    args.help(u"control-timeout", u"milliseconds",
-              u"Specify the reception timeout in milliseconds for control commands. "
-              u"The default timeout is " TS_STRINGIFY(DEF_CONTROL_TIMEOUT) u" ms.");
+    args.option<cn::milliseconds>(u"control-timeout");
+    args.help(u"control-timeout",
+              u"Specify the reception timeout for control commands. "
+              u"The default timeout is " + UString::Chrono(DEFAULT_CONTROL_TIMEOUT, true) + u".");
 
-    args.option(u"final-wait", 0, Args::INT64);
-    args.help(u"final-wait", u"milliseconds",
-              u"Wait the specified number of milliseconds after the last input packet. "
+    args.option<cn::milliseconds>(u"final-wait");
+    args.help(u"final-wait",
+              u"Wait the specified duration after the last input packet. "
               u"Zero means wait forever.");
 
     args.option(u"ignore-joint-termination", 'i');
@@ -186,9 +120,9 @@ void ts::TSProcessorArgs::defineArgs(Args& args)
               u"This can be useful if the same plugin is used several times "
               u"and all instances log many messages.");
 
-    args.option(u"receive-timeout", 0, Args::POSITIVE);
-    args.help(u"receive-timeout", u"milliseconds",
-              u"Specify a timeout in milliseconds for all input operations. "
+    args.option<cn::milliseconds>(u"receive-timeout");
+    args.help(u"receive-timeout",
+              u"Specify a timeout for all input operations. "
               u"Equivalent to the same --receive-timeout options in some plugins. "
               u"By default, there is no input timeout.");
 
@@ -236,7 +170,7 @@ bool ts::TSProcessorArgs::loadArgs(DuckContext& duck, Args& args)
     log_plugin_index = args.present(u"log-plugin-index");
     ts_buffer_size = args.intValue<size_t>(u"buffer-size-mb", DEFAULT_BUFFER_SIZE);
     args.getValue(fixed_bitrate, u"bitrate", 0);
-    bitrate_adj = MilliSecPerSec * args.intValue(u"bitrate-adjust-interval", DEF_BITRATE_INTERVAL);
+    args.getChronoValue(bitrate_adj, u"bitrate-adjust-interval", DEFAULT_BITRATE_INTERVAL);
     args.getIntValue(max_flush_pkt, u"max-flushed-packets", 0);
     args.getIntValue(max_input_pkt, u"max-input-packets", 0);
     args.getIntValue(max_output_pkt, u"max-output-packets", NPOS); // unlimited by default
@@ -245,22 +179,15 @@ bool ts::TSProcessorArgs::loadArgs(DuckContext& duck, Args& args)
     args.getIntValue(instuff_stop, u"add-stop-stuffing", 0);
     ignore_jt = args.present(u"ignore-joint-termination");
     args.getTristateValue(realtime, u"realtime");
-    args.getIntValue(receive_timeout, u"receive-timeout", 0);
-    args.getIntValue(final_wait, u"final-wait", -1);
+    args.getChronoValue(receive_timeout, u"receive-timeout");
+    args.getChronoValue(final_wait, u"final-wait", cn::milliseconds(-1));
+    args.getIPValue(control_local, u"control-local");
     args.getIntValue(control_port, u"control-port", 0);
-    args.getIntValue(control_timeout, u"control-timeout", DEF_CONTROL_TIMEOUT);
+    args.getChronoValue(control_timeout, u"control-timeout", DEFAULT_CONTROL_TIMEOUT);
     control_reuse = args.present(u"control-reuse-port");
 
     // Convert MB in MiB for buffer size for compatibility with original versions.
     ts_buffer_size = size_t((uint64_t(ts_buffer_size) * 1024 * 1024) / 1000000);
-
-    // Get and resolve optional local address.
-    if (!args.present(u"control-local")) {
-        control_local.clear();
-    }
-    else {
-        control_local.resolve(args.value(u"control-local"), args);
-    }
 
     // Get and resolve optional allowed remote addresses.
     control_sources.clear();
@@ -270,16 +197,13 @@ bool ts::TSProcessorArgs::loadArgs(DuckContext& duck, Args& args)
     }
     else {
         for (size_t i = 0; i < args.count(u"control-source"); ++i) {
-            IPv4Address addr;
-            if (addr.resolve(args.value(u"control-source", u"", i), args)) {
-                control_sources.push_back(addr);
-            }
+            control_sources.push_back(args.ipValue(u"control-source", IPv4Address(), i));
         }
     }
 
     // Decode --add-input-stuffing nullpkt/inpkt.
     instuff_nullpkt = instuff_inpkt = 0;
-    if (args.present(u"add-input-stuffing") && !args.value(u"add-input-stuffing").scan(u"%d/%d", {&instuff_nullpkt, &instuff_inpkt})) {
+    if (args.present(u"add-input-stuffing") && !args.value(u"add-input-stuffing").scan(u"%d/%d", &instuff_nullpkt, &instuff_inpkt)) {
         args.error(u"invalid value for --add-input-stuffing, use \"nullpkt/inpkt\" format");
     }
 

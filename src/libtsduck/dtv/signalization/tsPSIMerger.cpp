@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,6 +11,7 @@
 #include "tsTSPacket.h"
 #include "tsAlgorithm.h"
 #include "tsEIT.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -40,29 +20,7 @@
 
 ts::PSIMerger::PSIMerger(DuckContext& duck, Options options) :
     _duck(duck),
-    _options(options),
-    _main_demux(_duck, this),                // Complete table handler only
-    _main_eit_demux(_duck, nullptr, this),   // Section handler only, do not accumulate incomplete sections.
-    _merge_demux(_duck, this),               // Complete table handler only
-    _merge_eit_demux(_duck, nullptr, this),  // Section handler only, do not accumulate incomplete sections.
-    _pat_pzer(duck),
-    _cat_pzer(duck),
-    _nit_pzer(duck),
-    _sdt_bat_pzer(duck),
-    _eit_pzer(duck, PID_EIT, this),
-    _main_tsid(),
-    _main_pat(),
-    _merge_pat(),
-    _main_cat(),
-    _merge_cat(),
-    _main_sdt(),
-    _merge_sdt(),
-    _main_nit(),
-    _merge_nit(),
-    _main_bats(),
-    _merge_bats(),
-    _eits(),
-    _max_eits(128) // hard-coded for now
+    _options(options)
 {
     reset();
 }
@@ -160,7 +118,7 @@ void ts::PSIMerger::reset(Options options)
     _eit_pzer.setPID(PID_EIT);
 
     // Make sure that all input tables are invalid.
-    _main_tsid.clear();
+    _main_tsid.reset();
     _main_pat.invalidate();
     _merge_pat.invalidate();
     _main_cat.invalidate();
@@ -381,7 +339,7 @@ void ts::PSIMerger::provideSection(SectionCounter counter, SectionPtr& section)
 {
     if (_eits.empty()) {
         // No EIT section to provide.
-        section.clear();
+        section.reset();
     }
     else {
         // Remove one EIT section from the queue for insertion.
@@ -406,13 +364,13 @@ void ts::PSIMerger::handleSection(SectionDemux& demux, const Section& section)
 
         // Create a copy of the section object (shared section data).
         const SectionPtr sp(new Section(section, ShareMode::SHARE));
-        CheckNonNull(sp.pointer());
+        CheckNonNull(sp.get());
 
         if (demux.demuxId() != DEMUX_MERGE_EIT || !is_actual) {
             // Not an EIT-Actual from the merge stream, pass section without modification.
             _eits.push_back(sp);
         }
-        else if (sp->payloadSize() >= 2 && _main_tsid.set()) {
+        else if (sp->payloadSize() >= 2 && _main_tsid.has_value()) {
             // This is an EIT-Actual from merged stream and we know the main TS id.
             // Patch the EIT with new TS id before enqueueing.
             // The TSid is in the first two bytes of the EIT payload.
@@ -597,14 +555,14 @@ void ts::PSIMerger::mergePAT()
     pat.version = (pat.version + 1) & SVERSION_MASK;
 
     // Add all services from merged stream into main PAT.
-    for (auto merge = _merge_pat.pmts.begin(); merge != _merge_pat.pmts.end(); ++merge) {
+    for (const auto& merge : _merge_pat.pmts) {
         // Check if the service already exists in the main PAT.
-        if (Contains(pat.pmts, merge->first)) {
-            _duck.report().error(u"service conflict, service 0x%X (%d) exists in the two streams, dropping from merged stream", {merge->first, merge->first});
+        if (Contains(pat.pmts, merge.first)) {
+            _duck.report().error(u"service conflict, service %n exists in the two streams, dropping from merged stream", merge.first);
         }
         else {
-            pat.pmts[merge->first] = merge->second;
-            _duck.report().verbose(u"adding service 0x%X (%d) in PAT from merged stream", {merge->first, merge->first});
+            pat.pmts[merge.first] = merge.second;
+            _duck.report().verbose(u"adding service %n in PAT from merged stream", merge.first);
         }
     }
 
@@ -639,11 +597,11 @@ void ts::PSIMerger::mergeCAT()
         const CADescriptor ca(_duck, *_merge_cat.descs[index]);
         // Check if the same EMM PID already exists in the main CAT.
         if (CADescriptor::SearchByPID(_main_cat.descs, ca.ca_pid) < _main_cat.descs.count()) {
-            _duck.report().error(u"EMM PID conflict, PID 0x%X (%d) referenced in the two streams, dropping from merged stream", {ca.ca_pid, ca.ca_pid});
+            _duck.report().error(u"EMM PID conflict, PID %n referenced in the two streams, dropping from merged stream", ca.ca_pid);
         }
         else {
             cat.descs.add(_merge_cat.descs[index]);
-            _duck.report().verbose(u"adding EMM PID 0x%X (%d) in CAT from merged stream", {ca.ca_pid, ca.ca_pid});
+            _duck.report().verbose(u"adding EMM PID %n in CAT from merged stream", ca.ca_pid);
         }
     }
 
@@ -674,14 +632,14 @@ void ts::PSIMerger::mergeSDT()
     sdt.version = (sdt.version + 1) & SVERSION_MASK;
 
     // Add all services from merged stream into main SDT.
-    for (auto merge = _merge_sdt.services.begin(); merge != _merge_sdt.services.end(); ++merge) {
+    for (const auto& merge : _merge_sdt.services) {
         // Check if the service already exists in the main SDT.
-        if (Contains(sdt.services, merge->first)) {
-            _duck.report().error(u"service conflict, service 0x%X (%d) exists in the two streams, dropping from merged stream", {merge->first, merge->first});
+        if (Contains(sdt.services, merge.first)) {
+            _duck.report().error(u"service conflict, service %n exists in the two streams, dropping from merged stream", merge.first);
         }
         else {
-            sdt.services[merge->first] = merge->second;
-            _duck.report().verbose(u"adding service \"%s\", id 0x%X (%d) in SDT from merged stream", {merge->second.serviceName(_duck), merge->first, merge->first});
+            sdt.services[merge.first] = merge.second;
+            _duck.report().verbose(u"adding service \"%s\", id %n in SDT from merged stream", merge.second.serviceName(_duck), merge.first);
         }
     }
 
@@ -759,7 +717,7 @@ void ts::PSIMerger::mergeBAT(uint16_t bouquet_id)
         return;
     }
 
-    _duck.report().debug(u"merging BAT for bouquet id 0x%X (%d)", {bouquet_id, bouquet_id});
+    _duck.report().debug(u"merging BAT for bouquet id %n", bouquet_id);
 
     // Build a new BAT based on last main BAT with incremented version number.
     BAT bat(main->second);

@@ -1,29 +1,8 @@
 //-------------------       ---------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -115,7 +94,7 @@ namespace ts {
         //! output is already redirected outside @c std::cout, do nothing.
         //! @return True on success, false on error.
         //!
-        bool setOutput(const UString& fileName, bool override = true);
+        bool setOutput(const fs::path& fileName, bool override = true);
 
         //!
         //! Redirect the output stream to a stream.
@@ -124,6 +103,12 @@ namespace ts {
         //! output is already redirected outside @c std::cout, do nothing.
         //!
         void setOutput(std::ostream* output, bool override = true);
+
+        //!
+        //! Check if output was redirected.
+        //! @return True if the current output is neither the initial one nor the standard output.
+        //!
+        bool redirectedOutput() const { return _out != &std::cout && _out != _initial_out; }
 
         //!
         //! Flush the text output.
@@ -302,6 +287,35 @@ namespace ts {
         PDS actualPDS(PDS pds) const;
 
         //!
+        //! Add a registration id, as found in an MPEG-defined registration descriptor.
+        //! @param [in] regid A new registration id.
+        //!
+        void addRegistrationId(uint32_t regid);
+
+        //!
+        //! Get the set of all registration ids, as found in MPEG-defined registration descriptors.
+        //! @return A constant reference to the set of all registration ids.
+        //!
+        const std::set<uint32_t>& registrationIds() const
+        {
+            return _registrationIds;
+        }
+
+        //!
+        //! Get the last registration id, as found in MPEG-defined registration descriptors.
+        //! @return The last registration id or REGID_NULL if none was found.
+        //!
+        uint32_t lastRegistrationId() const
+        {
+            return _lastRegistrationId;
+        }
+
+        //!
+        //! Clear all accumulated registration ids, as found in MPEG-defined registration descriptors.
+        //!
+        void resetRegistrationIds();
+
+        //!
         //! Get the list of standards which are present in the transport stream or context.
         //! @return A bit mask of standards.
         //!
@@ -360,7 +374,7 @@ namespace ts {
         //! @param [in] offset Offset from UTC in milli-seconds. Can be positive or negative.
         //! The default offset is zero, meaning plain UTC time.
         //!
-        void setTimeReferenceOffset(MilliSecond offset) { _timeReference = offset; }
+        void setTimeReferenceOffset(cn::milliseconds offset) { _timeReference = offset; }
 
         //!
         //! Set a non-standard time reference offset using a name.
@@ -375,7 +389,7 @@ namespace ts {
         //! Get the non-standard time reference offset.
         //! @return The offset from UTC in milli-seconds. Can be positive or negative.
         //!
-        MilliSecond timeReferenceOffset() const { return _timeReference; }
+        cn::milliseconds timeReferenceOffset() const { return _timeReference; }
 
         //!
         //! Get the non-standard time reference offset as a string.
@@ -459,17 +473,17 @@ namespace ts {
         {
         public:
             //! Default constructor.
-            SavedArgs();
+            SavedArgs() = default;
         private:
             friend class DuckContext;
-            int         _definedCmdOptions; // Defined command line options, indicate which fields are valid.
-            Standards   _cmdStandards;      // Forced standards from the command line.
-            UString     _charsetInName;     // Character set to interpret strings without prefix code.
-            UString     _charsetOutName;    // Preferred character set to generate strings.
-            uint16_t    _casId;             // Preferred CAS id.
-            PDS         _defaultPDS;        // Default PDS value if undefined.
-            UString     _hfDefaultRegion;   // Default region for UHF/VHF band.
-            MilliSecond _timeReference;     // Time reference in milli-seconds from UTC (used in ISDB variants).
+            int         _definedCmdOptions = 0;  // Defined command line options, indicate which fields are valid.
+            Standards   _cmdStandards = Standards::NONE;  // Forced standards from the command line.
+            UString     _charsetInName {};       // Character set to interpret strings without prefix code.
+            UString     _charsetOutName {};      // Preferred character set to generate strings.
+            uint16_t    _casId = CASID_NULL;     // Preferred CAS id.
+            PDS         _defaultPDS = 0;         // Default PDS value if undefined.
+            UString     _hfDefaultRegion {};     // Default region for UHF/VHF band.
+            cn::milliseconds _timeReference{};   // Time reference in milli-seconds from UTC (used in ISDB variants).
         };
 
         //!
@@ -485,22 +499,24 @@ namespace ts {
         void restoreArgs(const SavedArgs& args);
 
     private:
-        Report*        _report;            // Pointer to a report for error messages. Never null.
-        std::ostream*  _initial_out;       // Initial text output stream. Never null.
-        std::ostream*  _out;               // Pointer to text output stream. Never null.
-        std::ofstream  _outFile;           // Open stream when redirected to a file by name.
-        const Charset* _charsetIn;         // DVB character set to interpret strings without prefix code.
-        const Charset* _charsetOut;        // Preferred DVB character set to generate strings.
-        uint16_t       _casId;             // Preferred CAS id.
-        PDS            _defaultPDS;        // Default PDS value if undefined.
-        bool           _useLeapSeconds;    // Explicit use of leap seconds.
-        Standards      _cmdStandards;      // Forced standards from the command line.
-        Standards      _accStandards;      // Accumulated list of standards in the context.
-        UString        _hfDefaultRegion;   // Default region for UHF/VHF band.
-        MilliSecond    _timeReference;     // Time reference in milli-seconds from UTC (used in ISDB variants).
-        UString        _timeRefConfig;     // Time reference name from TSDuck configuration file.
-        int            _definedCmdOptions; // Defined command line options.
-        const std::map<uint16_t, const UChar*> _predefined_cas;  // Predefined CAS names, index by CAS id (first in range).
+        Report*            _report;        // Pointer to a report for error messages. Never null.
+        std::ostream*      _initial_out;   // Initial text output stream. Never null.
+        std::ostream*      _out;           // Pointer to text output stream. Never null.
+        std::ofstream      _outFile {};    // Open stream when redirected to a file by name.
+        const Charset*     _charsetIn;     // DVB character set to interpret strings without prefix code.
+        const Charset*     _charsetOut;    // Preferred DVB character set to generate strings.
+        uint16_t           _casId {CASID_NULL};              // Preferred CAS id.
+        PDS                _defaultPDS = 0;                  // Default PDS value if undefined.
+        bool               _useLeapSeconds = true;           // Explicit use of leap seconds.
+        Standards          _cmdStandards {Standards::NONE};  // Forced standards from the command line.
+        Standards          _accStandards {Standards::NONE};  // Accumulated list of standards in the context.
+        UString            _hfDefaultRegion {};              // Default region for UHF/VHF band.
+        cn::milliseconds   _timeReference {};                // Time reference in milli-seconds from UTC (used in ISDB variants).
+        UString            _timeRefConfig {};                // Time reference name from TSDuck configuration file.
+        int                _definedCmdOptions = 0;           // Mask of defined command line options (CMD_xxx below).
+        uint32_t           _lastRegistrationId = REGID_NULL; // Last encountered registration id in a registration descriptor.
+        std::set<uint32_t> _registrationIds {};              // Set of all registration ids.
+        const std::map<uint16_t, const UChar*> _predefined_cas {};  // Predefined CAS names, index by CAS id (first in range).
 
         // List of command line options to define and analyze.
         enum CmdOptions {

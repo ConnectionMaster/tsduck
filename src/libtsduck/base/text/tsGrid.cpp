@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,21 +14,7 @@
 //----------------------------------------------------------------------------
 
 ts::Grid::Grid(std::ostream& output) :
-    _out(output),
-    _lineWidth(0),
-    _marginWidth(0),
-    _contentWidth(0),
-    _lineCount(0),
-    _tableOpen(false),
-    _border(u'|'),
-    _tableTop(),
-    _tableBottom(),
-    _sectionLine(),
-    _subSectionLine(),
-    _leftMargin(),
-    _rightMargin(),
-    _requestedLayout(),
-    _layout()
+    _out(output)
 {
     setLineWidth(DEFAULT_LINE_WIDTH, DEFAULT_MARGIN_WIDTH);
 }
@@ -332,10 +297,10 @@ void ts::Grid::adjustLayout()
         // We allocate one more space is the last columns to compensate rounding.
         const size_t more = (_contentWidth - allWidth) / textColCount;
         const size_t evenMore = (_contentWidth - allWidth) % textColCount;
-        for (auto it = _layout.begin(); it != _layout.end(); ++it) {
-            if (!it->isBorder()) {
+        for (auto& it : _layout) {
+            if (!it.isBorder()) {
                 const size_t adjust = textColCount <= evenMore ? 1 : 0;
-                it->_width += more + adjust;
+                it._width += more + adjust;
                 allWidth += more + adjust;
                 textColCount--;
             }
@@ -364,7 +329,7 @@ void ts::Grid::putLayout(const std::initializer_list<ColumnText> text)
     const ColumnText empty;
 
     // Loop on all declare columns.
-    for (auto iLayout : _layout) {
+    for (const auto& iLayout : _layout) {
 
         // Left margin between columns (except for first column).
         if (currentWidth > 0) {

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,12 +14,13 @@
 #include "tsPluginRepository.h"
 #include "tsService.h"
 #include "tsSectionDemux.h"
-#include "tsCyclingPacketizer.h"
 #include "tsIntegerUtils.h"
+#include "tsBinaryTable.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
 #include "tsSDT.h"
-#include "tsAES.h"
+#include "tsAES128.h"
+#include "tsAES256.h"
 #include "tsECB.h"
 #include "tsCBC.h"
 #include "tsCTS1.h"
@@ -57,32 +37,26 @@
 namespace ts {
     class AESPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(AESPlugin);
+        TS_PLUGIN_CONSTRUCTORS(AESPlugin);
     public:
         // Implementation of plugin API
-        AESPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
+        using CipherPtr = std::shared_ptr<BlockCipher>;
+
         // Command line options:
-        bool            _descramble;      // Descramble instead of scramble
-        Service         _service_arg;     // Service name & id
-        PIDSet          _scrambled;       // List of PID's to (de)scramble
-        ECB<AES>        _ecb;             // AES cipher in ECB mode
-        CBC<AES>        _cbc;             // AES cipher in CBC mode
-        CTS1<AES>       _cts1;            // AES cipher in CTS mode, RFC 2040 definition
-        CTS2<AES>       _cts2;            // AES cipher in CTS mode, NIST definition
-        CTS3<AES>       _cts3;            // AES cipher in ECB-CTS mode
-        CTS4<AES>       _cts4;            // AES cipher in ECB-CTS mode (ST version)
-        DVS042<AES>     _dvs042;          // AES cipher in DVS 042 mode
-        CipherChaining* _chain;           // Selected cipher chaining mode
+        bool      _descramble = false; // Descramble instead of scramble
+        Service   _service_arg {};     // Service name & id
+        PIDSet    _scrambled {};       // List of PID's to (de)scramble
+        CipherPtr _chain {};           // Selected cipher chaining mode
 
         // Working data:
-        bool            _abort;           // Error (service not found, etc)
-        Service         _service;         // Service name & id
-        SectionDemux    _demux;           // Section demux
+        bool         _abort = false;      // Error (service not found, etc)
+        Service      _service {};         // Service name & id
+        SectionDemux _demux {duck, this}; // Section demux
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -102,21 +76,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"aes", ts::AESPlugin);
 //----------------------------------------------------------------------------
 
 ts::AESPlugin::AESPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Experimental AES scrambling of TS packets", u"[options] [service]"),
-    _descramble(false),
-    _service_arg(),
-    _scrambled(),
-    _ecb(),
-    _cbc(),
-    _cts1(),
-    _cts2(),
-    _cts3(),
-    _cts4(),
-    _dvs042(),
-    _chain(nullptr),
-    _abort(false),
-    _service(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Experimental AES scrambling of TS packets", u"[options] [service]")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -170,12 +130,12 @@ ts::AESPlugin::AESPlugin(TSP* tsp_) :
          u"part of the packet payload, shorter than 16 bytes) is left clear. "
          u"This is the default mode.");
 
-    option(u"iv", 'i', HEXADATA, 0, Args::UNLIMITED_COUNT, AES::BLOCK_SIZE, AES::BLOCK_SIZE);
+    option(u"iv", 'i', HEXADATA, 0, Args::UNLIMITED_COUNT, AES128::BLOCK_SIZE, AES128::BLOCK_SIZE);
     help(u"iv",
-         u"Specifies the initialization vector. Must be a string of 32 hexadecimal "
-         u"digits. Must not be used in ECB mode. The default IV is all zeroes.");
+         u"Specifies the initialization vector. Must be a string of 32 hexadecimal digits. "
+         u"Must not be used in ECB, CTS3, CTS4 modes. The default IV is all zeroes.");
 
-    option(u"key", 'k', HEXADATA, 1, 1, AES::MIN_KEY_SIZE, AES::MAX_KEY_SIZE);
+    option(u"key", 'k', HEXADATA, 1, 1, AES128::KEY_SIZE, AES256::KEY_SIZE);
     help(u"key",
          u"Specifies a fixed and constant AES key for all TS packets. The value "
          u"must be a string of 32 or 64 hexadecimal digits. This is a mandatory "
@@ -201,52 +161,52 @@ bool ts::AESPlugin::getOptions()
         _service_arg.set(value(u""));
     }
 
-    // Get chaining mode.
+    // Get key and chaining mode.
+    const ByteBlock key(hexaValue(u"key"));
     if (present(u"ecb") + present(u"cbc") + present(u"cts1") + present(u"cts2") + present(u"cts3") + present(u"cts4") + present(u"dvs042") > 1) {
-        tsp->error(u"options --cbc, --cts1, --cts2, --cts3, --cts4, --dvs042 and --ecb are mutually exclusive");
+        error(u"options --cbc, --cts1, --cts2, --cts3, --cts4, --dvs042 and --ecb are mutually exclusive");
         return false;
     }
     if (present(u"cbc")) {
-        _chain = &_cbc;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new CBC<AES128>) : CipherPtr(new CBC<AES256>);
     }
     else if (present(u"cts1")) {
-        _chain = &_cts1;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new CTS1<AES128>) : CipherPtr(new CTS1<AES256>);
     }
     else if (present(u"cts2")) {
-        _chain = &_cts2;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new CTS2<AES128>) : CipherPtr(new CTS2<AES256>);
     }
     else if (present(u"cts3")) {
-        _chain = &_cts3;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new CTS3<AES128>) : CipherPtr(new CTS3<AES256>);
     }
     else if (present(u"cts4")) {
-        _chain = &_cts4;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new CTS4<AES128>) : CipherPtr(new CTS4<AES256>);
     }
     else if (present(u"dvs042")) {
-        _chain = &_dvs042;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new DVS042<AES128>) : CipherPtr(new DVS042<AES256>);
     }
     else {
-        _chain = &_ecb;
+        _chain = key.size() == AES128::KEY_SIZE ? CipherPtr(new ECB<AES128>) : CipherPtr(new ECB<AES256>);
     }
 
     // Get AES key
-    const ByteBlock key(hexaValue(u"key"));
     if (!_chain->isValidKeySize(key.size())) {
-        tsp->error(u"%d bytes is an invalid AES key size", {key.size()});
+        error(u"%d bytes is an invalid AES key size", key.size());
         return false;
     }
     if (!_chain->setKey(key.data(), key.size())) {
-        tsp->error(u"error in AES key schedule");
+        error(u"error in AES key schedule");
         return false;
     }
-    tsp->verbose(u"using %d bits key: %s", {key.size() * 8, UString::Dump(key, UString::SINGLE_LINE)});
+    verbose(u"using %d bits key: %s", key.size() * 8, UString::Dump(key, UString::SINGLE_LINE));
 
     // Get IV, default IV is all zeroes
     const ByteBlock iv(hexaValue(u"iv", ByteBlock(_chain->minIVSize(), 0)));
     if (!_chain->setIV(iv.data(), iv.size())) {
-        tsp->error(u"incorrect initialization vector");
+        error(u"incorrect initialization vector");
         return false;
     }
-    tsp->verbose(u"using %d bits IV: %s", {iv.size() * 8, UString::Dump(iv, UString::SINGLE_LINE)});
+    verbose(u"using %d bits IV: %s", iv.size() * 8, UString::Dump(iv, UString::SINGLE_LINE));
 
     return true;
 }
@@ -329,7 +289,7 @@ void ts::AESPlugin::processSDT(SDT& sdt)
     assert(_service.hasName());
     uint16_t service_id;
     if (!sdt.findService(duck, _service.getName(), service_id)) {
-        tsp->error(u"service \"%s\" not found in SDT", {_service.getName()});
+        error(u"service \"%s\" not found in SDT", _service.getName());
         _abort = true;
         return;
     }
@@ -337,7 +297,7 @@ void ts::AESPlugin::processSDT(SDT& sdt)
     // Remember service id
     _service.setId(service_id);
     _service.clearPMTPID();
-    tsp->verbose(u"found service id %d (0x%X)", {_service.getId(), _service.getId()});
+    verbose(u"found service id %n", _service.getId());
 
     // No longer need the SDT, now need the PAT
     _demux.removePID(PID_SDT);
@@ -357,7 +317,7 @@ void ts::AESPlugin::processPAT(PAT& pat)
 
     // If service not found, error
     if (it == pat.pmts.end()) {
-        tsp->error(u"service %d (0x%X) not found in PAT", {_service.getId(), _service.getId()});
+        error(u"service %n not found in PAT", _service.getId());
         _abort = true;
         return;
     }
@@ -365,7 +325,7 @@ void ts::AESPlugin::processPAT(PAT& pat)
     // Now filter the PMT
     _service.setPMTPID(it->second);
     _demux.addPID(it->second);
-    tsp->verbose(u"found PMT PID %d (0x%X)", {_service.getPMTPID(), _service.getPMTPID()});
+    verbose(u"found PMT PID %n", _service.getPMTPID());
 
     // No longer need the PAT
     _demux.removePID(PID_PAT);
@@ -381,10 +341,10 @@ void ts::AESPlugin::processPMT(PMT& pmt)
     // Loop on all elementary streams of the PMT.
     // Mark all video, audio and subtitles PIDs for scrambling
     _scrambled.reset();
-    for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-        if (it->second.isVideo(duck) || it->second.isAudio(duck) || it->second.isSubtitles(duck)) {
-            _scrambled.set(it->first);
-            tsp->verbose(u"scrambling PID %d (0x%X)", {it->first, it->first});
+    for (const auto& it : pmt.streams) {
+        if (it.second.isVideo(duck) || it.second.isAudio(duck) || it.second.isSubtitles(duck)) {
+            _scrambled.set(it.first);
+            verbose(u"scrambling PID %n", it.first);
         }
     }
 }
@@ -418,7 +378,7 @@ ts::ProcessorPlugin::Status ts::AESPlugin::processPacket(TSPacket& pkt, TSPacket
 
     // If packet to scramble is already scrambled, there is an error
     if (!_descramble && pkt.isScrambled()) {
-        tsp->error(u"PID %d (0x%X) already scrambled", {pid, pid});
+        error(u"PID %n already scrambled", pid);
         return TSP_END;
     }
 
@@ -441,17 +401,17 @@ ts::ProcessorPlugin::Status ts::AESPlugin::processPacket(TSPacket& pkt, TSPacket
     assert (pl_size < sizeof(tmp));
     if (_descramble) {
         if (!_chain->decrypt(pl, pl_size, tmp, pl_size)) {
-            tsp->error(u"AES decrypt error");
+            error(u"AES decrypt error");
             return TSP_END;
         }
     }
     else {
         if (!_chain->encrypt(pl, pl_size, tmp, pl_size)) {
-            tsp->error(u"AES encrypt error");
+            error(u"AES encrypt error");
             return TSP_END;
         }
     }
-    ::memcpy(pl, tmp, pl_size);
+    MemCopy(pl, tmp, pl_size);
 
     // Mark "even key" (there is only one key but we must set something).
     pkt.setScrambling(uint8_t(_descramble ? SC_CLEAR : SC_EVEN_KEY));

@@ -1,47 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSocket.h"
 #include "tsIPUtils.h"
+#include "tsSysUtils.h"
 #include "tsException.h"
 #include "tsNullReport.h"
 #include "tsMemory.h"
-
-
-//----------------------------------------------------------------------------
-// Constructor
-//----------------------------------------------------------------------------
-
-ts::Socket::Socket() :
-    _sock(SYS_SOCKET_INVALID)
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -69,7 +39,7 @@ bool ts::Socket::createSocket(int domain, int type, int protocol, Report& report
     // Create a datagram socket.
     _sock = ::socket(domain, type, protocol);
     if (_sock == SYS_SOCKET_INVALID) {
-        report.error(u"error creating socket: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error creating socket: %s", SysErrorCodeMessage());
         return false;
     }
 
@@ -122,9 +92,9 @@ bool ts::Socket::close(Report& report)
 bool ts::Socket::setSendBufferSize(size_t bytes, Report& report)
 {
     int size = int(bytes); // Actual socket option is an int.
-    report.debug(u"setting socket send buffer size to %'d", {bytes});
+    report.debug(u"setting socket send buffer size to %'d", bytes);
     if (::setsockopt(_sock, SOL_SOCKET, SO_SNDBUF, SysSockOptPointer(&size), sizeof(size)) != 0) {
-        report.error(u"error setting socket send buffer size: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket send buffer size: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -138,9 +108,9 @@ bool ts::Socket::setSendBufferSize(size_t bytes, Report& report)
 bool ts::Socket::setReceiveBufferSize(size_t bytes, Report& report)
 {
     int size = int(bytes); // Actual socket option is an int.
-    report.debug(u"setting socket receive buffer size to %'d", {bytes});
+    report.debug(u"setting socket receive buffer size to %'d", bytes);
     if (::setsockopt(_sock, SOL_SOCKET, SO_RCVBUF, SysSockOptPointer(&size), sizeof(size)) != 0) {
-        report.error(u"error setting socket receive buffer size: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket receive buffer size: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -151,20 +121,20 @@ bool ts::Socket::setReceiveBufferSize(size_t bytes, Report& report)
 // Set the receive timeout.
 //----------------------------------------------------------------------------
 
-bool ts::Socket::setReceiveTimeout(ts::MilliSecond timeout, ts::Report& report)
+bool ts::Socket::setReceiveTimeout(cn::milliseconds timeout, Report& report)
 {
-    report.debug(u"setting socket receive timeout to %'d ms", {timeout});
+    report.debug(u"setting socket receive timeout to %s", timeout);
 
 #if defined(TS_WINDOWS)
-    ::DWORD param = ::DWORD(timeout);
+    ::DWORD param = ::DWORD(timeout.count());
 #else
     struct timeval param;
-    param.tv_sec = time_t(timeout / MilliSecPerSec);
-    param.tv_usec = suseconds_t(timeout % MilliSecPerSec);
+    param.tv_sec = time_t(timeout.count() / 1000);
+    param.tv_usec = suseconds_t(timeout.count() % 1000);
 #endif
 
     if (::setsockopt(_sock, SOL_SOCKET, SO_RCVTIMEO, SysSockOptPointer(&param), sizeof(param)) != 0) {
-        report.error(u"error setting socket receive timeout: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket receive timeout: %s", SysErrorCodeMessage());
         return false;
     }
 
@@ -179,15 +149,15 @@ bool ts::Socket::setReceiveTimeout(ts::MilliSecond timeout, ts::Report& report)
 bool ts::Socket::reusePort(bool active, Report& report)
 {
     int reuse = int(active); // Actual socket option is an int.
-    report.debug(u"setting socket reuse address to %'d", {reuse});
+    report.debug(u"setting socket reuse address to %'d", reuse);
     if (::setsockopt(_sock, SOL_SOCKET, SO_REUSEADDR, SysSockOptPointer(&reuse), sizeof(reuse)) != 0) {
-        report.error(u"error setting socket reuse address: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket reuse address: %s", SysErrorCodeMessage());
         return false;
     }
 #if defined(TS_MAC)
     // BSD (macOS) also needs SO_REUSEPORT in addition to SO_REUSEADDR.
     if (::setsockopt(_sock, SOL_SOCKET, SO_REUSEPORT, SysSockOptPointer(&reuse), sizeof(reuse)) != 0) {
-        report.error(u"error setting socket reuse port: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket reuse port: %s", SysErrorCodeMessage());
         return false;
     }
 #endif
@@ -205,7 +175,7 @@ bool ts::Socket::getLocalAddress(IPv4SocketAddress& addr, Report& report)
     SysSocketLengthType len = sizeof(sock_addr);
     TS_ZERO(sock_addr);
     if (::getsockname(_sock, &sock_addr, &len) != 0) {
-        report.error(u"error getting socket name: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error getting socket name: %s", SysErrorCodeMessage());
         addr.clear();
         return false;
     }

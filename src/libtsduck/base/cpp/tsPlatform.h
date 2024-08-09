@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -56,17 +35,13 @@
 //!  @li Byte ordering: See @link TS_LITTLE_ENDIAN @endlink and @link TS_BIG_ENDIAN @endlink.
 //!  @li Processor architecture: See @link TS_I386 @endlink, @link TS_X86_64 @endlink, etc.
 //!
-//!  @section issues Solving various compilation issues
-//!
-//!  This header file defines some macros which can be used to solve
-//!  various C/C++ compilation issues.
-//!
-//!  @li Explicitly unused variables: See @link TS_UNUSED @endlink.
-//!  @li Definitions of C++ constants: See @link TS_NEED_STATIC_CONST_DEFINITIONS @endlink.
-//!
 //----------------------------------------------------------------------------
 
 #pragma once
+
+// Include an "empty" header file.
+// Updated with preconfigured constants in custom installations.
+#include "tsPreConfiguration.h"
 
 
 //----------------------------------------------------------------------------
@@ -93,7 +68,7 @@
     //! and batch file as the @c cl command.
     //!
     #define TS_MSC
-
+    //
 #elif defined(__llvm__) || defined(__clang__)
     #if !defined(TS_LLVM)
         #define TS_LLVM 1
@@ -123,20 +98,25 @@
     //! Undefined when the compiler is not GCC or its version is unknown.
     //!
     #define TS_GCC_VERSION
-
+    //
 #elif defined(__GNUC__) && defined(__GNUC_MINOR__) && defined(__GNUC_PATCHLEVEL__)
     #define TS_GCC_VERSION ((10000 * __GNUC__) + (100 * __GNUC_MINOR__) + (__GNUC_PATCHLEVEL__ % 100))
 #endif
 
 #if defined(DOXYGEN)
     //!
-    //! Defined when the compiler is compliant with C++11.
+    //! Level of C++ language, same as predefined @a __cplusplus, but safe with MSVC.
     //!
-    #define TS_CXX11
+    //! Microsoft-specific ways of signaling the language level: With Visual Studio 2017,
+    //! there are flags such as /std:c++14 to specify the level of language. However,
+    //! __cplusplus is still set to 199711L. It is unclear if this is a bug or if __cplusplus
+    //! is not set because the C++11/14/17 standards all not super-completely implemented.
+    //! The Microsoft-specific symbol _MSVC_LANG is defined to describe a "good-enough"
+    //! level of standard which is fine for us.
     //!
-    //! Defined when the compiler is compliant with C++14.
+    //! The current version of TSDuck requires C++17 at least (GCC 8, clang 5, Visual Studio 2017 15.8).
     //!
-    #define TS_CXX14
+    #define TS_CPLUSPLUS
     //!
     //! Defined when the compiler is compliant with C++17.
     //!
@@ -146,55 +126,30 @@
     //!
     #define TS_CXX20
     //!
-    //! Defined when the STL @c basic_string is compliant with C++11.
+    //! Defined when the compiler is compliant with C++23.
     //!
-    //! The class @c basic_string from the C++ STL has more features starting
-    //! with C++11. However, GCC does not support them with old versions, even
-    //! if --std=c++11 or 14 is specified. The level of language is increased
-    //! but not the level of STL.
-    //!
-    #define TS_CXX11_STRING
+    #define TS_CXX23
+    //
 #else
-    //
-    // Standard ways of signaling the language level.
-    //
-    #if defined(__cplusplus) && __cplusplus >= 201103L && !defined(TS_CXX11)
-        #define TS_CXX11 1
+    #if !defined(TS_CPLUSPLUS)
+        #if defined(__cplusplus)
+            #define TS_CPLUSPLUS __cplusplus
+        #else
+            #define TS_CPLUSPLUS 0L
+        #endif
     #endif
-    #if defined(__cplusplus) && __cplusplus >= 201402L && !defined(TS_CXX14)
-        #define TS_CXX14 1
+    #if defined(_MSVC_LANG) && _MSVC_LANG > TS_CPLUSPLUS
+        #undef TS_CPLUSPLUS
+        #define TS_CPLUSPLUS _MSVC_LANG
     #endif
-    #if defined(__cplusplus) && __cplusplus >= 201703L && !defined(TS_CXX17)
+    #if TS_CPLUSPLUS >= 201703L && !defined(TS_CXX17)
         #define TS_CXX17 1
     #endif
-    #if defined(__cplusplus) && __cplusplus >= 202002L && !defined(TS_CXX20)
+    #if TS_CPLUSPLUS >= 202002L && !defined(TS_CXX20)
         #define TS_CXX20 1
     #endif
-    //
-    // Microsoft-specific ways of signaling the language level.
-    // With Visual Studio 2017, there are flags such as /std:c++14 to specify the
-    // level of language. However, __cplusplus is still set to 199711L. It is unclear
-    // if this is a bug or if __cplusplus is not set because the C++11/14/17 standards
-    // all not super-completely implemented. The Microsoft-specific symbol _MSVC_LANG
-    // is defined to describe a "good-enough" level of standard which is fine for us.
-    //
-    #if defined(_MSVC_LANG) && _MSVC_LANG >= 201103L && !defined(TS_CXX11)
-        #define TS_CXX11 1
-    #endif
-    #if defined(_MSVC_LANG) && _MSVC_LANG >= 201402L && !defined(TS_CXX14)
-        #define TS_CXX14 1
-    #endif
-    #if defined(_MSVC_LANG) && _MSVC_LANG >= 201403L && !defined(TS_CXX17)
-        #define TS_CXX17 1
-    #endif
-    //
-    // Compliance of the STL.
-    // To get C++11 strings, we need C++11. But, with GCC, we need at least GCC 5.x,
-    // even if it pretends to be C++11. Except when the actual compiler is LLVM which
-    // pretends to be compatible with GCC 4.x but supports C++11 string in fact...
-    //
-    #if defined(TS_CXX11) && (defined(TS_LLVM) || !defined(__GNUC__) || __GNUC__ >= 5) && !defined(TS_CXX11_STRING)
-        #define TS_CXX11_STRING 1
+    #if TS_CPLUSPLUS >= 202302L && !defined(TS_CXX23)
+        #define TS_CXX23 1
     #endif
 #endif
 
@@ -210,6 +165,15 @@
     //! != and the implicit one which is derived from ==.
     //!
     #define TS_NEED_UNEQUAL_OPERATOR 1
+#endif
+
+// TSDuck now requests to use C++17 at least.
+#if !defined(TS_CXX17)
+    #if defined(TS_MSC)
+        #error "TSDuck requires C++17 at least, use /std:c++17 or higher"
+    #else
+        #error "TSDuck requires C++17 at least, use -std=c++17 or higher"
+    #endif
 #endif
 
 
@@ -234,6 +198,26 @@
     //!
     #define TS_LINUX
     //!
+    //! Defined when compiled for a BSD target platform (FreeBSD, OpenBSD, NetBSD, DragonFlyBSD).
+    //!
+    #define TS_BSD
+    //!
+    //! Defined when compiled for a FreeBSD target platform.
+    //!
+    #define TS_FREEBSD
+    //!
+    //! Defined when compiled for an OpenBSD target platform.
+    //!
+    #define TS_OPENBSD
+    //!
+    //! Defined when compiled for a NetBSD target platform.
+    //!
+    #define TS_NETBSD
+    //!
+    //! Defined when compiled for a DragonFlyBSD target platform.
+    //!
+    #define TS_DRAGONFLYBSD
+    //!
     //! Defined when compiled for a macOS target platform.
     //!
     #define TS_MAC
@@ -257,6 +241,22 @@
 #elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
     #if !defined(TS_WINDOWS)
         #define TS_WINDOWS 1
+    #endif
+#elif defined(__FreeBSD__) || defined(TS_FREEBSD)
+    #if !defined(TS_FREEBSD)
+        #define TS_FREEBSD 1
+    #endif
+#elif defined(__DragonFly__) || defined(TS_DRAGONFLYBSD)
+    #if !defined(TS_DRAGONFLYBSD)
+        #define TS_DRAGONFLYBSD 1
+    #endif
+#elif defined(__OpenBSD__) || defined(TS_OPENBSD)
+    #if !defined(TS_OPENBSD)
+        #define TS_OPENBSD 1
+    #endif
+#elif defined(__NetBSD__) || defined(TS_NETBSD)
+    #if !defined(TS_NETBSD)
+        #define TS_NETBSD 1
     #endif
 #elif defined(__gnu_linux__) || defined(TS_LINUX) || defined(__linux__) || defined(linux)
     #if !defined(TS_LINUX)
@@ -287,7 +287,10 @@
     #define TS_ANDROID 1
 #endif
 
-#if !defined(TS_UNIX) && (defined(__unix) || defined(__unix__) || defined(TS_LINUX) || defined(TS_MAC) || defined(TS_AIX) || defined(TS_CYGWIN) || defined(TS_SOLARIS))
+#if !defined(TS_BSD) && (defined(TS_FREEBSD) || defined(TS_DRAGONFLYBSD) || defined(TS_OPENBSD) || defined(TS_NETBSD))
+    #define TS_BSD 1
+#endif
+#if !defined(TS_UNIX) && (defined(__unix) || defined(__unix__) || defined(TS_LINUX) || defined(TS_BSD) || defined(TS_MAC) || defined(TS_AIX) || defined(TS_CYGWIN) || defined(TS_SOLARIS))
     #define TS_UNIX 1
 #endif
 
@@ -327,21 +330,13 @@
     //!
     #define TS_X86_64
     //!
-    //! Defined when the target processor architecture is ARM.
+    //! Defined when the target processor architecture is 32-bit ARM.
     //!
-    #define TS_ARM
+    #define TS_ARM32
     //!
-    //! Defined when the target processor architecture is ARM64.
+    //! Defined when the target processor architecture is 64-bit ARM.
     //!
     #define TS_ARM64
-    //!
-    //! Defined when the target processor architecture is STxP70.
-    //!
-    #define TS_STXP70
-    //!
-    //! Defined when the target processor architecture is Intel IA-64 architecture, also known as Itanium.
-    //!
-    #define TS_IA64
     //!
     //! Defined when the target processor architecture is 32-bit Power PC.
     //!
@@ -351,17 +346,25 @@
     //!
     #define TS_POWERPC64
     //!
-    //! Defined when the target processor architecture is Digital Alpha architecture.
-    //!
-    #define TS_ALPHA
-    //!
     //! Defined when the target processor architecture is Sun SPARC architecture.
     //!
     #define TS_SPARC
     //!
-    //! Defined when the target processor architecture is MIPS architecture.
+    //! Defined when the target processor architecture is 32-bit MIPS architecture.
     //!
     #define TS_MIPS
+    //!
+    //! Defined when the target processor architecture is 64-bit MIPS architecture.
+    //!
+    #define TS_MIPS64
+    //!
+    //! Defined when the target processor architecture is 64-bit RISC-V.
+    //!
+    #define TS_RISCV64
+    //!
+    //! Defined when the target processor architecture is S390X.
+    //!
+    #define TS_S390X
 
 #elif defined(__i386__) || defined(TS_I386) || defined(_M_IX86)
     #if !defined(TS_I386)
@@ -384,13 +387,6 @@
     #if !defined(TS_ADDRESS_BITS)
         #define TS_ADDRESS_BITS 64
     #endif
-#elif defined(__arm__)
-    #if !defined(TS_ARM)
-        #define TS_ARM 1
-    #endif
-    #if !defined(TS_ADDRESS_BITS)
-        #define TS_ADDRESS_BITS 32
-    #endif
 #elif defined(__aarch64__) || defined(__arm64__)
     #if !defined(TS_ARM64)
         #define TS_ARM64 1
@@ -398,19 +394,12 @@
     #if !defined(TS_ADDRESS_BITS)
         #define TS_ADDRESS_BITS 64
     #endif
-#elif defined(__stxp70__) || defined(__STxP70__)
-    #if !defined(TS_STXP70)
-        #define TS_STXP70 1
+#elif defined(__arm__)
+    #if !defined(TS_ARM32)
+        #define TS_ARM32 1
     #endif
     #if !defined(TS_ADDRESS_BITS)
         #define TS_ADDRESS_BITS 32
-    #endif
-#elif defined(__alpha__)
-    #if !defined(TS_ALPHA)
-        #define TS_ALPHA 1
-    #endif
-    #if !defined(TS_ADDRESS_BITS)
-        #define TS_ADDRESS_BITS 64
     #endif
 #elif defined(__sparc__)
     #if !defined(TS_SPARC)
@@ -434,12 +423,33 @@
     #if !defined(TS_ADDRESS_BITS)
         #define TS_ADDRESS_BITS 32
     #endif
+#elif defined(__mips64)
+    #if !defined(TS_MIPS64)
+        #define TS_MIPS64 1
+    #endif
+    #if !defined(TS_ADDRESS_BITS)
+        #define TS_ADDRESS_BITS 64
+    #endif
 #elif defined(__mips__)
     #if !defined(TS_MIPS)
         #define TS_MIPS 1
     #endif
     #if !defined(TS_ADDRESS_BITS)
         #define TS_ADDRESS_BITS 32
+    #endif
+#elif defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
+    #if !defined(TS_RISCV64)
+        #define TS_RISCV64 1
+    #endif
+    #if !defined(TS_ADDRESS_BITS)
+        #define TS_ADDRESS_BITS 64
+    #endif
+#elif defined(__s390x__)
+    #if !defined(TS_S390X)
+        #define TS_S390X 1
+    #endif
+    #if !defined(TS_ADDRESS_BITS)
+        #define TS_ADDRESS_BITS 64
     #endif
 #else
     #error "New unknown processor, please update tsPlatform.h"
@@ -449,29 +459,35 @@
 // Should really use "#warning" instead of "#error" but #warning is a
 // GCC extension while #error is standard.
 
-#if !defined(TS_LINUX) && !defined(TS_WINDOWS) && !defined(TS_MAC)
-    #error "TSDuck has been tested on Linux, macOS and Windows only, review this code"
+#if !defined(TS_LINUX) && !defined(TS_WINDOWS) && !defined(TS_MAC) && !defined(TS_FREEBSD) && !defined(TS_DRAGONFLYBSD) && !defined(TS_OPENBSD) && !defined(TS_NETBSD)
+    #error "TSDuck has been tested on Linux, macOS, FreeBSD, OpenBSD, NetBSD, DragonFlyBSD and Windows only, review this code"
 #endif
 
-#if !defined(TS_GCC) && !defined(TS_MSC)
-    #error "TSDuck has been tested with GCC and MSVC compilers only, review this code"
+#if !defined(TS_GCC) && !defined(TS_LLVM) && !defined(TS_MSC)
+    #error "TSDuck has been tested with GCC, LLVM (Clang) and MSVC compilers only, review this code"
 #endif
 
 // Byte order
 
-#if (defined(TS_I386) || defined(TS_X86_64) || defined(TS_IA64) || defined(TS_ALPHA)) && !defined(TS_LITTLE_ENDIAN)
+// These architectures are mono-endian. Only one possible endianness.
+#if (defined(TS_I386) || defined(TS_X86_64) || defined(TS_IA64) || defined(TS_ALPHA) || defined(TS_RISCV64)) && !defined(TS_LITTLE_ENDIAN)
     #define TS_LITTLE_ENDIAN 1
-#elif (defined(TS_SPARC) || defined(TS_POWERPC) || defined(TS_POWERPC64)) && !defined(TS_BIG_ENDIAN)
+#elif (defined(TS_SPARC) || defined(TS_S390X)) && !defined(TS_BIG_ENDIAN)
     #define TS_BIG_ENDIAN 1
 #endif
 
-#if defined(TS_ARM) || defined(TS_ARM64) || defined(TS_MIPS)
+// These architectures are bi-endian. Need to check from the compiler.
+#if (defined(TS_ARM32) || defined(TS_ARM64) || defined(TS_MIPS) || defined(TS_MIPS64) || defined(TS_POWERPC) || defined(TS_POWERPC64)) && !defined(TS_LITTLE_ENDIAN) && !defined(TS_BIG_ENDIAN)
     #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         #define TS_LITTLE_ENDIAN 1
     #elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
         #define TS_BIG_ENDIAN 1
+    #elif defined(__LITTLE_ENDIAN__)
+        #define TS_LITTLE_ENDIAN 1
+    #elif defined(__BIG_ENDIAN__)
+        #define TS_BIG_ENDIAN 1
     #else
-        #error "ARM endianness not defined"
+        #error "unknow endianness, __BYTE_ORDER__ not defined"
     #endif
 #endif
 
@@ -482,7 +498,7 @@
     #define TS_LITTLE_ENDIAN_BOOL false
     #define TS_BIG_ENDIAN_BOOL true
 #else
-    #error "unknow endian, please update this header file"
+    #error "unknow endianness, please update this header file"
 #endif
 
 #if !defined(TS_ADDRESS_BITS)
@@ -494,6 +510,39 @@
 //!
 #if (defined(DOXYGEN) || defined(__ARM_ARCH_5TEJ__)) && !defined(TS_STRICT_MEMORY_ALIGN)
     #define TS_STRICT_MEMORY_ALIGN 1
+#endif
+
+//!
+//! Define TS_NO_ARM_CRC32_INSTRUCTIONS from the command line if you want to disable the usage of Arm64 CRC32 instructions.
+//!
+#if defined(DOXYGEN)
+    #define TS_NO_ARM_CRC32_INSTRUCTIONS
+#endif
+
+
+//----------------------------------------------------------------------------
+// Windows oddities.
+//----------------------------------------------------------------------------
+
+#if defined(TS_WINDOWS) && !defined(DOXYGEN)
+    //
+    // Workaround for MSVC runtime compatibility mess.
+    //
+    // With MSVC compiler version 19.40.33811 and mscvp140.dll 14.40.33810.00, the class std::mutex has a constexpr
+    // constructor. No explicit constructor is called, the mutex memory is correctly initialized. However, when
+    // this application code is executed in the context of an older mscvp140.dll (as brought by another application
+    // for instance), the older runtime crashes when trying to acquire the mutex, because the mutex memory area is
+    // not properly initialized, according to this older runtime.
+    //
+    // The problem originally appeared on GitHub Actions windows-2022 runner version 2.317.0, image version 20240603.1.0.
+    // But it expanded to other environments such as Java. If the installed JVM contains an older mscvp140.dll, the
+    // Java application crashes when loading the TSDuck DLL in the JNI initialization.
+    //
+    // The symbol below disables the constexpr constructor and reverts to the older behaviour. Thus, the compiled
+    // TSDuck code becomes compatible with older and newer mscvp140.dll. This definition should be removed some day,
+    // when all environments are upgraded to a recent mscvp140.dll, which means probably never...
+    //
+    #define _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR 1
 #endif
 
 
@@ -632,17 +681,6 @@
 // Compiler warnings
 //----------------------------------------------------------------------------
 
-//!
-//! This macro should preceed an intentional fallthrough in a switch expression.
-//!
-#if defined(TS_LLVM)
-    #define TS_FALLTHROUGH [[clang::fallthrough]];
-#elif defined(__GNUC__) && (__GNUC__ >= 7)
-    #define TS_FALLTHROUGH __attribute__((fallthrough));
-#else
-    #define TS_FALLTHROUGH /* fall through */
-#endif
-
 #if defined(DOXYGEN)
     //!
     //! Helper macro for the C++11 keyword @c _Pragma.
@@ -688,7 +726,7 @@
 
 #else
 
-    // Use a two-step macro to allow stringification of parameters.
+    // Use a two-step macro to allow stringification of parameters for pragma.
     #if defined(TS_MSC)
         #define TS_PRAGMA1_(s) __pragma(s)
     #else
@@ -729,24 +767,24 @@
 // Disable some warnings, application-wide, for various compilers.
 //
 TS_GCC_NOWARNING(unused-parameter)                // Unused parameters are frequent with overrides.
-#if defined(TS_ARM)
+#if defined(TS_ARM32)
     TS_GCC_NOWARNING(psabi)
 #endif
 
 TS_LLVM_NOWARNING(unknown-warning-option)         // Ignore recent warnings when unknown in an older version.
-TS_LLVM_NOWARNING(deprecated)                     // Most of these messages are informational only.
 TS_LLVM_NOWARNING(unused-parameter)               // Unused parameters are frequent with overrides.
 TS_LLVM_NOWARNING(global-constructors)            // Do not warn about static/global objects being constructed.
 TS_LLVM_NOWARNING(exit-time-destructors)          // Do not warn about static/global objects being destructed.
-TS_LLVM_NOWARNING(inconsistent-missing-destructor-override) // Requesting "override" for destructors is idiotic, simply.
 TS_LLVM_NOWARNING(covered-switch-default)         // Allow "default" in "switch" after all enum values to catch invalid binary values.
 TS_LLVM_NOWARNING(sign-conversion)                // Too many occurences since pointer arithmetics is signed, opposite from size_t.
 TS_LLVM_NOWARNING(padded)                         // Do not care if padding is required between class fields.
 TS_LLVM_NOWARNING(reserved-id-macro)              // We sometimes use underscores at the beginning of identifiers.
 TS_LLVM_NOWARNING(reserved-identifier)            // Identifier '_Xxx' is reserved because it starts with '_' followed by a capital letter.
-TS_LLVM_NOWARNING(c++98-compat-pedantic)          // Require C++11, no need for C++98 compatibility.
+TS_LLVM_NOWARNING(c++98-compat-pedantic)          // Require C++17, no need for C++98 compatibility.
 TS_LLVM_NOWARNING(c++2a-compat)                   // Compatibility with C++2a is not yet a concern.
 TS_LLVM_NOWARNING(documentation-unknown-command)  // Some valid doxygen directives are unknown to clang.
+TS_LLVM_NOWARNING(unsafe-buffer-usage)            // "unsafe pointer arithmetic" (new with clang 16) => we know what we are doing here.
+
 
 TS_MSC_NOWARNING(4100)  // unreferenced formal parameter
 TS_MSC_NOWARNING(4189)  // local variable is initialized but not referenced
@@ -787,6 +825,9 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 #include <map>
 #include <set>
 #include <bitset>
+#include <optional>
+#include <memory>
+#include <type_traits>
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -799,22 +840,32 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 #include <exception>
 #include <stdexcept>
 #include <atomic>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <filesystem>
 #include <typeinfo>
 #include <cassert>
 #include <cstdlib>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <cinttypes>
 #include <cstring>
 #include <cctype>
+#include <cwctype>
 #include <cstddef>
 #include <climits>
 #include <cmath>
 #include <fcntl.h>
 #if defined(TS_WINDOWS)
     #include <windows.h>
-#else
+#endif
+#if defined(TS_UNIX)
     #include <unistd.h>
+    #include <glob.h>
+    #include <sys/mman.h>
 #endif
 #include "tsAfterStandardHeaders.h"
 
@@ -822,35 +873,6 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 //----------------------------------------------------------------------------
 // Basic preprocessing features
 //----------------------------------------------------------------------------
-
-//!
-//! Attribute for explicitly unused variables.
-//!
-//! It is sometimes required to declare unused variables. This may be temporary,
-//! before completing the code and using the variable later, or for any other
-//! reason. When the compiler is used in "paranoid" warning mode, declaring
-//! unused variables may trigger a warning or an error.
-//!
-//! When you know that you need to declare an unused variable, the special macro
-//! @c TS_UNUSED shall be used as an @e attribute of the variable. Using this
-//! attribute, the compiler will no longer complain that the variable is unused.
-//!
-//! Example:
-//! @code
-//! TS_UNUSED int i;
-//! @endcode
-//!
-#if defined(DOXYGEN)
-    #define TS_UNUSED platform_specific
-#elif defined(TS_GCC)
-    #define TS_UNUSED __attribute__ ((unused))
-#elif defined(TS_MSC)
-    // With MS compiler, there is no such attribute. The unused warnings must be disabled exactly once.
-    // warning C4189: 'xxx' : local variable is initialized but not referenced
-    #define TS_UNUSED __pragma(warning(suppress:4189))
-#else
-    #error "New unknown compiler, please update TS_UNUSED in tsPlatform.h"
-#endif
 
 //!
 //! Attribute to explicitly disable optimization in a function.
@@ -893,16 +915,6 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 
 //!
 //! @hideinitializer
-//! On Windows, this attribute exports a symbol out of a DLL
-//!
-#if defined(TS_WINDOWS)
-    #define TS_DLL_EXPORT __declspec(dllexport)
-#else
-    #define TS_DLL_EXPORT
-#endif
-
-//!
-//! @hideinitializer
 //! Attribute to declare a class or function from tsduck.dll on Windows.
 //!
 //! When building tsduck.dll on Windows, define _TSDUCKDLL_IMPL in the project options.
@@ -920,60 +932,7 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 #endif
 
 //!
-//! @hideinitializer
-//! Compilation of definitions of C++ constants.
-//!
-//! It is a well-known pattern in C++ to define constants in header files as
-//! <code>static const</code>. Example:
-//! @code
-//! static const int FOO = 1;
-//! @endcode
-//! According to Stroustrup 10.4.6.2, this is only a declaration, which needs
-//! a definition somewhere else, without initialization. Example:
-//! @code
-//! const int classname::FOO;
-//! @endcode
-//!
-//! This is a really stupid oddity of C++ which is handled differently
-//! by compilers:
-//!
-//! @li GCC, with optimization: The declaration alone is fine.
-//!     The definition is accepted.
-//! @li GCC, without optimization: Sometimes, depending on the way the
-//!     constants are used, the definition is required. Without definition,
-//!     the linker complains about an undefined symbol.
-//! @li Microsoft C: The definition must not be used. Otherwise, the linker
-//!     complains about a multiply defined symbol.
-//!
-//! As a consequence, there are situations where the definition is
-//! required and situations where the definition is forbidden.
-//! The presence of the definition shall be conditioned to the macro
-//! @c TS_NEED_STATIC_CONST_DEFINITIONS.
-//!
-//! Example: In tsFoo.h, the constant is declared as:
-//! @code
-//! namespace ts {
-//!     class Foo
-//!     {
-//!     public:
-//!         static const size_t MAX_ENTRIES = 10;
-//!         ...
-//! @endcode
-//!
-//! In tsFoo.cpp, the definition of the constant shall be conditionally compiled
-//! since all compilers do not behave identically:
-//! @code
-//! #if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-//! const size_t ts::Foo::MAX_ENTRIES;
-//! #endif
-//! @endcode
-//!
-#if defined(TS_GCC) || defined(DOXYGEN)
-    #define TS_NEED_STATIC_CONST_DEFINITIONS 1
-#endif
-
-//!
-//! A macro to disable object copy in the definition of a class.
+//! A macro to disable object copy in the declaration of a class.
 //! The copy and move constructors and assignments are explicitly deleted.
 //! @param classname Name of the enclosing class.
 //!
@@ -985,7 +944,7 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
         classname& operator=(const classname&) = delete
 
 //!
-//! A macro to disable default constructor and object copy in the definition of a class.
+//! A macro to disable default constructor and object copy in the declaration of a class.
 //! The default, copy and move constructors and assignments are explicitly deleted.
 //! @param classname Name of the enclosing class.
 //!
@@ -997,97 +956,83 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
         classname& operator=(classname&&) = delete; \
         classname& operator=(const classname&) = delete
 
-
-//----------------------------------------------------------------------------
-// Properties of some integer types.
-//----------------------------------------------------------------------------
-
 //!
-//! Defined is @c size_t is an exact overload of some predefined @c uintXX_t.
-//! In that case, it is not possible to declare distinct overloads of a function
-//! with @c size_t and @c uint32_t or @c uint64_t for instance.
+//! A macro to disable default constructors in the declaration of a class.
+//! The default, copy and move constructors are explicitly deleted.
+//! @param classname Name of the enclosing class.
 //!
-#if defined(DOXYGEN)
-    #define TS_SIZE_T_IS_STDINT
-#elif (defined(TS_GCC_ONLY) || defined(TS_MSC)) && !defined(TS_SIZE_T_IS_STDINT)
-    #define TS_SIZE_T_IS_STDINT 1
-#endif
+#define TS_NO_DEFAULT_CONSTRUCTORS(classname) \
+    private:                                  \
+        classname() = delete;                 \
+        classname(classname&&) = delete;      \
+        classname(const classname&) = delete
 
 //!
-//! Size of @c wchar_t in bytes.
+//! A macro to declare the default assignment operators in the declaration of a class.
+//! @param classname Name of the enclosing class.
 //!
-#if defined(DOXYGEN)
-    #define TS_WCHAR_SIZE
-#elif defined(__SIZEOF_WCHAR_T__) && !defined(TS_WCHAR_SIZE)
-    // Typically gcc and clang.
-    #define TS_WCHAR_SIZE __SIZEOF_WCHAR_T__
-#elif (defined(__WCHAR_MAX__) && __WCHAR_MAX__ < 0x10000) && !defined(TS_WCHAR_SIZE)
-    #define TS_WCHAR_SIZE 2
-#elif (defined(__WCHAR_MAX__) && __WCHAR_MAX__ >= 0x10000) && !defined(TS_WCHAR_SIZE)
-    // Assume that wchar_t is 32-bit if larger than 16-bit
-    #define TS_WCHAR_SIZE 4
-#elif (defined(WCHAR_MAX) && WCHAR_MAX < 0x10000) && !defined(TS_WCHAR_SIZE)
-    #define TS_WCHAR_SIZE 2
-#elif (defined(WCHAR_MAX) && WCHAR_MAX >= 0x10000) && !defined(TS_WCHAR_SIZE)
-    // Assume that wchar_t is 32-bit if larger than 16-bit
-    #define TS_WCHAR_SIZE 4
-#elif defined(TS_MSC)
-    // Microsoft compiler used to use 16-bit "wide characters".
-    #define TS_WCHAR_SIZE 2
+#define TS_DEFAULT_ASSIGMENTS(classname)                  \
+    public:                                               \
+        /** @cond nodoxygen */                            \
+        classname& operator=(classname&&) = default;      \
+        classname& operator=(const classname&) = default  \
+        /** @endcond */
+
+//!
+//! A macro to declare the default copy and move constructors and assignment operators in the declaration of a class.
+//! @param classname Name of the enclosing class.
+//!
+#define TS_DEFAULT_COPY_MOVE(classname)                   \
+    public:                                               \
+        /** @cond nodoxygen */                            \
+        classname(classname&&) = default;                 \
+        classname(const classname&) = default;            \
+        classname& operator=(classname&&) = default;      \
+        classname& operator=(const classname&) = default  \
+        /** @endcond */
+
+//!
+//! A macro to apply the C++ "rule of five" in the declaration of a class.
+//! An explicit virtual destructor is declared. The copy and move constructors and assignments are defaulted.
+//! @param classname Name of the enclosing class.
+//! @param dtor_attributes Post attributes for the destructor.
+//!
+#define TS_RULE_OF_FIVE(classname, dtor_attributes)       \
+    public:                                               \
+        /** @cond nodoxygen */                            \
+        classname(classname&&) = default;                 \
+        classname(const classname&) = default;            \
+        classname& operator=(classname&&) = default;      \
+        classname& operator=(const classname&) = default; \
+        virtual ~classname() dtor_attributes              \
+        /** @endcond */
+
+//!
+//! A macro to declare the basic operators in the declaration of an interface class.
+//! @param classname Name of the enclosing class.
+//!
+#define TS_INTERFACE(classname)                           \
+    public:                                               \
+        /** @cond nodoxygen */                            \
+        classname() = default;                            \
+        classname(classname&&) = default;                 \
+        classname(const classname&) = default;            \
+        classname& operator=(classname&&) = default;      \
+        classname& operator=(const classname&) = default; \
+        virtual ~classname()                              \
+        /** @endcond */
+
+//!
+//! A macro to declare an unequal operator in the declaration of a class.
+//! Before C++20, define an inline != operator based on the == operator.
+//! In C++20 and beyond, != is implicitly derived from the corresponding ==
+//! and this macro does nothing.
+//! @param classname Name of the enclosing class.
+//!
+#if defined(TS_NEED_UNEQUAL_OPERATOR) && !defined(DOXYGEN)
+    #define TS_UNEQUAL_OPERATOR(classname) bool operator!=(const classname& other) const { return ! operator==(other); }
 #else
-    #error "size of wchar_t is unknown on this platform"
-#endif
-
-
-//----------------------------------------------------------------------------
-// Definition of common integer literals.
-//----------------------------------------------------------------------------
-
-#if defined(DOXYGEN)
-
-    //!
-    //! Portable definition of a 64-bit signed literal.
-    //!
-    //! The C/C++ languages define the syntax for integer literals.
-    //! An integer literal is always @e typed.
-    //! Without suffix such as in @c 0, the literal has type @c int.
-    //! With an @c L suffix, such as in @c 0L, the literal has type @c long.
-    //! But there is no standard suffix or syntax for 64-bit literals;
-    //! different compilers have different syntaxes.
-    //!
-    //! This macro is a portable way to write 64-bit signed literals.
-    //!
-    //! Example:
-    //! @code
-    //! const int64_t aBigOne = TS_CONST64(0x7FFFFFFFFFFFFFFF);
-    //! @endcode
-    //!
-    #define TS_CONST64(n)
-    //!
-    //! Portable definition of a 64-bit unsigned literal.
-    //!
-    //! The C/C++ languages define the syntax for integer literals.
-    //! An integer literal is always @e typed.
-    //! Without suffix such as in @c 0, the literal has type @c int.
-    //! With an @c L suffix, such as in @c 0L, the literal has type @c long.
-    //! But there is no standard suffix or syntax for 64-bit literals;
-    //! different compilers have different syntaxes.
-    //!
-    //! This macro is a portable way to write 64-bit unsigned literals.
-    //!
-    //! Example:
-    //! @code
-    //! const uint64_t aBigOne = TS_UCONST64(0xFFFFFFFFFFFFFFFF);
-    //! @endcode
-    //!
-    #define TS_UCONST64(n)
-
-#elif defined(TS_MSC)
-    #define TS_CONST64(n)  n##i64
-    #define TS_UCONST64(n) n##ui64
-#else
-    #define TS_CONST64(n)  (int64_t(n##LL))
-    #define TS_UCONST64(n) (uint64_t(n##ULL))
+    #define TS_UNEQUAL_OPERATOR(classname)
 #endif
 
 
@@ -1120,24 +1065,24 @@ TS_MSC_NOWARNING(5045)  // Compiler will insert Spectre mitigation for memory lo
 namespace ts {
 
     // Some common pointer types, typically for casting.
-    typedef char*           char_ptr;          //!< Pointer to @c char
-    typedef int8_t*         int8_ptr;          //!< Pointer to @c int8_t
-    typedef int16_t*        int16_ptr;         //!< Pointer to @c int16_t
-    typedef int32_t*        int32_ptr;         //!< Pointer to @c int32_t
-    typedef int64_t*        int64_ptr;         //!< Pointer to @c int64_t
-    typedef uint8_t*        uint8_ptr;         //!< Pointer to @c uint8_t
-    typedef uint16_t*       uint16_ptr;        //!< Pointer to @c uint16_t
-    typedef uint32_t*       uint32_ptr;        //!< Pointer to @c uint32_t
-    typedef uint64_t*       uint64_ptr;        //!< Pointer to @c uint64_t
-    typedef const char*     const_char_ptr;    //!< Pointer to @c const char
-    typedef const int8_t*   const_int8_ptr;    //!< Pointer to @c const int8_t
-    typedef const int16_t*  const_int16_ptr;   //!< Pointer to @c const int16_t
-    typedef const int32_t*  const_int32_ptr;   //!< Pointer to @c const int32_t
-    typedef const int64_t*  const_int64_ptr;   //!< Pointer to @c const int64_t
-    typedef const uint8_t*  const_uint8_ptr;   //!< Pointer to @c const uint8_t
-    typedef const uint16_t* const_uint16_ptr;  //!< Pointer to @c const uint16_t
-    typedef const uint32_t* const_uint32_ptr;  //!< Pointer to @c const uint32_t
-    typedef const uint64_t* const_uint64_ptr;  //!< Pointer to @c const uint64_t
+    using char_ptr = char*;                    //!< Pointer to @c char
+    using int8_ptr = int8_t*;                  //!< Pointer to @c int8_t
+    using int16_ptr = int16_t*;                //!< Pointer to @c int16_t
+    using int32_ptr = int32_t*;                //!< Pointer to @c int32_t
+    using int64_ptr = int64_t*;                //!< Pointer to @c int64_t
+    using uint8_ptr = uint8_t*;                //!< Pointer to @c uint8_t
+    using uint16_ptr = uint16_t*;              //!< Pointer to @c uint16_t
+    using uint32_ptr = uint32_t*;              //!< Pointer to @c uint32_t
+    using uint64_ptr = uint64_t*;              //!< Pointer to @c uint64_t
+    using const_char_ptr = const char*;        //!< Pointer to @c const char
+    using const_int8_ptr = const int8_t*;      //!< Pointer to @c const int8_t
+    using const_int16_ptr = const int16_t*;    //!< Pointer to @c const int16_t
+    using const_int32_ptr = const int32_t*;    //!< Pointer to @c const int32_t
+    using const_int64_ptr = const int64_t*;    //!< Pointer to @c const int64_t
+    using const_uint8_ptr = const uint8_t*;    //!< Pointer to @c const uint8_t
+    using const_uint16_ptr = const uint16_t*;  //!< Pointer to @c const uint16_t
+    using const_uint32_ptr = const uint32_t*;  //!< Pointer to @c const uint32_t
+    using const_uint64_ptr = const uint64_t*;  //!< Pointer to @c const uint64_t
 
     //!
     //! Constant meaning "no size", "not found" or "do not resize".
@@ -1145,87 +1090,10 @@ namespace ts {
     //! Required on Windows to avoid linking issue.
     //!
 #if defined(TS_WINDOWS)
-    const size_t NPOS = size_t(-1);
+    constexpr size_t NPOS = size_t(-1);
 #else
-    const size_t NPOS = std::string::npos;
+    constexpr size_t NPOS = std::string::npos;
 #endif
-
-    //!
-    //! This integer type is used to represent any sub-quantity of seconds.
-    //!
-    //! This type is mostly used as parent for all other representations
-    //! of sub-quantities of seconds (@link MilliSecond @endlink,
-    //! @link NanoSecond @endlink, etc.) Although these types are all
-    //! identical, they should be used explicitly for clarity. Thus,
-    //! when reading some code, it the variable for a duration has type
-    //! MilliSecond, it is clear that it contains a number of milliseconds,
-    //! not seconds or microseconds.
-    //!
-    //! Note that this is a signed type. A number of sub-quantities of seconds
-    //! can be negative, indicating a duration backward.
-    //!
-    typedef int64_t SubSecond;
-    //!
-    //! This integer type is used to represent a number of seconds.
-    //! Should be explicitly used for clarity when a variable contains a number of seconds.
-    //!
-    typedef SubSecond Second;
-    //!
-    //! This integer type is used to represent a number of milliseconds.
-    //! Should be explicitly used for clarity when a variable contains a number of milliseconds.
-    //!
-    typedef SubSecond MilliSecond;
-    //!
-    //! This integer type is used to represent a number of microseconds.
-    //! Should be explicitly used for clarity when a variable contains a number of microseconds.
-    //!
-    typedef SubSecond MicroSecond;
-    //!
-    //! This integer type is used to represent a number of nanoseconds.
-    //! Should be explicitly used for clarity when a variable contains a number of nanoseconds.
-    //!
-    typedef SubSecond NanoSecond;
-    //!
-    //! This constant shall be used by convention to express an infinite
-    //! number of sub-quantities of seconds.
-    //!
-    constexpr SubSecond Infinite = TS_CONST64(0x7FFFFFFFFFFFFFFF);
-    //!
-    //! Number of nanoseconds per second
-    //!
-    constexpr NanoSecond NanoSecPerSec = 1000000000;
-    //!
-    //! Number of nanoseconds per millisecond
-    //!
-    constexpr NanoSecond NanoSecPerMilliSec = 1000000;
-    //!
-    //! Number of nanoseconds per microsecond
-    //!
-    constexpr NanoSecond NanoSecPerMicroSec = 1000;
-    //!
-    //! Number of microseconds per second
-    //!
-    constexpr MicroSecond MicroSecPerSec = 1000000;
-    //!
-    //! Number of microseconds per millisecond
-    //!
-    constexpr MicroSecond MicroSecPerMilliSec = 1000;
-    //!
-    //! Number of milliseconds per second
-    //!
-    constexpr MilliSecond MilliSecPerSec = 1000;
-    //!
-    //! Number of milliseconds per minute
-    //!
-    constexpr MilliSecond MilliSecPerMin = 1000 * 60;
-    //!
-    //! Number of milliseconds per hour
-    //!
-    constexpr MilliSecond MilliSecPerHour = 1000 * 60 * 60;
-    //!
-    //! Number of milliseconds per day
-    //!
-    constexpr MilliSecond MilliSecPerDay = 1000 * 60 * 60 * 24;
 
     //!
     //! Enumeration type used to indicate if the data referenced by a pointer shall be copied or shared.
@@ -1257,3 +1125,142 @@ namespace ts {
     template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
     Tristate ToTristate(INT i) { return Tristate(std::max<INT>(-1, std::min<INT>(1, i))); }
 }
+
+
+//----------------------------------------------------------------------------
+// Optional value, extending C++17 mechanisms.
+//----------------------------------------------------------------------------
+
+namespace ts {
+    //!
+    //! Set a default value in a std::optional object, if there is none.
+    //! @tparam T The type of the optional object.
+    //! @tparam U The type of the default value to set.
+    //! @param [in,out] opt The optinal object to set.
+    //! @param [in] value The value to set in @a obj if it is not initialized.
+    //!
+    template <class T, class U>
+    inline void set_default(std::optional<T>& opt, const U& value)
+    {
+        if (!opt) {
+            opt = value;
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// File systems, extending C++11 mechanisms.
+//----------------------------------------------------------------------------
+
+//!
+//! Namespace @c fs is a shortcut for @c std::filesystem.
+//!
+namespace fs = std::filesystem;
+
+namespace ts {
+    //!
+    //! This error code is returned by some functions in std::filesystem.
+    //!
+    constexpr std::uintmax_t FS_ERROR = static_cast<std::uintmax_t>(-1);
+}
+
+
+//----------------------------------------------------------------------------
+// Time and duration, extending C++11 and C++17 mechanisms.
+//----------------------------------------------------------------------------
+
+//!
+//! Namespace @c cn is a shortcut for @c std::chrono.
+//!
+namespace cn = std::chrono;
+
+namespace ts {
+    // Make sure that standard chrono literals such as 10ms or 3s can be used inside namespace ts.
+    using namespace std::chrono_literals;
+
+    //!
+    //! A derivative of std::chrono::duration for deciseconds (1/10 of a second).
+    //! @see std::chrono::milliseconds
+    //! @see std::chrono::seconds
+    //!
+    using deciseconds = cn::duration<cn::milliseconds::rep, std::deci>;
+
+    //!
+    //! Definition of a monotonic time.
+    //!
+    using monotonic_time = cn::time_point<cn::steady_clock>;
+}
+
+// Define missing std::chrono::duration types in C++17.
+//! @cond nodoxygen
+#if !defined(TS_CXX20)
+namespace std::chrono {
+    using days   = duration<hours::rep, ratio_multiply<ratio<24>, hours::period>>;
+    using weeks  = duration<hours::rep, ratio_multiply<ratio<7>, days::period>>;
+    using years  = duration<hours::rep, ratio_multiply<ratio<146097, 400>, days::period>>;
+    using months = duration<hours::rep, ratio_divide<years::period, ratio<12>>>;
+}
+#endif
+//! @endcond
+
+
+//----------------------------------------------------------------------------
+// Locking and thread-safety, extending C++11 mechanisms.
+//----------------------------------------------------------------------------
+
+namespace ts {
+    //!
+    //! A null_mutex class which can be used to replace @c std::mutex or @c std::recursive_mutex.
+    //! Used to instantiate synchronized template classes in a mono-thread environment.
+    //!
+    class TSDUCKDLL null_mutex
+    {
+    public:
+        //! Lock the null_mutex (does nothing).
+        void lock() noexcept {}
+        //! Unlock the null_mutex (does nothing).
+        void unlock() noexcept {}
+        //! Successfully try to lock the null_mutex.
+        //! @return Always true.
+        bool try_lock() noexcept { return true; }
+    };
+
+    //!
+    //! Thread safety property of a class.
+    //!
+    enum class ThreadSafety {
+        Full,  //!< Thread safe, can be used from multiple threads.
+        None,  //!< No thread safety, use in one single thread or use explicit synchronization.
+    };
+
+    //!
+    //! Define the appropriate mutex class for a given level of thread-safety.
+    //! @tparam THS Thread-safety level.
+    //!
+    template<ThreadSafety THS>
+    struct ThreadSafetyMutex {
+        //! Mutex class for a given level of thread-safety.
+        //! The default is std::mutex and a non-thread-safe specialization uses ts::null_mutex.
+        using type = std::mutex;
+    };
+
+    // Specialization for monothread.
+    //! @cond nodoxygen
+    template<> struct ThreadSafetyMutex<ThreadSafety::None> {
+        using type = ts::null_mutex;
+    };
+    //! @endcond
+}
+
+// Template specialization on null_mutex of standard lock_guard: reduce overhead to nothing.
+//! @cond nodoxygen
+namespace std {
+    template<> class lock_guard<ts::null_mutex>
+    {
+    public:
+        explicit lock_guard(ts::null_mutex&) {}
+        lock_guard(ts::null_mutex&, std::adopt_lock_t) {}
+    };
+}
+//! @endcond

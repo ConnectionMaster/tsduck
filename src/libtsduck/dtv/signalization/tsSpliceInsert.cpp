@@ -1,45 +1,19 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSpliceInsert.h"
 #include "tsTablesDisplay.h"
 #include "tsDuckContext.h"
-#include "tsNames.h"
 #include "tsxmlElement.h"
 #include "tsTS.h"
 
 #define MY_XML_NAME u"splice_insert"
 #define MY_STD ts::Standards::SCTE
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr uint32_t ts::SpliceInsert::INVALID_EVENT_ID;
-#endif
 
 
 //----------------------------------------------------------------------------
@@ -47,20 +21,7 @@ constexpr uint32_t ts::SpliceInsert::INVALID_EVENT_ID;
 //----------------------------------------------------------------------------
 
 ts::SpliceInsert::SpliceInsert() :
-    AbstractSignalization(MY_XML_NAME, MY_STD),
-    event_id(0),
-    canceled(true),
-    splice_out(false),
-    immediate(false),
-    program_splice(false),
-    use_duration(false),
-    program_pts(),
-    components_pts(),
-    duration_pts(INVALID_PTS),
-    auto_return(false),
-    program_id(0),
-    avail_num(0),
-    avails_expected(0)
+    AbstractSignalization(MY_XML_NAME, MY_STD)
 {
 }
 
@@ -100,14 +61,14 @@ void ts::SpliceInsert::adjustPTS(uint64_t adjustment)
     }
 
     // Adjust program splice time.
-    if (program_splice && program_pts.set() && program_pts.value() <= PTS_DTS_MASK) {
+    if (program_splice && program_pts.has_value() && program_pts.value() <= PTS_DTS_MASK) {
         program_pts = (program_pts.value() + adjustment) & PTS_DTS_MASK;
     }
 
     // Adjust components splice times.
     if (!program_splice) {
         for (auto& it : components_pts) {
-            if (it.second.set() && it.second.value() <= PTS_DTS_MASK) {
+            if (it.second.has_value() && it.second.value() <= PTS_DTS_MASK) {
                 it.second = (it.second.value() + adjustment) & PTS_DTS_MASK;
             }
         }
@@ -124,13 +85,13 @@ uint64_t ts::SpliceInsert::highestPTS() const
     uint64_t result = INVALID_PTS;
     if (!canceled && !immediate) {
         // Check program splice time.
-        if (program_splice && program_pts.set() && program_pts.value() <= PTS_DTS_MASK) {
+        if (program_splice && program_pts.has_value() && program_pts.value() <= PTS_DTS_MASK) {
             result = program_pts.value();
         }
         // Check components splice times.
         if (!program_splice) {
             for (auto& it : components_pts) {
-                if (it.second.set() && it.second.value() <= PTS_DTS_MASK && (result == INVALID_PTS || it.second.value() > result)) {
+                if (it.second.has_value() && it.second.value() <= PTS_DTS_MASK && (result == INVALID_PTS || it.second.value() > result)) {
                     result = it.second.value();
                 }
             }
@@ -144,13 +105,13 @@ uint64_t ts::SpliceInsert::lowestPTS() const
     uint64_t result = INVALID_PTS;
     if (!canceled && !immediate) {
         // Check program splice time.
-        if (program_splice && program_pts.set() && program_pts.value() <= PTS_DTS_MASK) {
+        if (program_splice && program_pts.has_value() && program_pts.value() <= PTS_DTS_MASK) {
             result = program_pts.value();
         }
         // Check components splice times.
         if (!program_splice) {
             for (auto& it : components_pts) {
-                if (it.second.set() && it.second.value() <= PTS_DTS_MASK && (result == INVALID_PTS || it.second.value() < result)) {
+                if (it.second.has_value() && it.second.value() <= PTS_DTS_MASK && (result == INVALID_PTS || it.second.value() < result)) {
                     result = it.second.value();
                 }
             }
@@ -166,7 +127,7 @@ uint64_t ts::SpliceInsert::lowestPTS() const
 
 void ts::SpliceInsert::display(TablesDisplay& disp, const UString& margin) const
 {
-    disp << margin << UString::Format(u"Splice event id: 0x%X (%<d), cancel: %d", {event_id, canceled}) << std::endl;
+    disp << margin << UString::Format(u"Splice event id: %n, cancel: %d", event_id, canceled) << std::endl;
 
     if (!canceled) {
         disp << margin
@@ -184,7 +145,7 @@ void ts::SpliceInsert::display(TablesDisplay& disp, const UString& margin) const
             // Program components switch individually.
             disp << margin << "Number of components: " << components_pts.size() << std::endl;
             for (auto& it : components_pts) {
-                disp << margin << UString::Format(u"  Component tag: 0x%X (%<d)", {it.first});
+                disp << margin << UString::Format(u"  Component tag: %n", it.first);
                 if (!immediate) {
                     disp << ", time PTS: " << it.second.toString();
                 }
@@ -194,7 +155,7 @@ void ts::SpliceInsert::display(TablesDisplay& disp, const UString& margin) const
         if (use_duration) {
             disp << margin << "Duration PTS: " << PTSToString(duration_pts) << ", auto return: " << UString::YesNo(auto_return) << std::endl;
         }
-        disp << margin << UString::Format(u"Unique program id: 0x%X (%<d), avail: 0x%X (%<d), avails expected: %d", {program_id, avail_num, avails_expected}) << std::endl;
+        disp << margin << UString::Format(u"Unique program id: %n, avail: %n, avails expected: %d", program_id, avail_num, avails_expected) << std::endl;
     }
 }
 
@@ -342,7 +303,7 @@ void ts::SpliceInsert::buildXML(DuckContext& duck, xml::Element* root) const
         root->setIntAttribute(u"unique_program_id", program_id, true);
         root->setIntAttribute(u"avail_num", avail_num);
         root->setIntAttribute(u"avails_expected", avails_expected);
-        if (program_splice && !immediate && program_pts.set()) {
+        if (program_splice && !immediate && program_pts.has_value()) {
             root->setIntAttribute(u"pts_time", program_pts.value());
         }
         if (use_duration) {
@@ -354,7 +315,7 @@ void ts::SpliceInsert::buildXML(DuckContext& duck, xml::Element* root) const
             for (auto& it : components_pts) {
                 xml::Element* e = root->addElement(u"component");
                 e->setIntAttribute(u"component_tag", it.first);
-                if (!immediate && it.second.set()) {
+                if (!immediate && it.second.has_value()) {
                     e->setIntAttribute(u"pts_time", it.second.value());
                 }
             }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -42,6 +21,8 @@ ts::ArgMix::ArgMix() :
     _type(0),
     _size(0),
     _value(int32_t(0)),
+    _num(0),
+    _den(0),
     _aux(nullptr)
 {
 }
@@ -50,6 +31,8 @@ ts::ArgMix::ArgMix(const ts::ArgMix& other) :
     _type(other._type),
     _size(other._size),
     _value(other._value),
+    _num(other._num),
+    _den(other._den),
     _aux(other._aux == nullptr ? nullptr : new UString(*other._aux))
 {
 }
@@ -58,15 +41,19 @@ ts::ArgMix::ArgMix(ts::ArgMix&& other) :
     _type(other._type),
     _size(other._size),
     _value(other._value),
+    _num(other._num),
+    _den(other._den),
     _aux(other._aux)
 {
     other._aux = nullptr;
 }
 
-ts::ArgMix::ArgMix(TypeFlags type, size_t size, const Value value) :
+ts::ArgMix::ArgMix(TypeFlags type, size_t size, const Value value, std::intmax_t num, std::intmax_t den) :
     _type(type),
     _size(uint8_t(size)),
     _value(value),
+    _num(num),
+    _den(den),
     _aux(nullptr)
 {
 }
@@ -101,6 +88,12 @@ const char* ts::ArgMix::toCharPtr() const
             // A pointer to std::string.
             return _value.string == nullptr ? "" : _value.string->c_str();
         }
+#if !defined(TS_WINDOWS)
+        case STRING | BIT8 | CLASS | PATH: {
+            // On Unix, fs::path uses 8-bit chars, internally. Need to allocate an auxiliary string.
+            return _value.path == nullptr ? "" : _value.path->c_str();
+        }
+#endif
         default: {
             return "";
         }
@@ -141,6 +134,18 @@ const ts::UChar* ts::ArgMix::toUCharPtr() const
             }
             return _aux == nullptr ? u"" : _aux->c_str();
         }
+        case STRING | BITPATH | CLASS | PATH: {
+#if defined(TS_WINDOWS)
+            // On Windows, fs::path uses 16-bit chars, internally.
+            return _value.path == nullptr ? u"" : reinterpret_cast<const UChar*>(_value.path->c_str());
+#else
+            // On Unix, fs::path uses 8-bit chars, internally. Need to allocate an auxiliary string.
+            if (_value.path != nullptr && _aux == nullptr) {
+                _aux = new UString(*_value.path);
+            }
+            return _aux == nullptr ? u"" : _aux->c_str();
+#endif
+        }
         case ANUMBER: {
             // A pointer to AbstractNumer. Need to allocate an auxiliary string.
             if (_value.anumber != nullptr && _aux == nullptr) {
@@ -156,12 +161,7 @@ const ts::UChar* ts::ArgMix::toUCharPtr() const
 
 const std::string& ts::ArgMix::toString() const
 {
-    if (_type == (STRING | BIT8 | CLASS)) {
-        return _value.string != nullptr ? *_value.string : empty;
-    }
-    else {
-        return empty;
-    }
+    return _type == (STRING | BIT8 | CLASS) && _value.string != nullptr ? *_value.string : empty;
 }
 
 const ts::UString& ts::ArgMix::toUString() const
@@ -198,6 +198,13 @@ const ts::UString& ts::ArgMix::toUString() const
             // A pointer to StringifyInterface. Need to allocate an auxiliary string.
             if (_value.stringify != nullptr && _aux == nullptr) {
                 _aux = new UString(_value.stringify->toString());
+            }
+            return _aux == nullptr ? uempty : *_aux;
+        }
+        case STRING | BITPATH | CLASS | PATH: {
+            // A pointer to fs::path. Need to allocate an auxiliary string.
+            if (_value.path != nullptr && _aux == nullptr) {
+                _aux = new UString(*_value.path);
             }
             return _aux == nullptr ? uempty : *_aux;
         }

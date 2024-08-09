@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -76,19 +55,15 @@ namespace ts {
             //!
             //! Load and parse an XML file.
             //! @param [in] fileName Name of the XML file to load.
+            //! If @a fileName is empty or "-", read the standard input.
             //! If @a fileName starts with "<?xml", this is considered as "inline XML content".
             //! The document is loaded from this string instead of reading a file.
-            //! @param [in] search If true, use a search algorithm for the XML file:
-            //! If @a fileName is not found and does not contain any directory part, search this file
-            //! in the following places:
-            //! - Directory of the current executable.
-            //! - All directories in @c TSPLUGINS_PATH environment variable.
-            //! - All directories in @c LD_LIBRARY_PATH environment variable (UNIX only).
-            //! - All directories in @c PATH (UNIX) or @c Path (Windows) environment variable.
-            //! @param [in] stdInputIfEmpty If true and if @a fileName is empty or "-", read the standard input.
+            //! @param [in] search If true, search the XML file in the TSDuck configuration directories
+            //! if @a fileName is not found and does not contain any directory part.
             //! @return True on success, false on error.
+            //! @see SearchConfigurationFile()
             //!
-            bool load(const UString& fileName, bool search = true, bool stdInputIfEmpty = false);
+            bool load(const UString& fileName, bool search = true);
 
             //!
             //! Load and parse an XML file.
@@ -100,11 +75,11 @@ namespace ts {
             //!
             //! Save an XML file.
             //! @param [in] fileName Name of the XML file to save.
+            //! If @a fileName is empty or "-", writes to the standard output.
             //! @param [in] indent Indentation width of each level.
-            //! @param [in] stdOutputIfEmpty If true and if @a fileName is empty or "-", writes to the standard output.
             //! @return True on success, false on error.
             //!
-            bool save(const UString& fileName, size_t indent = 2, bool stdOutputIfEmpty = false);
+            bool save(const fs::path& fileName, size_t indent = 2);
 
             //!
             //! Check if a "file name" is in fact inline XML content instead of a file name.
@@ -123,13 +98,13 @@ namespace ts {
 
             //!
             //! Get the root element of the document.
-            //! @return The root element of the document or zero if there is none.
+            //! @return The root element of the document or a null pointer if there is none.
             //!
             const Element* rootElement() const { return firstChildElement(); }
 
             //!
             //! Get the root element of the document.
-            //! @return The root element of the document or zero if there is none.
+            //! @return The root element of the document or or a null pointer if there is none.
             //!
             Element* rootElement() { return firstChildElement(); }
 
@@ -169,7 +144,7 @@ namespace ts {
             virtual bool parseNode(TextParser& parser, const Node* parent) override;
 
         private:
-            Tweaks _tweaks;  // Global XML tweaks for the document.
+            Tweaks _tweaks {};  // Global XML tweaks for the document.
         };
     }
 }

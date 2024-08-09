@@ -36,28 +36,33 @@ enhanced and new plugins can be developed using a library of C++ classes.
 
 ### Usage
 
-TSDuck comes with a comprehensive [User's Guide](https://tsduck.io/download/docs/tsduck.pdf).
+TSDuck comes with a comprehensive [User's Guide](https://tsduck.io/download/docs/tsduck.html).
 
 All utilities and plugins accept the option `--help` to display their syntax.
 
 For programmers, TSDuck provides a large collection of C++ classes in one single library.
 These classes manipulate, in a completely portable way, MPEG transport streams, MPEG/DVB/ATSC/ISDB
-signalization and many other features. See the [programming guide](https://tsduck.io/doxy/)
-and its [tutorial](https://tsduck.io/doxy/libtutorial.html).
+signalization and many other features.
+See the [Developer's Guide](https://tsduck.io/download/docs/tsduck-dev.html)
+and the [Programming Reference](https://tsduck.io/doxy/).
 
 Python and Java bindings exist to allow running transport stream processing pipelines from
 Python or Java applications.
 
 ### Building
 
-TSDuck can be built on Windows, Linux and macOS systems. See the
-[building guide](https://tsduck.io/doxy/building.html) for details.
+TSDuck can be built on Windows, Linux, macOS and BSD systems.
+See the [building section](https://tsduck.io/download/docs/tsduck-dev.html#building)
+in the developer's guide for more details.
 
 ### Download
 
+- On macOS, [use the Homebrew packager](https://tsduck.io/download/docs/tsduck-dev.html#macinstall): `brew install tsduck`
+- On Windows, [use winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/): `winget install tsduck`
+
 Pre-built [binary packages](https://github.com/tsduck/tsduck/releases) are available
-for Windows and Linux (Fedora, RedHat, CentOS, AlmaLinux, Ubuntu, Debian, Raspbian). On macOS,
-[use the Homebrew packager](https://github.com/tsduck/homebrew-tsduck/blob/master/README.md).
+for Windows and the very latest versions of some Linux distros
+(Fedora, RedHat, CentOS, AlmaLinux, Ubuntu, Debian, Raspbian).
 
 The latest developments can be tested using [nightly builds](https://tsduck.io/download/prerelease/).
 
@@ -67,7 +72,7 @@ operating system and upgrades TSDuck.
 
 ### Project resources
 
-TSDuck is developed by one single developer on spare time and on personal expenses.
+TSDuck is maintained by one single developer on spare time and on personal expenses.
 You may consider [contributing](https://tsduck.io/donate/) to the hardware and Web hosting costs
 using [![Donate](https://tsduck.io/images/donate-paypal.svg)](https://tsduck.io/donate/)
 
@@ -76,5 +81,5 @@ using [![Donate](https://tsduck.io/images/donate-paypal.svg)](https://tsduck.io/
 TSDuck is distributed under the terms of the Simplified BSD License.
 See the file `LICENSE.txt` for details.
 
-*Copyright (c) 2005-2022, Thierry Lelegard*<br/>
+*Copyright (c) 2005-2024, Thierry Lelegard*<br/>
 *All rights reserved*

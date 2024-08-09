@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,56 +20,26 @@
 
 class FixedPointTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testUnit();
-    void testSubUnit();
-    void testAssignment();
-    void testComparison();
-    void testBounds();
-    void testOverflow();
-    void testToString();
-    void testFromString();
-
-    TSUNIT_TEST_BEGIN(FixedPointTest);
-    TSUNIT_TEST(testUnit);
-    TSUNIT_TEST(testSubUnit);
-    TSUNIT_TEST(testAssignment);
-    TSUNIT_TEST(testComparison);
-    TSUNIT_TEST(testBounds);
-    TSUNIT_TEST(testOverflow);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST(testFromString);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Unit);
+    TSUNIT_DECLARE_TEST(SubUnit);
+    TSUNIT_DECLARE_TEST(Assignment);
+    TSUNIT_DECLARE_TEST(Comparison);
+    TSUNIT_DECLARE_TEST(Bounds);
+    TSUNIT_DECLARE_TEST(Overflow);
+    TSUNIT_DECLARE_TEST(ToString);
+    TSUNIT_DECLARE_TEST(FromString);
 };
 
 TSUNIT_REGISTER(FixedPointTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void FixedPointTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void FixedPointTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void FixedPointTest::testUnit()
+TSUNIT_DEFINE_TEST(Unit)
 {
-    typedef ts::FixedPoint<int32_t, 0> Fixed;
+    using Fixed = ts::FixedPoint<int32_t, 0>;
 
     Fixed i;
     Fixed n(-3);
@@ -134,9 +83,9 @@ void FixedPointTest::testUnit()
     TSUNIT_EQUAL(2, (Fixed(10) / 4).raw());
 }
 
-void FixedPointTest::testSubUnit()
+TSUNIT_DEFINE_TEST(SubUnit)
 {
-    typedef ts::FixedPoint<int32_t, 3> Fixed;
+    using Fixed = ts::FixedPoint<int32_t, 3>;
 
     Fixed i;
     Fixed n(-3);
@@ -180,9 +129,9 @@ void FixedPointTest::testSubUnit()
     TSUNIT_EQUAL(2500, (Fixed(10) / 4).raw());
 }
 
-void FixedPointTest::testAssignment()
+TSUNIT_DEFINE_TEST(Assignment)
 {
-    typedef ts::FixedPoint<int32_t, 3> Fixed;
+    using Fixed = ts::FixedPoint<int32_t, 3>;
 
     Fixed n;
     TSUNIT_EQUAL(0, n.toInt());
@@ -229,9 +178,9 @@ void FixedPointTest::testAssignment()
     TSUNIT_EQUAL(7500, n.raw());
 }
 
-void FixedPointTest::testComparison()
+TSUNIT_DEFINE_TEST(Comparison)
 {
-    typedef ts::FixedPoint<int32_t, 3> Fixed;
+    using Fixed = ts::FixedPoint<int32_t, 3>;
 
     TSUNIT_ASSERT(Fixed(-211) == Fixed(-211));
     TSUNIT_ASSERT(Fixed(1) == Fixed(1000, true));
@@ -268,9 +217,9 @@ void FixedPointTest::testComparison()
     TSUNIT_ASSERT(4 >= Fixed(4));
 }
 
-void FixedPointTest::testBounds()
+TSUNIT_DEFINE_TEST(Bounds)
 {
-    typedef ts::FixedPoint<int16_t, 3> Fixed;
+    using Fixed = ts::FixedPoint<int16_t, 3>;
 
     TSUNIT_EQUAL(-32, Fixed::MIN.toInt());
     TSUNIT_EQUAL(-32768, Fixed::MIN.raw());
@@ -278,10 +227,10 @@ void FixedPointTest::testBounds()
     TSUNIT_EQUAL(32767, Fixed::MAX.raw());
 }
 
-void FixedPointTest::testOverflow()
+TSUNIT_DEFINE_TEST(Overflow)
 {
-    typedef ts::FixedPoint<int16_t, 1> Fixed1;
-    typedef ts::FixedPoint<int16_t, 2> Fixed2;
+    using Fixed1 = ts::FixedPoint<int16_t, 1>;
+    using Fixed2 = ts::FixedPoint<int16_t, 2>;
 
     TSUNIT_ASSERT(!Fixed2(100).mulOverflow(3));
     TSUNIT_ASSERT(Fixed2(100).mulOverflow(4));
@@ -296,17 +245,17 @@ void FixedPointTest::testOverflow()
     TSUNIT_ASSERT(!Fixed1(10).mulOverflow(Fixed1(-30)));
     TSUNIT_ASSERT(Fixed1(10).mulOverflow(Fixed1(-40)));
 
-    typedef ts::FixedPoint<int64_t, 1> Fixed64;
+    using Fixed64 = ts::FixedPoint<int64_t, 1>;
 
     Fixed64 a(29202127);
-    int64_t b = TS_CONST64(31590000000);
+    int64_t b = 31590000000;
     TSUNIT_ASSERT(a.mulOverflow(b));
 }
 
-void FixedPointTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
-    typedef ts::FixedPoint<int32_t, 0> Fix0;
-    typedef ts::FixedPoint<int32_t, 3> Fix3;
+    using Fix0 = ts::FixedPoint<int32_t, 0>;
+    using Fix3 = ts::FixedPoint<int32_t, 3>;
 
     Fix0 f0;
     Fix3 f3;
@@ -323,26 +272,26 @@ void FixedPointTest::testToString()
     TSUNIT_EQUAL(u"   -56|789.000", Fix3(-56789).toString(14, true, u'|', true, ts::NPOS, true));
     TSUNIT_EQUAL(u"   +56|789.000", Fix3(56789).toString(14, true, u'|', true, ts::NPOS, true));
 
-    TSUNIT_EQUAL(u"1234",     ts::UString::Format(u"%d",   {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234.5",   ts::UString::Format(u"%s",   {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1,234",    ts::UString::Format(u"%'d",  {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1,234.5",  ts::UString::Format(u"%'s",  {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"04D2",     ts::UString::Format(u"%04X", {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234",     ts::UString::Format(u"%f",   {Fix3(1234)}));
-    TSUNIT_EQUAL(u"1234.5",   ts::UString::Format(u"%f",   {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234.000", ts::UString::Format(u"%.f",  {Fix3(1234)}));
-    TSUNIT_EQUAL(u"1234.500", ts::UString::Format(u"%.f",  {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234.50",  ts::UString::Format(u"%.2f", {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234.500", ts::UString::Format(u"%.3f", {Fix3(1234500, true)}));
-    TSUNIT_EQUAL(u"1234.52",  ts::UString::Format(u"%f",   {Fix3(1234520, true)}));
-    TSUNIT_EQUAL(u"1234.546", ts::UString::Format(u"%f",   {Fix3(1234546, true)}));
+    TSUNIT_EQUAL(u"1234",     ts::UString::Format(u"%d",   Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234.5",   ts::UString::Format(u"%s",   Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1,234",    ts::UString::Format(u"%'d",  Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1,234.5",  ts::UString::Format(u"%'s",  Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"04D2",     ts::UString::Format(u"%04X", Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234",     ts::UString::Format(u"%f",   Fix3(1234)));
+    TSUNIT_EQUAL(u"1234.5",   ts::UString::Format(u"%f",   Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234.000", ts::UString::Format(u"%.f",  Fix3(1234)));
+    TSUNIT_EQUAL(u"1234.500", ts::UString::Format(u"%.f",  Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234.50",  ts::UString::Format(u"%.2f", Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234.500", ts::UString::Format(u"%.3f", Fix3(1234500, true)));
+    TSUNIT_EQUAL(u"1234.52",  ts::UString::Format(u"%f",   Fix3(1234520, true)));
+    TSUNIT_EQUAL(u"1234.546", ts::UString::Format(u"%f",   Fix3(1234546, true)));
 }
 
 
-void FixedPointTest::testFromString()
+TSUNIT_DEFINE_TEST(FromString)
 {
-    typedef ts::FixedPoint<int32_t, 0> Fix0;
-    typedef ts::FixedPoint<int32_t, 3> Fix3;
+    using Fix0 = ts::FixedPoint<int32_t, 0>;
+    using Fix3 = ts::FixedPoint<int32_t, 3>;
 
     Fix0 f0;
     Fix3 f3;

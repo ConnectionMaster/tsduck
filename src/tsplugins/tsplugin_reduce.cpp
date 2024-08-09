@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -48,10 +27,9 @@
 namespace ts {
     class ReducePlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(ReducePlugin);
+        TS_PLUGIN_CONSTRUCTORS(ReducePlugin);
     public:
         // Implementation of plugin API
-        ReducePlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual size_t getPacketWindowSize() override;
@@ -63,20 +41,20 @@ namespace ts {
         enum class Error {NONE, PKT_OVERFLOW, NO_BITRATE, USE_PREVIOUS, LOW_BITRATE};
 
         // Command line parameters:
-        BitRate       _target_bitrate;   // Target bitrate to read, zero if fixed proportion is used.
-        BitRate       _input_bitrate;    // User-sepcified input bitrate.
-        MilliSecond   _window_ms;        // Packet window size in milliseconds.
-        PacketCounter _window_pkts;      // Packet window size in packets.
-        bool          _pcr_based;        // Use PCR's in packet window to compute the number f packets to remove.
-        PIDSet        _pcr_pids;         // Reference PCR PID's.
-        PacketCounter _fixed_rempkt;     // rempkt parameter, zero if target
-        PacketCounter _fixed_inpkt;      // inpkt parameter
+        BitRate          _target_bitrate = 0;   // Target bitrate to read, zero if fixed proportion is used.
+        BitRate          _input_bitrate = 0;    // User-sepcified input bitrate.
+        cn::milliseconds _window_ms {};         // Packet window size in milliseconds.
+        PacketCounter    _window_pkts = 0;      // Packet window size in packets.
+        bool             _pcr_based = false;    // Use PCR's in packet window to compute the number f packets to remove.
+        PIDSet           _pcr_pids {};          // Reference PCR PID's.
+        PacketCounter    _fixed_rempkt = 0;     // rempkt parameter, zero if target
+        PacketCounter    _fixed_inpkt = 0;      // inpkt parameter
 
         // Working data:
-        PacketCounter _pkt_to_remove;    // Current number of packets to remove
-        uint64_t      _bits_to_remove;   // Current number of bits to remove
-        BitRate       _previous_bitrate; // Bitrate from previous packet window.
-        Error         _error;            // Last error code.
+        PacketCounter _pkt_to_remove = 0;    // Current number of packets to remove
+        uint64_t      _bits_to_remove = 0;   // Current number of bits to remove
+        BitRate       _previous_bitrate = 0; // Bitrate from previous packet window.
+        Error         _error = Error::NONE;  // Last error code.
 
         // Compute bitrate in a packet window.
         BitRate computeBitRate(const TSPacketWindow& win) const;
@@ -91,19 +69,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"reduce", ts::ReducePlugin);
 //----------------------------------------------------------------------------
 
 ts::ReducePlugin::ReducePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Reduce the TS bitrate by removing stuffing packets", u"[options]"),
-    _target_bitrate(0),
-    _input_bitrate(0),
-    _window_ms(0),
-    _window_pkts(0),
-    _pcr_based(false),
-    _pcr_pids(),
-    _fixed_rempkt(0),
-    _fixed_inpkt(0),
-    _pkt_to_remove(0),
-    _bits_to_remove(0),
-    _previous_bitrate(0),
-    _error(Error::NONE)
+    ProcessorPlugin(tsp_, u"Reduce the TS bitrate by removing stuffing packets", u"[options]")
 {
     // Legacy parameters, now in --fixed-proportion.
     option(u"", 0, POSITIVE, 0, 2);
@@ -153,8 +119,8 @@ ts::ReducePlugin::ReducePlugin(TSP* tsp_) :
          u"Using the target bitrate method introduces an uncompressable latency in the stream, "
          u"see options --time-window and --packet-window.");
 
-    option(u"time-window", 0, POSITIVE);
-    help(u"time-window", u"milli-seconds",
+    option<cn::milliseconds>(u"time-window");
+    help(u"time-window",
          u"With --target-bitrate, define the latency period over which packets are analyzed and "
          u"extra packets are removed. To use this method, the bitrate must be known during the "
          u"starting phase so that it can be turned into a number of packets. "
@@ -173,7 +139,7 @@ bool ts::ReducePlugin::getOptions()
     getValue(_target_bitrate, u"target-bitrate");
     getValue(_input_bitrate, u"input-bitrate");
     getIntValue(_window_pkts, u"packet-window", DEFAULT_PACKET_WINDOW);
-    getIntValue(_window_ms, u"time-window");
+    getChronoValue(_window_ms, u"time-window");
     getIntValues(_pcr_pids, u"reference-pcr-pid", true);
     _pcr_based = present(u"pcr-based");
 
@@ -183,16 +149,16 @@ bool ts::ReducePlugin::getOptions()
     const UString fixprop = value(u"fixed-proportion");
     if (!fixprop.empty()) {
         if (_fixed_rempkt > 0 || _fixed_inpkt > 0) {
-            tsp->error(u"Specify either --fixed-proportion or legacy parameters but not both");
+            error(u"Specify either --fixed-proportion or legacy parameters but not both");
             ok = false;
         }
-        else if (!fixprop.scan(u"%d/%d", {&_fixed_rempkt, &_fixed_inpkt}) || _fixed_rempkt <= 0 || _fixed_inpkt <= 0) {
-            tsp->error(u"Invalid value '%s' for --fixed-proportion", {fixprop});
+        else if (!fixprop.scan(u"%d/%d", &_fixed_rempkt, &_fixed_inpkt) || _fixed_rempkt <= 0 || _fixed_inpkt <= 0) {
+            error(u"Invalid value '%s' for --fixed-proportion", fixprop);
             ok = false;
         }
     }
     if (_target_bitrate > 0 && (_fixed_rempkt > 0 || _fixed_inpkt > 0)) {
-        tsp->error(u"Specify either fixed proportion or target bitrate but not both");
+        error(u"Specify either fixed proportion or target bitrate but not both");
         ok = false;
     }
 
@@ -225,7 +191,7 @@ size_t ts::ReducePlugin::getPacketWindowSize()
         return 0;
     }
 
-    if (_window_ms == 0) {
+    if (_window_ms == cn::milliseconds::zero()) {
         // Packet window was specified in packets.
         assert(_window_pkts > 0);
         return size_t(_window_pkts);
@@ -235,11 +201,11 @@ size_t ts::ReducePlugin::getPacketWindowSize()
     if (bitrate > 0) {
         // Compute packet window size based on bitrate, round up one packet.
         const PacketCounter count = PacketDistance(bitrate, _window_ms) + 1;
-        tsp->verbose(u"bitrate analysis window size: %'d packets", {count});
+        verbose(u"bitrate analysis window size: %'d packets", count);
         return size_t(count);
     }
     else {
-        tsp->warning(u"bitrate is unknown in start phase, using the default window size (%'d packets)", {DEFAULT_PACKET_WINDOW});
+        warning(u"bitrate is unknown in start phase, using the default window size (%'d packets)", DEFAULT_PACKET_WINDOW);
         return size_t(DEFAULT_PACKET_WINDOW);
     }
 }
@@ -258,7 +224,7 @@ ts::ProcessorPlugin::Status ts::ReducePlugin::processPacket(TSPacket& pkt, TSPac
         // It is time to remove packets
         if (_pkt_to_remove > 2 * _fixed_rempkt) {
             // Overflow, we did not find enough stuffing packets to remove
-            tsp->verbose(u"overflow: failed to remove %'d packets", {_pkt_to_remove});
+            verbose(u"overflow: failed to remove %'d packets", _pkt_to_remove);
         }
         _pkt_to_remove += _fixed_rempkt;
     }
@@ -304,7 +270,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
         // Report this error once, not continuously.
         if (_error != Error::USE_PREVIOUS) {
             _error = Error::USE_PREVIOUS;
-            tsp->warning(u"cannot get bitrate from packet window, using previous bitrate: %'d b/s", {bitrate});
+            warning(u"cannot get bitrate from packet window, using previous bitrate: %'d b/s", bitrate);
         }
     }
     else {
@@ -312,7 +278,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
         // Report this error once, not continuously.
         if (_error != Error::NO_BITRATE) {
             _error = Error::NO_BITRATE;
-            tsp->warning(u"unknown bitrate, letting all packets pass");
+            warning(u"unknown bitrate, letting all packets pass");
         }
         return win.size();
     }
@@ -322,7 +288,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
         // Report this error once, not continuously.
         if (_error != Error::LOW_BITRATE && _error != Error::USE_PREVIOUS) {
             _error = Error::LOW_BITRATE;
-            tsp->warning(u"bitrate lower than target one, letting all packets pass");
+            warning(u"bitrate lower than target one, letting all packets pass");
         }
         return win.size();
     }
@@ -378,7 +344,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
             bool slice_done = false;
             // Count passes.
             pass_count++;
-            tsp->log(3, u"pass #%d, packets to remove: %'d, slice size: %'d packets", {pass_count, pkt_count, slice_size});
+            log(3, u"pass #%d, packets to remove: %'d, slice size: %'d packets", pass_count, pkt_count, slice_size);
             // Perform the pass over the packet window.
             for (size_t i = 0; i < subwin_size && pkt_count > 0; ++i) {
                 // Reset at start of slice.
@@ -400,7 +366,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
                 }
             }
         }
-        tsp->log(2, u"subwindow size: %'d packets, number of passes: %d, remaining null: %'d, remaining bits: %'d", {subwin_size, pass_count, null_count, _bits_to_remove});
+        log(2, u"subwindow size: %'d packets, number of passes: %d, remaining null: %'d, remaining bits: %'d", subwin_size, pass_count, null_count, _bits_to_remove);
 
         // Iterate to next sub-window.
         subwin_start += subwin_size;
@@ -410,7 +376,7 @@ size_t ts::ReducePlugin::processPacketWindow(TSPacketWindow& win)
     if (_bits_to_remove >= PKT_SIZE_BITS) {
         if (_error != Error::PKT_OVERFLOW) {
             _error = Error::PKT_OVERFLOW;
-            tsp->error(u"overflow, late by %'d packets", {_bits_to_remove / PKT_SIZE_BITS});
+            error(u"overflow, late by %'d packets", _bits_to_remove / PKT_SIZE_BITS);
         }
     }
     else {

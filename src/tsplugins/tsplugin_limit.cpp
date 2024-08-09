@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,7 +14,6 @@
 #include "tsPluginRepository.h"
 #include "tsSectionDemux.h"
 #include "tsBinaryTable.h"
-#include "tsMonotonic.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
 
@@ -54,52 +32,50 @@ namespace ts {
         public ProcessorPlugin,
         private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(LimitPlugin);
+        TS_PLUGIN_CONSTRUCTORS(LimitPlugin);
     public:
         // Implementation of plugin API
-        LimitPlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Context per PID in the TS.
-        struct PIDContext;
-        typedef SafePtr<PIDContext, NullMutex> PIDContextPtr;
-        typedef std::map<PID, PIDContextPtr> PIDContextMap;
+        class PIDContext;
+        using PIDContextPtr = std::shared_ptr<PIDContext>;
+        using PIDContextMap = std::map<PID, PIDContextPtr>;
 
         // Plugin fields.
-        bool          _useWallClock;
-        BitRate       _maxBitrate;
-        PacketCounter _threshold1;
-        PacketCounter _threshold2;
-        PacketCounter _threshold3;
-        PacketCounter _threshold4;
-        PacketCounter _thresholdAV;   // Threshold for audio/video packets.
-        BitRate       _curBitrate;    // Instant bitrate (between to consecutive PCR).
-        PacketCounter _currentPacket; // Total number of packets so far in the TS.
-        PacketCounter _excessPoint;   // Last packet from which we computed excess packets.
-        PacketCounter _excessPackets; // Number of packets in excess (to drop).
-        PacketCounter _excessBits;    // Number of bits in excess, in addition to packets.
-        PIDSet        _pids1;         // PIDs to sacrifice at threshold 1.
-        SectionDemux  _demux;         // Demux to collect PAT and PMT's.
-        PIDContextMap _pidContexts;   // One context per PID in the TS.
-        Monotonic     _clock;         // Monotonic clock for live streams.
-        size_t        _bitsSecond;    // Number of bits in current second.
+        bool           _useWallClock = false;
+        BitRate        _maxBitrate = 0;
+        PacketCounter  _threshold1 = 0;
+        PacketCounter  _threshold2 = 0;
+        PacketCounter  _threshold3 = 0;
+        PacketCounter  _threshold4 = 0;
+        PacketCounter  _thresholdAV = 0;     // Threshold for audio/video packets.
+        BitRate        _curBitrate = 0;      // Instant bitrate (between to consecutive PCR).
+        PacketCounter  _currentPacket = 0;   // Total number of packets so far in the TS.
+        PacketCounter  _excessPoint = 0;     // Last packet from which we computed excess packets.
+        PacketCounter  _excessPackets = 0;   // Number of packets in excess (to drop).
+        PacketCounter  _excessBits = 0;      // Number of bits in excess, in addition to packets.
+        PIDSet         _pids1 {};            // PIDs to sacrifice at threshold 1.
+        SectionDemux   _demux {duck, this};  // Demux to collect PAT and PMT's.
+        PIDContextMap  _pidContexts {};      // One context per PID in the TS.
+        monotonic_time _clock {};            // Monotonic clock for live streams.
+        size_t         _bitsSecond = 0;      // Number of bits in current second.
 
         // Context per PID in the TS.
-        struct PIDContext
+        class PIDContext
         {
-            // Constructor.
-            PIDContext() = delete;
-            PIDContext(PID pid);
-
-            PID           pid;         // PID value.
-            bool          psi;         // The PID contains PSI/SI.
-            bool          video;       // The PID contains video.
-            bool          audio;       // The PID contains audio.
-            uint64_t      pcrValue;    // Last PCR value.
-            PacketCounter pcrPacket;   // Global packet index for pcrValue.
-            PacketCounter dropCount;   // Number of dropped packets in this PID.
+            TS_NOBUILD_NOCOPY(PIDContext);
+        public:
+            PIDContext(PID pid);                  // Constructor.
+            const PID     pid;                    // PID value.
+            bool          psi = false;            // The PID contains PSI/SI.
+            bool          video = false;          // The PID contains video.
+            bool          audio = false;          // The PID contains audio.
+            uint64_t      pcrValue = INVALID_PCR; // Last PCR value.
+            PacketCounter pcrPacket = 0;          // Global packet index for pcrValue.
+            PacketCounter dropCount = 0;          // Number of dropped packets in this PID.
         };
 
         // Get or create the context for a PID.
@@ -121,24 +97,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"limit", ts::LimitPlugin);
 //----------------------------------------------------------------------------
 
 ts::LimitPlugin::LimitPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Limit the global bitrate by dropping packets", u"[options]"),
-    _useWallClock(false),
-    _maxBitrate(0),
-    _threshold1(0),
-    _threshold2(0),
-    _threshold3(0),
-    _threshold4(0),
-    _thresholdAV(0),
-    _curBitrate(0),
-    _currentPacket(0),
-    _excessPoint(0),
-    _excessPackets(0),
-    _excessBits(0),
-    _pids1(),
-    _demux(duck, this),
-    _pidContexts(),
-    _clock(),
-    _bitsSecond(0)
+    ProcessorPlugin(tsp_, u"Limit the global bitrate by dropping packets", u"[options]")
 {
     setIntro(u"This plugin limits the global bitrate of the transport stream. "
              u"Packets are dropped when necessary to maintain the overall bitrate "
@@ -212,15 +171,15 @@ bool ts::LimitPlugin::start()
     getIntValues(_pids1, u"pid");
 
     if (_threshold4 < 1) {
-        tsp->error(u"the last threshold can't be disabled");
+        error(u"the last threshold can't be disabled");
         return false;
     }
     if (_threshold4 < _threshold1 || (_threshold4 < _threshold3 && _pids1.any()) || (_threshold4 < _threshold2 && _pids1.any())) {
-        tsp->error(u"the last threshold can't be less than others");
+        error(u"the last threshold can't be less than others");
         return false;
     }
     if (_threshold2 > _threshold3) {
-        tsp->error(u"the threshold3 (audio) can't be less than threshold2 (video)");
+        error(u"the threshold3 (audio) can't be less than threshold2 (video)");
         return false;
     }
 
@@ -228,7 +187,7 @@ bool ts::LimitPlugin::start()
     // dropping other a/v at --threshold3 only. But, without any --pid, we start at --threshold1.
     _thresholdAV = _pids1.any() ? _threshold3 : _threshold1;
 
-    tsp->debug(u"threshold 1: %'d, threshold 2: %'d, threshold 3: %'d, threshold 4: %'d, audio/video threshold: %'d", {_threshold1, _threshold2, _threshold3, _threshold4, _thresholdAV});
+    debug(u"threshold 1: %'d, threshold 2: %'d, threshold 3: %'d, threshold 4: %'d, audio/video threshold: %'d", _threshold1, _threshold2, _threshold3, _threshold4, _thresholdAV);
 
     // Reset plugin state.
     _currentPacket = 0;
@@ -269,12 +228,7 @@ ts::LimitPlugin::PIDContextPtr ts::LimitPlugin::getContext(PID pid)
 
 ts::LimitPlugin::PIDContext::PIDContext(PID pid_) :
     pid(pid_ <= PID_NULL ? pid_ : PID(PID_NULL)),
-    psi(pid <= PID_DVB_LAST),
-    video(false),
-    audio(false),
-    pcrValue(INVALID_PCR),
-    pcrPacket(0),
-    dropCount(0)
+    psi(pid <= PID_DVB_LAST)
 {
 }
 
@@ -291,11 +245,11 @@ void ts::LimitPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
             const PAT pat(duck, table);
             if (pat.isValid()) {
                 // Collect all PMT PID's.
-                for (auto it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
-                    const PID pid = it->second;
+                for (const auto& it : pat.pmts) {
+                    const PID pid = it.second;
                     _demux.addPID(pid);
                     getContext(pid)->psi = true;
-                    tsp->debug(u"Adding PMT PID 0x%X (%d)", {pid, pid});
+                    debug(u"Adding PMT PID %n", pid);
                 }
             }
             break;
@@ -304,13 +258,13 @@ void ts::LimitPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
             const PMT pmt(duck, table);
             if (pmt.isValid()) {
                 // Collect all component PID's.
-                tsp->debug(u"Found PMT in PID 0x%X (%d)", {table.sourcePID(), table.sourcePID()});
-                for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-                    const PID pid = it->first;
+                debug(u"Found PMT in PID %n", table.sourcePID());
+                for (const auto& it : pmt.streams) {
+                    const PID pid = it.first;
                     const PIDContextPtr pc(getContext(pid));
-                    pc->audio = it->second.isAudio(duck);
-                    pc->video = it->second.isVideo(duck);
-                    tsp->debug(u"Found component PID 0x%X (%d)", {pid, pid});
+                    pc->audio = it.second.isAudio(duck);
+                    pc->video = it.second.isVideo(duck);
+                    debug(u"Found component PID %n", pid);
                 }
             }
             break;
@@ -345,7 +299,7 @@ ts::ProcessorPlugin::Status ts::LimitPlugin::processPacket(TSPacket& pkt, TSPack
 
     // Get system clock at first packet.
     if (_currentPacket == 0) {
-        _clock.getSystemTime();
+        _clock = monotonic_time::clock::now();
     }
 
     // Filter sections to process.
@@ -358,13 +312,13 @@ ts::ProcessorPlugin::Status ts::LimitPlugin::processPacket(TSPacket& pkt, TSPack
     if (_useWallClock) {
         // Compute bitrates from wall clock.
         // Reset the monotonic clock every second.
-        const NanoSecond duration = Monotonic(true) - _clock;
-        if (duration >= NanoSecPerSec) {
+        const auto duration = monotonic_time::clock::now() - _clock;
+        if (duration >= cn::seconds(1)) {
             // More than one second elapsed, reset.
             _bitsSecond = 0;
-            if (duration < 2 * NanoSecPerSec) {
+            if (duration < cn::seconds(2)) {
                 // Slightly more than 1 second, keep a monotonic behaviour.
-                _clock += NanoSecPerSec;
+                _clock += cn::seconds(1);
             }
             else {
                 // More than 1 second, probably a hole in broadcast, missed next
@@ -394,14 +348,14 @@ ts::ProcessorPlugin::Status ts::LimitPlugin::processPacket(TSPacket& pkt, TSPack
 
             // Report state change.
             if (_curBitrate > _maxBitrate && newBitrate <= _maxBitrate) {
-                tsp->verbose(u"bitrate back to normal (%'d b/s)", {newBitrate});
+                verbose(u"bitrate back to normal (%'d b/s)", newBitrate);
             }
             else if (_curBitrate <= _maxBitrate && newBitrate > _maxBitrate) {
-                tsp->verbose(u"bitrate exceeds maximum (%'d b/s), starting to drop packets", {newBitrate});
+                verbose(u"bitrate exceeds maximum (%'d b/s), starting to drop packets", newBitrate);
             }
             else if (_curBitrate != newBitrate && (_curBitrate > newBitrate ? _curBitrate - newBitrate : newBitrate - _curBitrate) > _curBitrate / 20) {
                 // Report new bitrate when more than 5% change.
-                tsp->debug(u"new bitrate: %'d b/s", {newBitrate});
+                debug(u"new bitrate: %'d b/s", newBitrate);
             }
 
             // Save current bitrate.
@@ -452,7 +406,7 @@ ts::ProcessorPlugin::Status ts::LimitPlugin::processPacket(TSPacket& pkt, TSPack
         if (drop) {
             if (pc->dropCount++ == 0) {
                 // First time we drop packets in this PID.
-                tsp->verbose(u"starting to drop packets on PID 0x%X (%d)", {pid, pid});
+                verbose(u"starting to drop packets on PID %n", pid);
             }
             _excessPackets--;
             status = TSP_DROP;

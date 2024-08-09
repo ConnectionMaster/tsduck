@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,7 +14,6 @@
 #pragma once
 #include "tsTS.h"
 #include "tsReport.h"
-#include "tsMonotonic.h"
 
 namespace ts {
     //!
@@ -65,19 +43,13 @@ namespace ts {
         //! Set the number of packets to burst at a time.
         //! @param [in] count Number of packets to burst at a time.
         //!
-        void setBurstPacketCount(PacketCounter count)
-        {
-            _opt_burst = count;
-        }
+        void setBurstPacketCount(PacketCounter count) { _opt_burst = count; }
 
         //!
         //! Set a fixed bitrate for regulation, ignore current bitrate.
         //! @param [in] bitrate Fixed bitrate to use. When zero, use current bitrate.
         //!
-        void setFixedBitRate(BitRate bitrate)
-        {
-            _opt_bitrate = bitrate;
-        }
+        void setFixedBitRate(const BitRate& bitrate) { _opt_bitrate = bitrate; }
 
         //!
         //! Start regulation, initialize all timers.
@@ -101,29 +73,42 @@ namespace ts {
         void regulate();
 
     private:
-        // Regulation state
-        enum State {INITIAL, REGULATED, UNREGULATED};
+        // We accumulate the amount of passed bits over the last few seconds to evaluate if we have
+        // to pass more or less packets. This is used to compensate for the fact that we pass entire
+        // packets only and not the exact number of bits per second. Since we have to reevaluate this
+        // periodically, we keep the last two periods to avoid restarting from nothing at the end of
+        // a period. We use signed values for bits to allow credit.
+        class Period
+        {
+        public:
+            monotonic_time start {};
+            int64_t        bits = 0;
+        };
 
         // Private members.
-        Report*       _report;
-        int           _log_level;
-        State         _state;           // Current regulation state
-        BitRate       _opt_bitrate;     // Bitrate option, zero means use input
-        BitRate       _cur_bitrate;     // Current bitrate
-        PacketCounter _opt_burst;       // Number of packets to burst at a time
-        PacketCounter _burst_pkt_max;   // Total packets in current burst
-        PacketCounter _burst_pkt_cnt;   // Countdown of packets in current burst
-        NanoSecond    _burst_min;       // Minimum delay between two bursts (ns)
-        NanoSecond    _burst_duration;  // Delay between two bursts (nano-seconds)
-        Monotonic     _burst_end;       // End of current burst
-        Monotonic     _bitrate_start;   // Time of last bitrate change
-        PacketCounter _bitrate_pkt_cnt; // Passed packets since last bitrate change
+        Report*         _report = nullptr;
+        int             _log_level = Severity::Info;
+        bool            _starting = false;    // Starting, no packet processed so far
+        bool            _regulated = false;   // Currently regulated at known bitrate
+        PacketCounter   _opt_burst = 0;       // Number of packets to burst at a time
+        BitRate         _opt_bitrate = 0;     // Bitrate option, zero means use input
+        BitRate         _cur_bitrate = 0;     // Current bitrate
+        cn::nanoseconds _burst_min {0};       // Minimum delay between two bursts
+        cn::nanoseconds _burst_duration {0};  // Delay between two bursts
+        monotonic_time  _burst_end {};        // End of current burst
+        Period          _periods[2] {};       // Last two measurement periods, accumulating packets
+        cn::nanoseconds _period_duration {cn::seconds(1)}; // Duration of a period of packet measurement, default: 1 second
+        size_t          _cur_period = 0;      // Current period index, 0 or 1
+
+        // Current and other period.
+        Period& currentPeriod() { return _periods[_cur_period & 1]; }
+        Period& otherPeriod() { return _periods[(_cur_period & 1) ^ 1]; }
 
         // Compute burst duration (_burst_duration and _burst_pkt_max), based on
         // required packets/burst (command line option) and current bitrate.
         void handleNewBitrate();
 
         // Process one packet in a regulated burst. Wait at end of burst.
-        void regulatePacket(bool& flush, bool smoothen);
+        void regulatePacket(bool& flush);
     };
 }

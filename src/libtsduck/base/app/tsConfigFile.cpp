@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -39,14 +18,12 @@ const ts::ConfigSection ts::ConfigFile::_empty;
 // Constructor
 //----------------------------------------------------------------------------
 
-ts::ConfigFile::ConfigFile(const UString& filename, Report& report, const UString env_disable) :
-    ConfigFile(filename, UString(), report, env_disable)
+ts::ConfigFile::ConfigFile(const fs::path& filename, Report& report, const UString env_disable) :
+    ConfigFile(filename, fs::path(), report, env_disable)
 {
 }
 
-ts::ConfigFile::ConfigFile(const UString& filename1, const UString& filename2, Report& report, const UString env_disable) :
-    _filename(),
-    _sections()
+ts::ConfigFile::ConfigFile(const fs::path& filename1, const fs::path& filename2, Report& report, const UString env_disable)
 {
     // Only if not disabled by environment variable.
     if (env_disable.empty() || GetEnvironment(env_disable).empty()) {
@@ -62,19 +39,17 @@ ts::ConfigFile::ConfigFile(const UString& filename1, const UString& filename2, R
     }
 }
 
-ts::ConfigFile::ConfigFile(std::istream& strm) :
-    _filename(),
-    _sections()
+ts::ConfigFile::ConfigFile(std::istream& strm)
 {
     merge(strm);
 }
 
 
 //----------------------------------------------------------------------------
-// Default configuration file name (executable file name with ".ini" extension)
+// Default configuration file app_name.
 //----------------------------------------------------------------------------
 
-ts::UString ts::ConfigFile::DefaultFileName(FileStyle style, const UString& name)
+fs::path ts::ConfigFile::DefaultFileName(FileStyle style, const UString& app_name)
 {
     if (style == LOCAL_SYSTEM) {
 #if defined(TS_WINDOWS)
@@ -84,17 +59,26 @@ ts::UString ts::ConfigFile::DefaultFileName(FileStyle style, const UString& name
 #endif
     }
 
-    UString fileName(name);
-    if (fileName.empty()) {
-        fileName = PathPrefix(BaseName(ExecutableFile()));
-    }
-
+    // Build directory part of default configuration.
+    fs::path filename;
+    const fs::path exec(ExecutableFile());
     if (style == WINDOWS_STYLE) {
-        return DirectoryName(ExecutableFile()) + PathSeparator + fileName + u".ini";
+        filename = exec.parent_path();
     }
     else {
-        return (UserHomeDirectory() + PathSeparator) + u'.' + fileName;
+        filename = UserHomeDirectory();
     }
+
+    // Build base name part.
+    const fs::path stem(app_name.empty() ? exec.stem() : fs::path(app_name));
+
+    if (style == WINDOWS_STYLE) {
+        filename /= stem + u".ini";
+    }
+    else {
+        filename /= u"." + stem;
+    }
+    return filename;
 }
 
 
@@ -112,7 +96,7 @@ void ts::ConfigFile::reset()
 // Reload configuration from a file
 //----------------------------------------------------------------------------
 
-bool ts::ConfigFile::load(const UString& filename, Report& report)
+bool ts::ConfigFile::load(const fs::path& filename, Report& report)
 {
     reset();
     return merge(filename, report);
@@ -123,18 +107,18 @@ bool ts::ConfigFile::load(const UString& filename, Report& report)
 // Merge configuration from a file.
 //----------------------------------------------------------------------------
 
-bool ts::ConfigFile::merge(const UString& filename, Report& report)
+bool ts::ConfigFile::merge(const fs::path& filename, Report& report)
 {
     // Save file name for further save
     _filename = filename;
 
     // Open the file
-    std::ifstream file(_filename.toUTF8().c_str());
+    std::ifstream file(_filename);
 
     // Non-existent file means empty configuration.
     // Report a warning.
     if (!file) {
-        report.error(u"Cannot open configuration file %s", {_filename});
+        report.error(u"Cannot open configuration file %s", _filename);
         return false;
     }
 
@@ -197,7 +181,7 @@ void ts::ConfigFile::merge(std::istream& strm)
 // If no file name is specified, use name from constructor or load()
 //----------------------------------------------------------------------------
 
-bool ts::ConfigFile::save(const UString& filename, Report& report) const
+bool ts::ConfigFile::save(const fs::path& filename, Report& report) const
 {
     // Get file name
     if (!filename.empty()) {
@@ -209,10 +193,10 @@ bool ts::ConfigFile::save(const UString& filename, Report& report) const
     }
 
     // Create the file
-    std::ofstream file(_filename.toUTF8().c_str());
+    std::ofstream file(_filename);
 
     if (!file) {
-        report.error(u"error creating configuration file %s", {_filename});
+        report.error(u"error creating configuration file %s", _filename);
         return false;
     }
 
@@ -252,8 +236,8 @@ std::ostream& ts::ConfigFile::save(std::ostream& strm) const
 void ts::ConfigFile::getSectionNames(UStringVector& names) const
 {
     names.clear();
-    for (auto sec = _sections.begin(); sec != _sections.end(); ++sec) {
-        names.push_back(sec->first);
+    for (const auto& sec : _sections) {
+        names.push_back(sec.first);
     }
 }
 

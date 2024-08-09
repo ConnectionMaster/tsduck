@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -47,19 +26,18 @@
 namespace ts {
     class SDTPlugin: public AbstractTablePlugin
     {
-        TS_NOBUILD_NOCOPY(SDTPlugin);
+        TS_PLUGIN_CONSTRUCTORS(SDTPlugin);
     public:
         // Implementation of plugin API
-        SDTPlugin(TSP*);
         virtual bool getOptions() override;
 
     private:
         // Command line options:
-        bool                  _use_other;          // Modify an SDT Other, not the SDT Actual.
-        uint16_t              _other_ts_id;        // TS id of the SDT Other to modify.
-        Service               _service;            // New or modified service properties.
-        std::vector<uint16_t> _remove_serv;        // Set of services to remove
-        bool                  _cleanup_priv_desc;  // Remove private desc without preceding PDS desc
+        bool                  _use_other = false;          // Modify an SDT Other, not the SDT Actual.
+        uint16_t              _other_ts_id = false;        // TS id of the SDT Other to modify.
+        Service               _service {};                 // New or modified service properties.
+        std::vector<uint16_t> _remove_serv {};             // Set of services to remove
+        bool                  _cleanup_priv_desc = false;  // Remove private desc without preceding PDS desc
 
         // Implementation of AbstractTablePlugin.
         virtual void createNewTable(BinaryTable& table) override;
@@ -75,12 +53,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"sdt", ts::SDTPlugin);
 //----------------------------------------------------------------------------
 
 ts::SDTPlugin::SDTPlugin(TSP* tsp_) :
-    AbstractTablePlugin(tsp_, u"Perform various transformations on the SDT", u"[options]", u"SDT", PID_SDT),
-    _use_other(false),
-    _other_ts_id(false),
-    _service(),
-    _remove_serv(),
-    _cleanup_priv_desc(false)
+    AbstractTablePlugin(tsp_, u"Perform various transformations on the SDT", u"[options]", u"SDT", PID_SDT)
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -203,7 +176,7 @@ bool ts::SDTPlugin::getOptions()
         use_service_properties = true;
     }
     if (use_service_properties && !_service.hasId()) {
-        tsp->error(u"specify --service-id when changing service properties");
+        error(u"specify --service-id when changing service properties");
         return false;
     }
 
@@ -246,7 +219,7 @@ void ts::SDTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     // Process the SDT.
     SDT sdt(duck, table);
     if (!sdt.isValid()) {
-        tsp->warning(u"found invalid SDT");
+        warning(u"found invalid SDT");
         reinsert = false;
         return;
     }

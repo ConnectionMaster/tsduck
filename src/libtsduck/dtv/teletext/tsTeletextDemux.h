@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -37,7 +16,6 @@
 #include "tsTeletext.h"
 #include "tsTeletextCharset.h"
 #include "tsTeletextHandlerInterface.h"
-#if !defined(TS_NO_TELETEXT)
 
 namespace ts {
     //!
@@ -51,7 +29,7 @@ namespace ts {
         //!
         //! Explicit reference to superclass.
         //!
-        typedef PESDemux SuperClass;
+        using SuperClass = PESDemux;
 
         //!
         //! Constructor
@@ -70,19 +48,13 @@ namespace ts {
         //! Activate or deactivate the font color tags in the output text.
         //! @param [in] addColors If true, font colors tags will be inserted in the output text.
         //!
-        void setAddColors(bool addColors)
-        {
-            _addColors = addColors;
-        }
+        void setAddColors(bool addColors) { _addColors = addColors; }
 
         //!
         //! Check if font colors tags are inserted in the output text.
         //! @return True when font colors tags are inserted in the output text.
         //!
-        bool getAddColors() const
-        {
-            return _addColors;
-        }
+        bool getAddColors() const { return _addColors; }
 
         //!
         //! Flush any pending Teletext message.
@@ -95,10 +67,7 @@ namespace ts {
         //! Replace the Teletext handler.
         //! @param [in] handler The Teletext handler.
         //!
-        void setTeletextHandler(TeletextHandlerInterface* handler)
-        {
-            _txtHandler = handler;
-        }
+        void setTeletextHandler(TeletextHandlerInterface* handler) { _txtHandler = handler; }
 
         //!
         //! Get the number of Teletext frames found in a given page.
@@ -130,27 +99,27 @@ namespace ts {
         class TeletextPage
         {
         public:
-            uint32_t        frameCount;    //!< Number of produced frames in this page.
-            MilliSecond     showTimestamp; //!< Show at timestamp (in ms).
-            MilliSecond     hideTimestamp; //!< Hide at timestamp (in ms).
-            bool            tainted;       //!< True if text variable contains any data.
-            TeletextCharset charset;       //!< Charset to use.
-            UChar           text[25][40];  //!< 25 lines x 40 cols (1 screen/page) of wide chars.
+            uint32_t         frameCount = 0;      //!< Number of produced frames in this page.
+            cn::milliseconds showTimestamp {0};   //!< Show at timestamp (in ms).
+            cn::milliseconds hideTimestamp {0};   //!< Hide at timestamp (in ms).
+            bool             tainted = false;     //!< True if text variable contains any data.
+            TeletextCharset  charset {};          //!< Charset to use.
+            UChar            text[25][40] {{0}};  //!< 25 lines x 40 cols (1 screen/page) of wide chars.
             //!
             //! Default constructor.
             //!
-            TeletextPage();
+            TeletextPage() = default;
             //!
             //! Reset to a new page with a new starting timestamp.
             //! @param [in] timestamp New starting timestamp.
             //!
-            void reset(MilliSecond timestamp);
+            void reset(const cn::milliseconds& timestamp);
         };
 
         //!
         //! Map of TeletextPage, indexed by page number.
         //!
-        typedef std::map<int,TeletextPage> TeletextPageMap;
+        using TeletextPageMap = std::map<int,TeletextPage>;
 
         //!
         //! This internal structure contains the analysis context for one PID.
@@ -158,20 +127,20 @@ namespace ts {
         class PIDContext
         {
         public:
-            bool            receivingData;  //!< Incoming data should be processed or ignored.
-            TransMode       transMode;      //!< Teletext transmission mode.
-            int             currentPage;    //!< Current Teletext page number.
-            TeletextPageMap pages;          //!< Working Teletext page buffers, indexed by page number.
+            bool            receivingData = false;        //!< Incoming data should be processed or ignored.
+            TransMode       transMode = TRANSMODE_SERIAL; //!< Teletext transmission mode.
+            int             currentPage = 0;              //!< Current Teletext page number.
+            TeletextPageMap pages {};                     //!< Working Teletext page buffers, indexed by page number.
             //!
             //! Default constructor.
             //!
-            PIDContext();
+            PIDContext() = default;
         };
 
         //!
         //! Map of PID analysis contexts, indexed by PID value.
         //!
-        typedef std::map<PID, PIDContext> PIDContextMap;
+        using PIDContextMap = std::map<PID, PIDContext>;
 
         //!
         //! Process one Teletext packet.
@@ -211,20 +180,14 @@ namespace ts {
         //! @param [in] page Teletext page.
         //! @return The Teletext magazine number.
         //!
-        static int magazineOf(int page)
-        {
-            return (page >> 8) & 0x0F;
-        }
+        static int magazineOf(int page) { return (page >> 8) & 0x0F; }
 
         //!
         //! Extract Teletext page number from Teletext page.
         //! @param [in] page Teletext page.
         //! @return The Teletext page number.
         //!
-        static int pageOf(int page)
-        {
-            return page & 0xFF;
-        }
+        static int pageOf(int page) { return page & 0xFF; }
 
         //!
         //! Converts a page number from BCD to binary.
@@ -243,10 +206,8 @@ namespace ts {
         static int pageBinaryToBcd(int bin);
 
         // Private members:
-        TeletextHandlerInterface* _txtHandler;    //!< User handler.
-        PIDContextMap             _pids;          //!< Map of PID analysis contexts.
-        bool                      _addColors;     //!< Add font color tags.
+        TeletextHandlerInterface* _txtHandler = nullptr;  //!< User handler.
+        PIDContextMap             _pids {};               //!< Map of PID analysis contexts.
+        bool                      _addColors = false;     //!< Add font color tags.
     };
 }
-
-#endif // TS_NO_TELETEXT

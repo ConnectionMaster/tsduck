@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -38,7 +17,10 @@
 #include "tsTunerArgs.h"
 #include "tsSignalState.h"
 #include "tsModulationArgs.h"
-#include "tsSysUtils.h"
+#include "tsjsonOutputArgs.h"
+#include "tsjsonObject.h"
+#include "tsxmlAttribute.h"
+#include "tsTime.h"
 
 
 //----------------------------------------------------------------------------
@@ -48,10 +30,9 @@
 namespace ts {
     class DVBInputPlugin: public InputPlugin
     {
-        TS_NOBUILD_NOCOPY(DVBInputPlugin);
+        TS_PLUGIN_CONSTRUCTORS(DVBInputPlugin);
     public:
         // Implementation of plugin API
-        DVBInputPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -59,16 +40,24 @@ namespace ts {
         virtual BitRate getBitrate() override;
         virtual BitRateConfidence getBitrateConfidence() override;
         virtual size_t receive(TSPacket*, TSPacketMetadata*, size_t) override;
-        virtual bool setReceiveTimeout(MilliSecond timeout) override;
+        virtual bool setReceiveTimeout(cn::milliseconds timeout) override;
         virtual bool abortInput() override;
 
         // Larger stack size than default
         virtual size_t stackUsage() const override {return 512 * 1024;} // 512 kB
 
     private:
-        Tuner     _tuner;            // DVB tuner device
-        TunerArgs _tuner_args;       // Command-line tuning arguments
-        BitRate   _previous_bitrate; // Previous value from getBitrate()
+        Tuner            _tuner {duck};          // DVB tuner device.
+        TunerArgs        _tuner_args {false};    // Command-line tuning arguments.
+        json::OutputArgs _json_args {};          // JSON status reporting.
+        cn::seconds      _json_interval {};      // Interval between JSON status reports.
+        BitRate          _previous_bitrate = 0;  // Previous value from getBitrate().
+        Time             _next_json_report {};   // UTC time of next JSON report.
+
+        static constexpr cn::seconds DEFAULT_JSON_INTERVAL = cn::seconds(60);
+
+        // Produce a JSON status report if necessary.
+        void jsonReport();
     };
 }
 
@@ -80,14 +69,19 @@ TS_REGISTER_INPUT_PLUGIN(u"dvb", ts::DVBInputPlugin);
 //----------------------------------------------------------------------------
 
 ts::DVBInputPlugin::DVBInputPlugin(TSP* tsp_) :
-    InputPlugin(tsp_, u"DVB receiver device input", u"[options]"),
-    _tuner(duck),
-    _tuner_args(false),
-    _previous_bitrate(0)
+    InputPlugin(tsp_, u"DVB receiver device input", u"[options]")
 {
     // Define common tuning options
     duck.defineArgsForHFBand(*this);
     _tuner_args.defineArgs(*this, true);
+
+    // Define options for periodic status reporting.
+    _json_args.defineArgs(*this, true, u"Produce a status report in JSON format at regular intervals.", false);
+
+    option<cn::seconds>(u"json-interval");
+    help(u"json-interval",
+         u"With --json-line, --json-tcp, --json-udp, specify the interval between two status reports. "
+         u"The default is " + UString::Chrono(DEFAULT_JSON_INTERVAL) + u".");
 }
 
 
@@ -100,6 +94,8 @@ bool ts::DVBInputPlugin::getOptions()
     // Get common tuning options from command line
     duck.loadArgs(*this);
     _tuner_args.loadArgs(duck, *this);
+    _json_args.loadArgs(duck, *this);
+    getChronoValue(_json_interval, u"json-interval", DEFAULT_JSON_INTERVAL);
     return Args::valid();
 }
 
@@ -108,9 +104,9 @@ bool ts::DVBInputPlugin::getOptions()
 // Set receive timeout from tsp.
 //----------------------------------------------------------------------------
 
-bool ts::DVBInputPlugin::setReceiveTimeout(MilliSecond timeout)
+bool ts::DVBInputPlugin::setReceiveTimeout(cn::milliseconds timeout)
 {
-    if (timeout > 0) {
+    if (timeout.count() > 0) {
         _tuner_args.receive_timeout = timeout;
     }
     return true;
@@ -146,34 +142,43 @@ bool ts::DVBInputPlugin::start()
     if (!_tuner_args.configureTuner(_tuner)) {
         return false;
     }
-    tsp->verbose(u"using %s (%s)", {_tuner.deviceName(), _tuner.deliverySystems().toString()});
+    verbose(u"using %s (%s)", _tuner.deviceName(), _tuner.deliverySystems().toString());
 
     // Tune to the specified frequency.
-    if (!_tuner.tune(_tuner_args)) {
+    if (!_tuner_args.hasModulationArgs()) {
+        verbose(u"no modulation parameter specified, using current transponder in tuner");
+    }
+    else if (_tuner.tune(_tuner_args)) {
+        verbose(u"tuned to transponder %s", _tuner_args.toPluginOptions());
+    }
+    else {
         stop();
         return false;
     }
-    tsp->verbose(u"tuned to transponder %s", {_tuner_args.toPluginOptions()});
 
     // Compute theoretical TS bitrate from tuning parameters.
     const BitRate bitrate = _tuner_args.theoreticalBitrate();
     if (bitrate > 0) {
-        tsp->verbose(u"expected bitrate from tuning parameters: %'d b/s", {bitrate});
+        verbose(u"expected bitrate from tuning parameters: %'d b/s", bitrate);
     }
 
     // Start receiving packets
-    tsp->debug(u"starting tuner reception");
+    debug(u"starting tuner reception");
     if (!_tuner.start()) {
         stop();
         return false;
     }
-    tsp->debug(u"tuner reception started");
+    debug(u"tuner reception started");
 
     // Display signal state in verbose mode.
     SignalState state;
     if (_tuner.getSignalState(state)) {
-        tsp->verbose(state.toString());
+        verbose(state.toString());
     }
+
+    // Initialize periodic JSON reporting. Produce an initial report if necessary.
+    _next_json_report = Time::CurrentUTC();
+    jsonReport();
 
     return true;
 }
@@ -212,10 +217,10 @@ ts::BitRate ts::DVBInputPlugin::getBitrate()
     // When bitrate changes, the modulation parameters have changed
     if (bitrate != _previous_bitrate) {
         // Store the new parameters in a global repository (may be used by other plugins)
-        ObjectRepository::Instance()->store(u"tsp.dvb.params", ObjectPtr(new ModulationArgs(_tuner_args)));
+        ObjectRepository::Instance().store(u"tsp.dvb.params", std::make_shared<ModulationArgs>(_tuner_args));
 
         // Display new tuning info
-        tsp->verbose(u"actual tuning options: %s", {_tuner_args.toPluginOptions()});
+        verbose(u"actual tuning options: %s", _tuner_args.toPluginOptions());
     }
 
     return _previous_bitrate = bitrate;
@@ -234,5 +239,38 @@ ts::BitRateConfidence ts::DVBInputPlugin::getBitrateConfidence()
 
 size_t ts::DVBInputPlugin::receive(TSPacket* buffer, TSPacketMetadata* pkt_data, size_t max_packets)
 {
-    return _tuner.receive(buffer, max_packets, tsp);
+    const size_t count = _tuner.receive(buffer, max_packets, tsp);
+    jsonReport();
+    return count;
+}
+
+
+//----------------------------------------------------------------------------
+// Produce a JSON status report if necessary.
+//----------------------------------------------------------------------------
+
+void ts::DVBInputPlugin::jsonReport()
+{
+    if (_json_args.useJSON() && Time::CurrentUTC() >= _next_json_report) {
+
+        // Schedule next report.
+        _next_json_report += _json_interval;
+
+        // Build current report.
+        json::Object obj;
+        obj.add(u"#name", u"dvbstatus");
+        obj.add(u"time", xml::Attribute::DateTimeToString(Time::CurrentLocalTime()));
+        obj.add(u"packet-index", int64_t(tsp->pluginPackets()));
+        if (_previous_bitrate > 0) {
+            obj.add(u"bitrate", _previous_bitrate.toString());
+        }
+        _tuner_args.toJSON(obj);
+        SignalState state;
+        if (_tuner.getSignalState(state)) {
+            state.toJSON(obj);
+        }
+
+        // Send the report to whatever was specified in the command line options.
+        _json_args.report(obj, *this);
+    }
 }

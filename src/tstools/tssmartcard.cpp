@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -50,21 +29,16 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        bool        continue_on_error;    // Continue sending APDU's after an error.
-        ts::UString reader;               // Optional reader name
-        uint32_t    timeout_ms;           // Timeout in milliseconds
-        uint32_t    reset_action;         // Type of reset to apply
-        std::vector<ts::ByteBlock> apdu;  // List of APDU to send
+        bool        continue_on_error = false;  // Continue sending APDU's after an error.
+        ts::UString reader {};                  // Optional reader name
+        uint32_t    timeout_ms = 0;             // Timeout in milliseconds
+        uint32_t    reset_action = 0;           // Type of reset to apply
+        std::vector<ts::ByteBlock> apdu {};     // List of APDU to send
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"List or control smartcards", u"[options] [reader-name]"),
-    continue_on_error(false),
-    reader(),
-    timeout_ms(0),
-    reset_action(0),
-    apdu()
+    Args(u"List or control smartcards", u"[options] [reader-name]")
 {
     option(u"", 0, STRING, 0, 1);
     help(u"",
@@ -151,7 +125,7 @@ namespace {
             return true;
         }
         else {
-            opt.error(u"%s: PC/SC error 0x%08X: %s", {cause, sc_status, ts::pcsc::StrError(sc_status)});
+            opt.error(u"%s: PC/SC error 0x%08X: %s", cause, sc_status, ts::pcsc::StrError(sc_status));
             return false;
         }
     }
@@ -246,7 +220,7 @@ namespace {
                 }
             }
             if (opt.verbose()) {
-                std::cout << ts::UString::Format(u"SW: %04X, response (%d bytes): %s", {sw, resp_len, ts::UString::Dump(response.data(), resp_len, ts::UString::SINGLE_LINE)})
+                std::cout << ts::UString::Format(u"SW: %04X, response (%d bytes): %s", sw, resp_len, ts::UString::Dump(response.data(), resp_len, ts::UString::SINGLE_LINE))
                           << std:: endl;
             }
         }
@@ -345,7 +319,7 @@ int MainCode(int argc, char *argv[])
 
     // If one reader was specified on the command line, check that is was found
     if (!opt.reader.empty() && !reader_found) {
-        opt.error(u"smartcard reader \"%s\" not found", {opt.reader});
+        opt.error(u"smartcard reader \"%s\" not found", opt.reader);
         status = EXIT_FAILURE;
     }
 

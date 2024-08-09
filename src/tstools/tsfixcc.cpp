@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -47,11 +26,11 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        bool         test;          // Test mode
-        bool         circular;      // Add empty packets to enforce circular continuity
-        bool         no_replicate;  // Option --no-replicate-duplicated
-        ts::UString  filename;      // File name
-        std::fstream file;          // File buffer
+        bool         test = false;          // Test mode
+        bool         circular = false;      // Add empty packets to enforce circular continuity
+        bool         no_replicate = false;  // Option --no-replicate-duplicated
+        ts::UString  filename {};           // File name
+        std::fstream file {};               // File buffer
 
         // Check if there was an I/O error on the file.
         // Print an error message if this is the case.
@@ -61,12 +40,7 @@ namespace {
 
 // Constructor.
 Options::Options(int argc, char *argv[]) :
-    Args(u"Fix continuity counters in a transport stream", u"[options] filename"),
-    test(false),
-    circular(false),
-    no_replicate(false),
-    filename(),
-    file()
+    Args(u"Fix continuity counters in a transport stream", u"[options] filename")
 {
     option(u"", 0, FILENAME, 1, 1);
     help(u"", u"MPEG capture file to be modified.");
@@ -109,7 +83,7 @@ bool Options::fileError(const ts::UChar* message)
         return false;
     }
     else {
-        error(u"%s: %s", {filename, message});
+        error(u"%s: %s", filename, message);
         return true;
     }
 }
@@ -139,7 +113,7 @@ int MainCode(int argc, char *argv[])
     opt.file.open(opt.filename.toUTF8().c_str(), mode);
 
     if (!opt.file) {
-        opt.error(u"cannot open file %s", {opt.filename});
+        opt.error(u"cannot open file %s", opt.filename);
         return EXIT_FAILURE;
     }
 
@@ -180,7 +154,7 @@ int MainCode(int argc, char *argv[])
         }
     }
 
-    opt.verbose(u"%'d packets read, %'d discontinuities, %'d packets updated", {fixer.totalPackets(), fixer.errorCount(), fixer.fixCount()});
+    opt.verbose(u"%'d packets read, %'d discontinuities, %'d packets updated", fixer.totalPackets(), fixer.errorCount(), fixer.fixCount());
 
     // Append empty packet to ensure circular continuity
     if (opt.circular && opt.valid()) {
@@ -208,7 +182,7 @@ int MainCode(int argc, char *argv[])
             uint8_t last_cc = fixer.lastCC(pid);
             if (first_cc != ts::INVALID_CC && first_cc != ((last_cc + 1) & ts::CC_MASK)) {
                 // We must add some packets on this PID
-                opt.verbose(u"PID: 0x%04X, adding %2d empty packets", {pid, ts::ContinuityAnalyzer::MissingPackets(last_cc, first_cc)});
+                opt.verbose(u"PID: 0x%04X, adding %2d empty packets", pid, ts::ContinuityAnalyzer::MissingPackets(last_cc, first_cc));
                 if (!opt.test) {
                     for (;;) {
                         last_cc = (last_cc + 1) & ts::CC_MASK;

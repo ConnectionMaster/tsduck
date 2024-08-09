@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -33,12 +12,10 @@
 #include "tsTablesDisplay.h"
 #include "tsBinaryTable.h"
 #include "tsSectionFile.h"
-#include "tsxmlComment.h"
 #include "tsxmlElement.h"
 #include "tsjsonArray.h"
 #include "tsjsonObject.h"
 #include "tsTSPacket.h"
-#include "tsNames.h"
 
 #define MIN_CLEAR_PACKETS 100000
 
@@ -48,45 +25,9 @@
 //----------------------------------------------------------------------------
 
 ts::PSILogger::PSILogger(TablesDisplay& display) :
-    TableHandlerInterface(),
-    SectionHandlerInterface(),
-    _all_versions(false),
-    _clear(false),
-    _cat_only(false),
-    _dump(false),
-    _use_text(false),
-    _use_xml(false),
-    _use_json(false),
-    _log_xml_line(false),
-    _log_json_line(false),
-    _use_current(true),
-    _use_next(false),
-    _text_destination(),
-    _xml_destination(),
-    _json_destination(),
-    _log_xml_prefix(),
-    _log_json_prefix(),
-    _xml_tweaks(),
     _display(display),
     _duck(_display.duck()),
-    _report(_duck.report()),
-    _table_handler(nullptr),
-    _section_handler(nullptr),
-    _xml_doc(_report),
-    _x2j_conv(_report),
-    _json_doc(_report),
-    _abort(false),
-    _pat_ok(_cat_only),
-    _cat_ok(_clear),
-    _sdt_ok(_cat_only),
-    _bat_ok(false),
-    _expected_pmt(0),
-    _received_pmt(0),
-    _clear_packets_cnt(0),
-    _scrambled_packets_cnt(0),
-    _previous_pat(),
-    _demux(_duck, this, _dump ? this : nullptr),
-    _standards(Standards::NONE)
+    _report(_duck.report())
 {
 }
 
@@ -251,9 +192,9 @@ bool ts::PSILogger::open()
     if (_use_json) {
         json::ValuePtr root;
         if (_xml_tweaks.x2jIncludeRoot) {
-            root = new json::Object;
+            root = std::make_shared<json::Object>();
             root->add(u"#name", u"tsduck");
-            root->add(u"#nodes", json::ValuePtr(new json::Array));
+            root->add(u"#nodes", std::make_shared<json::Array>());
         }
         if (!_json_doc.open(root, _json_destination, std::cout)) {
             _abort = true;
@@ -324,7 +265,7 @@ void ts::PSILogger::feedPacket(const TSPacket& pkt)
     // Check if the list of standards has changed.
     const Standards new_standards = _duck.standards();
     if (new_standards != _standards) {
-        _report.debug(u"standards are now %s", {StandardsNames(new_standards)});
+        _report.debug(u"standards are now %s", StandardsNames(new_standards));
         _standards = new_standards;
     }
 }
@@ -347,7 +288,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
             PAT pat(_duck, table);
             if (pid != PID_PAT) {
                 // A PAT is only expected on PID 0
-                _report.warning(u"got unexpected PAT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected PAT on PID %n", pid);
             }
             else if (pat.isValid()) {
                 // Got the PAT.
@@ -358,18 +299,18 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
                 }
                 // Reset all PMT PID's which disappeared or changed.
                 if (_previous_pat.isValid()) {
-                    for (auto prev_it = _previous_pat.pmts.begin(); prev_it != _previous_pat.pmts.end(); ++prev_it) {
-                        const auto new_it = pat.pmts.find(prev_it->first);
-                        if (new_it == pat.pmts.end() || new_it->second != prev_it->second) {
+                    for (const auto& prev_it : _previous_pat.pmts) {
+                        const auto new_it = pat.pmts.find(prev_it.first);
+                        if (new_it == pat.pmts.end() || new_it->second != prev_it.second) {
                             // Service disappeared or changed PMT PID, remove the previous PMT PID.
-                            _demux.removePID(prev_it->second);
+                            _demux.removePID(prev_it.second);
                         }
                     }
                 }
                 _previous_pat = pat;
                 // Add a filter on each referenced PID to get the PMT
-                for (auto it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
-                    _demux.addPID(it->second);
+                for (const auto& it : pat.pmts) {
+                    _demux.addPID(it.second);
                     _expected_pmt++;
                 }
                 // Also include NIT (considered as a PMT)
@@ -383,7 +324,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_CAT: {
             if (pid != PID_CAT) {
                 // A CAT is only expected on PID 1
-                _report.warning(u"got unexpected CAT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected CAT on PID %n", pid);
             }
             else {
                 // Got the CAT.
@@ -419,7 +360,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_TSDT: {
             if (pid != PID_TSDT) {
                 // A TSDT is only expected on PID 0x0002
-                _report.warning(u"got unexpected TSDT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected TSDT on PID %n", pid);
             }
             else if (!_all_versions) {
                 _demux.removePID(pid);
@@ -431,7 +372,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_SDT_ACT: {
             if (pid != PID_SDT) {
                 // An SDT is only expected on PID 0x0011
-                _report.warning(u"got unexpected SDT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected SDT on PID %n", pid);
                 displayTable(table);
             }
             else if (_all_versions || !_sdt_ok) {
@@ -453,7 +394,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_BAT: {
             if (pid != PID_BAT) {
                 // An SDT is only expected on PID 0x0011
-                _report.warning(u"got unexpected BAT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected BAT on PID %n", pid);
                 displayTable(table);
             }
             else if (_all_versions || !_bat_ok) {
@@ -468,7 +409,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_PCAT: {
             if (pid != PID_PCAT) {
                 // An ISDB PCAT is only expected on PID 0x0022
-                _report.warning(u"got unexpected ISDB PCAT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected ISDB PCAT on PID %n", pid);
             }
             else if (!_all_versions) {
                 _demux.removePID(pid);
@@ -480,7 +421,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_BIT: {
             if (pid != PID_BIT) {
                 // An ISDB BIT is only expected on PID 0x0024
-                _report.warning(u"got unexpected ISDB BIT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected ISDB BIT on PID %n", pid);
             }
             else if (!_all_versions) {
                 _demux.removePID(pid);
@@ -493,7 +434,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
         case TID_NBIT_BODY: {
             if (pid != PID_NBIT) {
                 // An ISDB NBIT is only expected on PID 0x0025
-                _report.warning(u"got unexpected ISDB NBIT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected ISDB NBIT on PID %n", pid);
             }
             // We cannot stop filtering this PID if we don't need all versions since the LDT can also be found here.
             displayTable(table);
@@ -506,7 +447,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
             if (pid != PID_PSIP && pid != PID_LDT) {
                 // An ATSC MGT is only expected on PID 0x1FFB.
                 // An ISDB LDT is only expected on PID 0x0025.
-                _report.warning(u"got unexpected ATSC MGT / ISDB LDT on PID %d (0x%<X)", {pid});
+                _report.warning(u"got unexpected ATSC MGT / ISDB LDT on PID %n", pid);
             }
             // We cannot stop filtering this PID if we don't need all versions
             // since the TVCT or CVCT (ATSC) and NBIT (ISDB) can also be found here.
@@ -523,7 +464,7 @@ void ts::PSILogger::handleTable(SectionDemux&, const BinaryTable& table)
 
         default: {
             if (_duck.report().verbose()) {
-                _report.warning(u"got unexpected TID %d (0x%<X) on PID %d (0x%<X)", {tid, pid});
+                _report.warning(u"got unexpected TID %n on PID %n", tid, pid);
             }
         }
     }
@@ -588,33 +529,19 @@ void ts::PSILogger::displayTable(const BinaryTable& table)
         // Convert the table into an XML structure.
         xml::Element* elem = table.toXML(_duck, doc.rootElement(), xml_options);
         if (elem != nullptr) {
-
-            // Initialize a text formatter for one-liner.
-            TextFormatter text(_report);
-            text.setString();
-            text.setEndOfLineMode(TextFormatter::EndOfLineMode::SPACING);
-
             // Log the XML line.
             if (_log_xml_line) {
-                doc.print(text);
-                _report.info(_log_xml_prefix + text.toString());
+                _report.info(_log_xml_prefix + doc.oneLiner());
             }
 
             // Log the JSON line.
             if (_log_json_line) {
-
                 // Convert the XML document into JSON.
                 // Force "tsduck" root to appear so that the path to the first table is always the same.
                 const json::ValuePtr root(_x2j_conv.convertToJSON(doc, true));
 
-                // Reset the text formatter if already used for XML.
-                if (_log_xml_line) {
-                    text.setString();
-                }
-
                 // Query the first (and only) converted table and log it as one line.
-                root->query(u"#nodes[0]").print(text);
-                _report.info(_log_json_prefix + text.toString());
+                _report.info(_log_json_prefix + root->query(u"#nodes[0]").oneLiner(_report));
             }
         }
     }

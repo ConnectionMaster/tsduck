@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -36,7 +15,6 @@
 #include "tsPlatform.h"
 #include "tsConfigSection.h"
 #include "tsCerrReport.h"
-#include "tsException.h"
 
 namespace ts {
     //!
@@ -58,7 +36,7 @@ namespace ts {
         //! @param [in] env_disable Optional name of an environment variable. When the corresponding
         //! environment variable is defined to some non-empty value, the file is not loaded.
         //!
-        explicit ConfigFile(const UString& filename = UString(), Report& report = CERR, const UString env_disable = UString());
+        explicit ConfigFile(const fs::path& filename = fs::path(), Report& report = CERR, const UString env_disable = UString());
 
         //!
         //! Constructor.
@@ -68,7 +46,7 @@ namespace ts {
         //! @param [in] env_disable Optional name of an environment variable. When the corresponding
         //! environment variable is defined to some non-empty value, the file is not loaded.
         //!
-        ConfigFile(const UString& filename1, const UString& filename2, Report& report = CERR, const UString env_disable = UString());
+        ConfigFile(const fs::path& filename1, const fs::path& filename2, Report& report = CERR, const UString env_disable = UString());
 
         //!
         //! Constructor.
@@ -88,16 +66,16 @@ namespace ts {
         //!
         //! Get the default configuration file name.
         //! @param [in] style System style for file name.
-        //! @param [in] name Application name (default: executable base name).
+        //! @param [in] app_name Application name (default: executable base name).
         //! @return The default configuration file name for the application.
         //!
-        static UString DefaultFileName(FileStyle style = LOCAL_SYSTEM, const UString& name = UString());
+        static fs::path DefaultFileName(FileStyle style = LOCAL_SYSTEM, const UString& app_name = UString());
 
         //!
         //! Get the latest loaded file.
         //! @return The name of the latest loaded file.
         //!
-        UString fileName() const { return _filename; }
+        fs::path fileName() const { return _filename; }
 
         //!
         //! Reload the configuration from a file.
@@ -105,7 +83,7 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True on success, false on error.
         //!
-        bool load(const UString& filename, Report& report = CERR);
+        bool load(const fs::path& filename, Report& report = CERR);
 
         //!
         //! Merge the configuration from a file.
@@ -114,7 +92,7 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True on success, false on error.
         //!
-        bool merge(const UString& filename, Report& report = CERR);
+        bool merge(const fs::path& filename, Report& report = CERR);
 
         //!
         //! Merge the configuration from a file.
@@ -130,7 +108,7 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True on success, false on error.
         //!
-        bool save(const UString& filename = UString(), Report& report = CERR) const;
+        bool save(const fs::path& filename = UString(), Report& report = CERR) const;
 
         //!
         //! Save a configuration file in a stream
@@ -197,11 +175,11 @@ namespace ts {
     private:
         // Content of a file.
         // Entries before the first section belong to section named "".
-        typedef std::map <UString, ConfigSection> SectionMap;
+        using SectionMap = std::map <UString, ConfigSection>;
 
         // Private members:
-        mutable UString _filename;
-        SectionMap      _sections;
+        mutable fs::path _filename {};
+        SectionMap       _sections {};
 
         // Used to return a constant reference.
         static const ConfigSection _empty;

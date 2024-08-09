@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -152,16 +131,16 @@ namespace ts {
     //! @see TS_BITRATE_FLOAT
     //!
 #if defined(DOXYGEN)
-    typedef user_defined BitRate;
+    using BitRate = user_defined;
 #elif defined(TS_BITRATE_INTEGER)
-    typedef Integer<uint64_t> BitRate;
+    using BitRate = Integer<uint64_t>;
 #elif defined(TS_BITRATE_FRACTION)
-    typedef Fraction<uint64_t> BitRate;
+    using BitRate = Fraction<uint64_t>;
 #elif defined(TS_BITRATE_FLOAT)
     TS_LLVM_NOWARNING(implicit-int-float-conversion)
-    typedef FloatingPoint<double,TS_BITRATE_DISPLAY_DECIMALS> BitRate;
+    using BitRate = FloatingPoint<double,TS_BITRATE_DISPLAY_DECIMALS>;
 #elif defined(TS_BITRATE_FIXED)
-    typedef FixedPoint<int64_t, TS_BITRATE_DECIMALS> BitRate;
+    using BitRate = FixedPoint<int64_t, TS_BITRATE_DECIMALS>;
 #else
 #error "undefined implementation of BitRate"
 #endif

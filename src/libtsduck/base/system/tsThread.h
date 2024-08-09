@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,7 +14,6 @@
 #pragma once
 #include "tsThreadAttributes.h"
 #include "tsException.h"
-#include "tsMutex.h"
 
 namespace ts {
     //!
@@ -49,6 +27,13 @@ namespace ts {
     //!
     //! This class implements operating system threads.
     //! Its implementation is operating system dependent.
+    //!
+    //! The C++11 standard class std::thread is not used because it does not provide
+    //! any way to set specific thread properties such as stack size. std::thread
+    //! provides a method named native_handle() which may be used to call non-portable
+    //! features. However, native_handle() becomes accessible only after the thread is
+    //! started, too late to set properties such as stack size. This makes std::thread
+    //! unusable outside basic simple tasks without specific requirements.
     //!
     class TSDUCKDLL Thread
     {
@@ -196,6 +181,14 @@ namespace ts {
         bool isCurrentThread() const;
 
         //!
+        //! Yield execution of the current thread.
+        //! Execution is passed to another thread, if any is waiting for execution.
+        //! This should not change the behaviour of correctly-written applications.
+        //!
+        static void Yield();
+
+    protected:
+        //!
         //! This hook is invoked in the context of the thread.
         //!
         //! Concrete thread classes shall implement this pure virtual
@@ -205,25 +198,17 @@ namespace ts {
         virtual void main() = 0;
 
         //!
-        //! Yield execution of the current thread.
-        //! Execution is passed to another thread, if any is waiting for execution.
-        //! This should not change the behaviour of correctly-written applications.
-        //!
-        static void Yield();
-
-    protected:
-        //!
         //! Set the type name.
         //! @param [in] name The type name to set. If empty, the subclass type name is used.
         //!
         void setTypeName(const UString& name = UString());
 
     private:
-        ThreadAttributes _attributes;
-        mutable Mutex    _mutex;
-        UString          _typename;
-        volatile bool    _started;
-        volatile bool    _waiting;
+        mutable std::recursive_mutex _mutex {};
+        ThreadAttributes _attributes {};
+        UString          _typename {};
+        volatile bool    _started = false;
+        volatile bool    _waiting = false;
 
         // Internal version of isCurrentThread(), bypass checks
         bool isCurrentThreadUnchecked() const;
@@ -231,20 +216,24 @@ namespace ts {
         // Wrapper around main() plus system-specific base code.
         void mainWrapper();
 
-#if defined(TS_WINDOWS)
-        ::HANDLE _handle;
-        ::DWORD _thread_id;
-        // Actual starting point of thread. Parameter is "this".
-        static ::DWORD WINAPI ThreadProc(::LPVOID parameter);
-#else
-    #if defined(GPROF)
-        // When using gprof, we need to pass the ITIMER_PROF value to the thread.
-        ::itimerval _itimer;
-        bool        _itimer_valid;
-    #endif
-        pthread_t   _pthread;
-        // Actual starting point of thread. Parameter is "this".
-        static void* ThreadProc(void* parameter);
-#endif
+        #if defined(TS_WINDOWS)
+            ::HANDLE _handle = INVALID_HANDLE_VALUE;
+            ::DWORD _thread_id = 0;
+            // Actual starting point of thread. Parameter is "this".
+            static ::DWORD WINAPI ThreadProc(::LPVOID parameter);
+        #else
+            #if defined(GPROF)
+                // When using gprof, we need to pass the ITIMER_PROF value to the thread.
+                ::itimerval _itimer {};
+                bool _itimer_valid = false;
+            #endif
+            TS_PUSH_WARNING()
+            TS_GCC_NOWARNING(zero-as-null-pointer-constant)
+            TS_LLVM_NOWARNING(zero-as-null-pointer-constant)
+            pthread_t _pthread = 0;
+            TS_POP_WARNING()
+            // Actual starting point of thread. Parameter is "this".
+            static void* ThreadProc(void* parameter);
+        #endif
     };
 }

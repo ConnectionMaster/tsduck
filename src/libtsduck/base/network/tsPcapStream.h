@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 
 #pragma once
 #include "tsPcapFilter.h"
-#include "tsSafePtr.h"
 
 namespace ts {
     //!
@@ -70,7 +48,7 @@ namespace ts {
         //!
         //! Default constructor.
         //!
-        PcapStream();
+        PcapStream() = default;
 
         //!
         //! Get the address of the client peer.
@@ -109,7 +87,14 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True on success, false on error or end of file.
         //!
-        bool readTCP(IPv4SocketAddress& source, ByteBlock& data, size_t& size, MicroSecond& timestamp, Report& report);
+        bool readTCP(IPv4SocketAddress& source, ByteBlock& data, size_t& size, cn::microseconds& timestamp, Report& report);
+
+        //!
+        //! Check if the next data to read is at start of TCP session.
+        //! @param [in,out] report Where to report errors.
+        //! @return True on success and if the next data to read is at start of TCP session, false otherwise.
+        //!
+        bool startOfStream(Report& report);
 
         //!
         //! Check if the next data to read is at start of TCP session.
@@ -141,8 +126,15 @@ namespace ts {
         //!
         bool nextSession(Report& report);
 
+        //!
+        //! Get the maximum number of queued data blocks to reassemble TCP streams.
+        //! This value gives an idea of how packets were reordered during transmission.
+        //! @return The maximum number of queued data blocks to reassemble TCP streams.
+        //!
+        size_t maxReassemblyQueueSize() const { return _max_queue_size; }
+
         // Inherited methods.
-        virtual bool open(const UString& filename, Report& report) override;
+        virtual bool open(const fs::path& filename, Report& report) override;
         virtual void setBidirectionalFilter(const IPv4SocketAddress& addr1, const IPv4SocketAddress& addr2) override;
 
     private:
@@ -150,35 +142,38 @@ namespace ts {
         class DataBlock
         {
         public:
-            DataBlock();
-            DataBlock(const IPv4Packet& pkt, MicroSecond tstamp);
+            DataBlock() = default;
+            DataBlock(const IPv4Packet& pkt, cn::microseconds tstamp);
 
-            ByteBlock   data;       // TCP payload
-            size_t      index;      // index of next byte to read in data
-            uint32_t    sequence;   // TCP sequence number at start of data
-            bool        start;      // start of TCP stream.
-            bool        end;        // end of TCP stream.
-            MicroSecond timestamp;  // capture time stamp.
+            ByteBlock        data {};         // TCP payload
+            size_t           index = 0;       // index of next byte to read in data
+            uint64_t         sequence = 0;    // TCP sequence number at start of data, expanded for
+            bool             start = false;   // start of TCP stream.
+            bool             end = false;     // end of TCP stream.
+            cn::microseconds timestamp = cn::microseconds(-1);  // capture time stamp.
         };
-        typedef SafePtr<DataBlock> DataBlockPtr;
-        typedef std::list<DataBlockPtr> DataBlockQueue;
+        using DataBlockPtr = std::shared_ptr<DataBlock>;
+        using DataBlockQueue = std::list<DataBlockPtr>;
 
         // Description of a one-directional stream.
         class Stream
         {
         public:
             // Constructor.
-            Stream() : packets() {}
+            Stream() = default;
 
             // Future packets to process.
-            DataBlockQueue packets;
+            DataBlockQueue packets {};
 
             // Check if data are immediately available.
             bool dataAvailable() const;
 
             // Store the content of an IP packet at the right place in the queue.
-            void store(const IPv4Packet& pkt, MicroSecond tstamp);
+            void store(const IPv4Packet& pkt, cn::microseconds tstamp);
         };
+
+        // Maximum number of out-of-sequence TCP segments after a segment is declared missing.
+        static constexpr size_t TCP_MAX_FUTURE = 10;
 
         // There are two streams, two directions in a connection.
         // The source filter is at index 0, the destination filter is at index 1.
@@ -186,9 +181,10 @@ namespace ts {
         static constexpr size_t IDST = 1;
 
         // PcapStream private fields.
-        IPv4SocketAddress     _client;
-        IPv4SocketAddress     _server;
-        std::array<Stream, 2> _streams;
+        IPv4SocketAddress     _client {};
+        IPv4SocketAddress     _server {};
+        std::array<Stream, 2> _streams {};
+        size_t                _max_queue_size = 0; // Maximum observed size of TCP reassembly queues.
 
         // Read IP packets and fill the two streams until one packet is read from the specified peer.
         // Index must be either ISRC, IDST or NPOS (any direction). Updated with actual index.

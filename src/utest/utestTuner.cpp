@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,15 +20,15 @@
 #include "tsTSScanner.h"
 #include "tsService.h"
 #include "tsHFBand.h"
-#include "tsSysUtils.h"
+#include "tsEnvironment.h"
 #include "tsCOM.h"
 #include "tsunit.h"
 #if defined(TS_LINUX)
 #include "tsDTVProperties.h"
 #endif
 
-// Tuners are not supported in macOS and errors are always returned.
-#if !defined(TS_MAC)
+// Tuners are not supported in macOS and BSD systems. Errors are always returned.
+#if !defined(TS_MAC) && !defined(TS_BSD)
 
 //----------------------------------------------------------------------------
 // The test fixture
@@ -57,61 +36,25 @@
 
 class TunerTest: public tsunit::Test
 {
-public:
-    TunerTest();
-
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testListTuners();
-    void testScanDVBT();
-    void testSignalState();
+    TSUNIT_DECLARE_TEST(ListTuners);
+    TSUNIT_DECLARE_TEST(ScanDVBT);
+    TSUNIT_DECLARE_TEST(SignalState);
 #if defined(TS_LINUX)
-    void testDTVProperties();
+    TSUNIT_DECLARE_TEST(DTVProperties);
 #endif
-
-    TSUNIT_TEST_BEGIN(TunerTest);
-    TSUNIT_TEST(testListTuners);
-    TSUNIT_TEST(testScanDVBT);
-    TSUNIT_TEST(testSignalState);
-#if defined(TS_LINUX)
-    TSUNIT_TEST(testDTVProperties);
-#endif
-    TSUNIT_TEST_END();
 
 private:
-    ts::COM _com; // required in Windows only
+    ts::COM _com {}; // required in Windows only
 };
 
 TSUNIT_REGISTER(TunerTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Constructor.
-TunerTest::TunerTest() :
-    _com()
-{
-}
-
-// Test suite initialization method.
-void TunerTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void TunerTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void TunerTest::testListTuners()
+TSUNIT_DEFINE_TEST(ListTuners)
 {
     ts::DuckContext duck;
     ts::TunerPtrVector tuners;
@@ -126,7 +69,7 @@ void TunerTest::testListTuners()
     }
 }
 
-void TunerTest::testScanDVBT()
+TSUNIT_DEFINE_TEST(ScanDVBT)
 {
     // Environment variables to run this test:
     //   TS_TEST_SCAN_DVBT : test not run if empty or undefined
@@ -164,14 +107,14 @@ void TunerTest::testScanDVBT()
         debug() << "  tuning options: " << args.toPluginOptions() << std::endl;
 
         TSUNIT_ASSERT(tuner.tune(args));
-        ts::TSScanner scan(duck, tuner, 5000);
+        ts::TSScanner scan(duck, tuner, cn::milliseconds(5000));
 
         ts::ServiceList services;
         scan.getServices(services);
         debug() << "  found " << services.size() << " services" << std::endl;
 
-        for (auto srv = services.begin(); srv != services.end(); ++srv) {
-            debug() << "  service " << srv->getName() << ", LCN " << srv->getLCN() << std::endl;
+        for (const auto& srv : services) {
+            debug() << "  service " << srv.getName() << ", LCN " << srv.getLCN() << std::endl;
         }
 
         if (i == channels.size() - 1 || reopen) {
@@ -182,7 +125,7 @@ void TunerTest::testScanDVBT()
     }
 }
 
-void TunerTest::testSignalState()
+TSUNIT_DEFINE_TEST(SignalState)
 {
     TSUNIT_EQUAL(u"12,345", ts::SignalState::Value(12345).toString());
     TSUNIT_EQUAL(u"48%", ts::SignalState::Value(48, ts::SignalState::Unit::PERCENT).toString());
@@ -193,7 +136,7 @@ void TunerTest::testSignalState()
 }
 
 #if defined(TS_LINUX)
-void TunerTest::testDTVProperties()
+TSUNIT_DEFINE_TEST(DTVProperties)
 {
     debug() << "TunerTest::testDTVProperties:" << std::endl;
     for (uint32_t cmd = 0; cmd <= DTV_MAX_COMMAND + 2; cmd++) {

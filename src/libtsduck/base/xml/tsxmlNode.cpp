@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -43,11 +22,7 @@
 //----------------------------------------------------------------------------
 
 ts::xml::Node::Node(Report& report, size_t line) :
-    RingNode(),
     _report(report),
-    _value(),
-    _parent(nullptr),
-    _firstChild(nullptr),
     _inputLineNum(line)
 {
 }
@@ -60,7 +35,7 @@ ts::xml::Node::Node(Node* parent, const UString& value, bool last) :
 }
 
 ts::xml::Node::Node(const Node& other) :
-    RingNode(),
+    RingNode(), // required on old gcc 8.5 and below (gcc bug)
     _report(other._report),
     _value(other._value),
     _parent(nullptr),
@@ -156,6 +131,72 @@ void ts::xml::Node::reparent(Node* newParent, bool last)
 
 
 //----------------------------------------------------------------------------
+// Move the node before another node, potentially to a new parent.
+//----------------------------------------------------------------------------
+
+void ts::xml::Node::move(Node* newSibling, bool before)
+{
+    // Must be moved somewhere different.
+    if (newSibling == nullptr ||
+        newSibling->_parent == nullptr ||
+        newSibling == this ||
+        (before && newSibling == ringNext<Node>()) ||
+        (!before && newSibling == ringPrevious<Node>()))
+    {
+        return;
+    }
+
+    // Extract from the current parent.
+    if (newSibling->_parent == _parent) {
+        // Keep same parent, remove ourselves from the ring.
+        assert(!ringAlone()); // We cannot be alone since we already have a sibling.
+        if (_parent->_firstChild == this) {
+            _parent->_firstChild = ringNext<Node>();
+        }
+        ringRemove();
+    }
+    else {
+        // Move to a new parent, but not yet inserted in the ring.
+        reparent(nullptr);
+        _parent = newSibling->_parent;
+    }
+
+    // Insert somewhere else in the parent structure.
+    assert(_parent->_firstChild != nullptr); // Because of newSibling.
+    if (before) {
+        if (_parent->_firstChild == newSibling) {
+            _parent->_firstChild = this;
+        }
+        ringInsertBefore(newSibling);
+    }
+    else {
+        ringInsertAfter(newSibling);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Remove all comments in the XML node.
+//----------------------------------------------------------------------------
+
+void ts::xml::Node::removeComments(bool recurse)
+{
+    Node* child = firstChild();
+    while (child != nullptr) {
+        Node* next = child->nextSibling();
+        if (dynamic_cast<Comment*>(child) != nullptr) {
+            // The child is a comment and will cleanly remove itself from the list of children.
+            delete child;
+        }
+        else if (recurse) {
+            child->removeComments(true);
+        }
+        child = next;
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // Get the document into which the node is located.
 //----------------------------------------------------------------------------
 
@@ -184,6 +225,20 @@ size_t ts::xml::Node::depth() const
         assert(count < 1024);
     }
     return count;
+}
+
+
+//----------------------------------------------------------------------------
+// Check if the node or one of its ancestors has xml:space="preserve".
+//----------------------------------------------------------------------------
+
+bool ts::xml::Node::preserveSpace() const
+{
+    bool pres = _preserveSpace;
+    for (const Node* n = this; !pres && n->_parent != nullptr; n = n->_parent) {
+        pres = n->_preserveSpace;
+    }
+    return pres;
 }
 
 
@@ -219,12 +274,23 @@ ts::xml::Node* ts::xml::Node::previousSibling()
 
 
 //----------------------------------------------------------------------------
-// Find the next sibling element.
+// Find the next or previous sibling element.
 //----------------------------------------------------------------------------
 
 ts::xml::Element* ts::xml::Node::nextSiblingElement()
 {
     for (Node* child = nextSibling(); child != nullptr; child = child->nextSibling()) {
+        Element* elem = dynamic_cast<Element*>(child);
+        if (elem != nullptr) {
+            return elem;
+        }
+    }
+    return nullptr;
+}
+
+ts::xml::Element* ts::xml::Node::previousSiblingElement()
+{
+    for (Node* child = previousSibling(); child != nullptr; child = child->previousSibling()) {
         Element* elem = dynamic_cast<Element*>(child);
         if (elem != nullptr) {
             return elem;
@@ -286,7 +352,7 @@ bool ts::xml::Node::parseChildren(TextParser& parser)
 
 ts::UString ts::xml::Node::debug() const
 {
-    return UString::Format(u"%s, line %d, children: %d, value '%s'", {typeName(), lineNumber(), childrenCount(), value()});
+    return UString::Format(u"%s, line %d, children: %d, value '%s'", typeName(), lineNumber(), childrenCount(), value());
 }
 
 
@@ -302,9 +368,23 @@ ts::xml::Node* ts::xml::Node::identifyNextNode(TextParser& parser)
     // Skip all white spaces until next token.
     parser.skipWhiteSpace();
 
-    // Stop at end of document or before "</".
-    if (parser.eof() || parser.match(u"</", false)) {
+    // Stop at end of document.
+    if (parser.eof()) {
         return nullptr;
+    }
+
+    // Stop before "</", this is the end of the current element.
+    if (parser.match(u"</", false)) {
+        if (!parser.isAtPosition(previous) && preserveSpace()) {
+            // There is some white space (not at the same position as before space) which must be preserved.
+            // This is a text node with spaces only.
+            parser.seek(previous);
+            return new Text(_report, parser.lineNumber(), false);
+        }
+        else {
+            // No space before end of element or contains only spaces which don't need to be preserved.
+            return nullptr;
+        }
     }
 
     // Check each expected token.
@@ -329,4 +409,18 @@ ts::xml::Node* ts::xml::Node::identifyNextNode(TextParser& parser)
         parser.seek(previous);
         return new Text(_report, parser.lineNumber(), false);
     }
+}
+
+
+//----------------------------------------------------------------------------
+// Format the value as a one-liner XML text.
+//----------------------------------------------------------------------------
+
+ts::UString ts::xml::Node::oneLiner() const
+{
+    TextFormatter out(_report);
+    out.setString();
+    out.setEndOfLineMode(TextFormatter::EndOfLineMode::SPACING);
+    print(out);
+    return out.toString();
 }

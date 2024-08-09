@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -34,7 +13,6 @@
 
 #include "tsPluginRepository.h"
 #include "tsSignalizationDemux.h"
-#include "tsPESPacket.h"
 #include "tsAlgorithm.h"
 #include "tsMemory.h"
 
@@ -46,10 +24,9 @@
 namespace ts {
     class FilterPlugin: public ProcessorPlugin, private SignalizationHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(FilterPlugin);
+        TS_PLUGIN_CONSTRUCTORS(FilterPlugin);
     public:
         // Implementation of plugin API
-        FilterPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -57,60 +34,60 @@ namespace ts {
 
     private:
         // Packet intervals and list of them.
-        typedef std::pair<PacketCounter, PacketCounter> PacketRange;
-        typedef std::list<PacketRange> PacketRangeList;
+        using PacketRange = std::pair<PacketCounter, PacketCounter>;
+        using PacketRangeList = std::list<PacketRange>;
 
         // Command line options:
-        Status          _drop_status;        // Return status for unselected packets
-        int             _scrambling_ctrl;    // Scrambling control value (<0: no filter)
-        bool            _need_demux;         // Need the help of the signalization demux.
-        bool            _with_payload;       // Packets with payload
-        bool            _with_af;            // Packets with adaptation field
-        bool            _with_pes;           // Packets with clear PES headers
-        bool            _with_pcr;           // Packets with PCR or OPCR
-        bool            _with_splice;        // Packets with splice_countdown in adaptation field
-        bool            _unit_start;         // Packets with payload unit start
-        bool            _intra_frame;        // Packets with start of video intra-frame
-        bool            _nullified;          // Packets which were nullified by a previous plugin
-        bool            _input_stuffing;     // Null packets which were artificially inserted
-        bool            _valid;              // Packets with valid sync byte and error ind
-        bool            _negate;             // Negate filter (exclude selected packets)
-        bool            _video;              // Part of a video PID
-        bool            _audio;              // Part of an audio PID
-        bool            _subtitles;          // Part of a subtitles PID
-        bool            _ecm;                // Part of an ECM PID
-        bool            _emm;                // Part of an EMM PID
-        bool            _psi;                // Part of global PSI/SI PID.
-        int             _min_payload;        // Minimum payload size (<0: no filter)
-        int             _max_payload;        // Maximum payload size (<0: no filter)
-        int             _min_af;             // Minimum adaptation field size (<0: no filter)
-        int             _max_af;             // Maximum adaptation field size (<0: no filter)
-        int             _splice;             // Exact splice_countdown value (<-128: no filter)
-        int             _min_splice;         // Minimum splice_countdown value (<-128: no filter)
-        int             _max_splice;         // Maximum splice_countdown value (<-128: no filter)
-        PacketCounter   _after_packets;      // Number of initial packets to skip
-        PacketCounter   _every_packets;      // Filter 1 out of this number of packets
-        CodecType       _codec;              // Filter on codec type
-        PIDSet          _explicit_pid;       // Explicit PID values to filter
-        ByteBlock       _pattern;            // Byte pattern to search.
-        bool            _search_payload;     // Search pattern in payload only
-        bool            _use_search_offset;  // Search at specified offset only
-        size_t          _search_offset;      // Offset where to search.
-        PacketRangeList _ranges;             // Ranges of packets to filter.
-        std::set<uint8_t>          _stream_ids;        // PES stream ids to filter
-        std::set<uint16_t>         _service_ids;       // Service ids to filter
-        UStringVector              _service_names;     // Service names to filter.
-        TSPacketMetadata::LabelSet _labels;            // Select packets with any of these labels
-        TSPacketMetadata::LabelSet _set_labels;        // Labels to set on filtered packets
-        TSPacketMetadata::LabelSet _reset_labels;      // Labels to reset on filtered packets
-        TSPacketMetadata::LabelSet _set_perm_labels;   // Labels to set on all packets after getting one packet
-        TSPacketMetadata::LabelSet _reset_perm_labels; // Labels to reset on all packets after getting one packet
+        Status             _drop_status = TSP_DROP;     // Return status for unselected packets
+        int                _scrambling_ctrl = 0;        // Scrambling control value (<0: no filter)
+        bool               _need_demux = false;         // Need the help of the signalization demux.
+        bool               _with_payload = false;       // Packets with payload
+        bool               _with_af = false;            // Packets with adaptation field
+        bool               _with_pes = false;           // Packets with clear PES headers
+        bool               _with_pcr = false;           // Packets with PCR or OPCR
+        bool               _with_splice = false;        // Packets with splice_countdown in adaptation field
+        bool               _unit_start = false;         // Packets with payload unit start
+        bool               _intra_frame = false;        // Packets with start of video intra-frame
+        bool               _nullified = false;          // Packets which were nullified by a previous plugin
+        bool               _input_stuffing = false;     // Null packets which were artificially inserted
+        bool               _valid = false;              // Packets with valid sync byte and error ind
+        bool               _negate = false;             // Negate filter (exclude selected packets)
+        bool               _video = false;              // Part of a video PID
+        bool               _audio = false;              // Part of an audio PID
+        bool               _subtitles = false;          // Part of a subtitles PID
+        bool               _ecm = false;                // Part of an ECM PID
+        bool               _emm = false;                // Part of an EMM PID
+        bool               _psi = false;                // Part of global PSI/SI PID.
+        int                _min_payload = 0;            // Minimum payload size (<0: no filter)
+        int                _max_payload = 0;            // Maximum payload size (<0: no filter)
+        int                _min_af = 0;                 // Minimum adaptation field size (<0: no filter)
+        int                _max_af = 0;                 // Maximum adaptation field size (<0: no filter)
+        int                _splice = 0;                 // Exact splice_countdown value (<-128: no filter)
+        int                _min_splice = 0;             // Minimum splice_countdown value (<-128: no filter)
+        int                _max_splice = 0;             // Maximum splice_countdown value (<-128: no filter)
+        PacketCounter      _after_packets = 0;          // Number of initial packets to skip
+        PacketCounter      _every_packets = 0;          // Filter 1 out of this number of packets
+        CodecType          _codec = CodecType::UNDEFINED; // Filter on codec type
+        PIDSet             _explicit_pid {};            // Explicit PID values to filter
+        ByteBlock          _pattern {};                 // Byte pattern to search.
+        bool               _search_payload = false;     // Search pattern in payload only
+        bool               _use_search_offset = false;  // Search at specified offset only
+        size_t             _search_offset = 0;          // Offset where to search.
+        PacketRangeList    _ranges {};                  // Ranges of packets to filter.
+        std::set<uint8_t>  _stream_ids {};              // PES stream ids to filter
+        std::set<uint16_t> _service_ids {};             // Service ids to filter
+        UStringVector      _service_names {};           // Service names to filter.
+        TSPacketLabelSet   _labels {};                  // Select packets with any of these labels
+        TSPacketLabelSet   _set_labels {};              // Labels to set on filtered packets
+        TSPacketLabelSet   _reset_labels {};            // Labels to reset on filtered packets
+        TSPacketLabelSet   _set_perm_labels {};         // Labels to set on all packets after getting one packet
+        TSPacketLabelSet   _reset_perm_labels {};       // Labels to reset on all packets after getting one packet
 
         // Working data:
-        PacketCounter      _filtered_packets;  // Number of filtered packets
-        PIDSet             _stream_id_pid;     // PID values selected from stream ids
-        std::set<uint16_t> _all_service_ids;   // All service ids to filter, after service name resolution
-        SignalizationDemux _demux;             // Full signalization demux
+        PacketCounter      _filtered_packets = 0;       // Number of filtered packets
+        PIDSet             _stream_id_pid {};           // PID values selected from stream ids
+        std::set<uint16_t> _all_service_ids {};         // All service ids to filter, after service name resolution
+        SignalizationDemux _demux {duck};               // Full signalization demux
 
         // Implementation of SignalizationHandlerInterface
         virtual void handleService(uint16_t ts_id, const Service& service, const PMT& pmt, bool removed) override;
@@ -125,55 +102,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"filter", ts::FilterPlugin);
 //----------------------------------------------------------------------------
 
 ts::FilterPlugin::FilterPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Filter TS packets according to various conditions", u"[options]"),
-    _drop_status(TSP_DROP),
-    _scrambling_ctrl(0),
-    _need_demux(false),
-    _with_payload(false),
-    _with_af(false),
-    _with_pes(false),
-    _with_pcr(false),
-    _with_splice(false),
-    _unit_start(false),
-    _intra_frame(false),
-    _nullified(false),
-    _input_stuffing(false),
-    _valid(false),
-    _negate(false),
-    _video(false),
-    _audio(false),
-    _subtitles(false),
-    _ecm(false),
-    _emm(false),
-    _psi(false),
-    _min_payload(0),
-    _max_payload(0),
-    _min_af(0),
-    _max_af(0),
-    _splice(0),
-    _min_splice(0),
-    _max_splice(0),
-    _after_packets(0),
-    _every_packets(0),
-    _codec(CodecType::UNDEFINED),
-    _explicit_pid(),
-    _pattern(),
-    _search_payload(false),
-    _use_search_offset(false),
-    _search_offset(0),
-    _ranges(),
-    _stream_ids(),
-    _service_ids(),
-    _service_names(),
-    _labels(),
-    _set_labels(),
-    _reset_labels(),
-    _set_perm_labels(),
-    _reset_perm_labels(),
-    _filtered_packets(0),
-    _stream_id_pid(),
-    _all_service_ids(),
-    _demux(duck)
+    ProcessorPlugin(tsp_, u"Filter TS packets according to various conditions", u"[options]")
 {
     option(u"adaptation-field");
     help(u"adaptation-field", u"Select packets with an adaptation field.");
@@ -232,7 +161,7 @@ ts::FilterPlugin::FilterPlugin(TSP* tsp_) :
          u"The accurate detection of intra-frame depends on the codec. "
          u"There is also a minimal risk of false positive on non-video PID's.");
 
-    option(u"label", 'l', INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"label", 'l', INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"label", u"label1[-label2]",
          u"Select packets with any of the specified labels. "
          u"Labels should have typically been set by a previous plugin in the chain. "
@@ -307,13 +236,13 @@ ts::FilterPlugin::FilterPlugin(TSP* tsp_) :
          u"PID filter: select packets with these PID values. "
          u"Several -p or --pid options may be specified.");
 
-    option(u"reset-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"reset-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"reset-label", u"label1[-label2]",
          u"Clear the specified labels on the selected packets. "
          u"Do not drop unselected packets, simply clear labels on selected ones. "
          u"Several --reset-label options may be specified.");
 
-    option(u"reset-permanent-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"reset-permanent-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"reset-permanent-label", u"label1[-label2]",
          u"Clear the specified labels on all packets, selected and unselected ones, after at least one was selected. "
          u"Do not drop unselected packets, simply use selected ones as trigger. "
@@ -341,13 +270,13 @@ ts::FilterPlugin::FilterPlugin(TSP* tsp_) :
          u"Otherwise, this is a service name. "
          u"Several --service options may be specified.");
 
-    option(u"set-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"set-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"set-label", u"label1[-label2]",
          u"Set the specified labels on the selected packets. "
          u"Do not drop unselected packets, simply mark selected ones. "
          u"Several --set-label options may be specified.");
 
-    option(u"set-permanent-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"set-permanent-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"set-permanent-label", u"label1[-label2]",
          u"Set the specified labels on all packets, selected and unselected ones, after at least one was selected. "
          u"Do not drop unselected packets, simply use selected ones as trigger. "
@@ -435,27 +364,27 @@ bool ts::FilterPlugin::getOptions()
     _ranges.clear();
     UStringVector intervals;
     getValues(intervals, u"interval");
-    for (auto it = intervals.begin(); it != intervals.end(); ++it) {
+    for (const auto& it : intervals) {
         PacketCounter first = 0;
         PacketCounter second = 0;
-        if (it->scan(u"%d-%d", {&first, &second})) {
+        if (it.scan(u"%d-%d", &first, &second)) {
             _ranges.push_back(std::make_pair(first, second));
         }
-        else if (it->scan(u"%d-", {&first})) {
+        else if (it.scan(u"%d-", &first)) {
             _ranges.push_back(std::make_pair(first, std::numeric_limits<PacketCounter>::max()));
         }
-        else if (it->scan(u"%d", {&first})) {
+        else if (it.scan(u"%d", &first)) {
             _ranges.push_back(std::make_pair(first, first));
         }
         else {
-            tsp->error(u"invalid packet range %s", {*it});
+            error(u"invalid packet range %s", it);
             return false;
         }
     }
 
     // Check that the pattern to search is not larger than the packet.
     if (_pattern.size() > PKT_SIZE || (_use_search_offset && _search_offset + _pattern.size() > PKT_SIZE)) {
-        tsp->error(u"search pattern too large for TS packets");
+        error(u"search pattern too large for TS packets");
         return false;
     }
 
@@ -520,7 +449,7 @@ bool ts::FilterPlugin::start()
 
 bool ts::FilterPlugin::stop()
 {
-    tsp->debug(u"%'d / %'d filtered packets", {_filtered_packets, tsp->pluginPackets()});
+    debug(u"%'d / %'d filtered packets", _filtered_packets, tsp->pluginPackets());
     return true;
 }
 
@@ -590,7 +519,7 @@ ts::ProcessorPlugin::Status ts::FilterPlugin::processPacket(TSPacket& pkt, TSPac
         const size_t start = _search_payload ? pkt.getHeaderSize() : 0;
         if (start + _search_offset + _pattern.size() <= PKT_SIZE) {
             if (_use_search_offset) {
-                ok = ::memcmp(pkt.b + start + _search_offset, _pattern.data(), _pattern.size()) == 0;
+                ok = MemEqual(pkt.b + start + _search_offset, _pattern.data(), _pattern.size());
             }
             else {
                 ok = LocatePattern(pkt.b + start, PKT_SIZE - start, _pattern.data(), _pattern.size()) != nullptr;
@@ -632,11 +561,11 @@ ts::ProcessorPlugin::Status ts::FilterPlugin::processPacket(TSPacket& pkt, TSPac
 void ts::FilterPlugin::handleService(uint16_t ts_id, const Service& service, const PMT& pmt, bool removed)
 {
     const UString service_name(service.getName());
-    tsp->debug(u"handling updated services, TS id: 0x%X (%<d), service: 0x%X (%<d), \"%s\"", {ts_id, service.getId(), service_name});
+    debug(u"handling updated services, TS id: %n, service: %n, \"%s\"", ts_id, service.getId(), service_name);
 
     // If the service is filtered by name from the command line, add its service id in the filters.
-    for (auto name = _service_names.begin(); name != _service_names.end(); ++name) {
-        if (service.hasId() && name->similar(service_name)) {
+    for (const auto& name : _service_names) {
+        if (service.hasId() && name.similar(service_name)) {
             _all_service_ids.insert(service.getId());
             break;
         }

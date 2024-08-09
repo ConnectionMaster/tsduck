@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,7 +12,8 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsCipherChaining.h"
+#include "tsBlockCipher.h"
+#include "tsMemory.h"
 
 namespace ts {
     //!
@@ -44,8 +24,8 @@ namespace ts {
     //!
     //! @tparam CIPHER A subclass of ts::BlockCipher, the underlying block cipher.
     //!
-    template <class CIPHER>
-    class CTR: public CipherChainingTemplate<CIPHER>
+    template <class CIPHER, typename std::enable_if<std::is_base_of<BlockCipher, CIPHER>::value>::type* = nullptr>
+    class CTR: public CIPHER
     {
         TS_NOCOPY(CTR);
     public:
@@ -72,27 +52,138 @@ namespace ts {
         //!
         size_t counterBits() const {return _counter_bits;}
 
-        // Implementation of CipherChaining interface.
-        virtual size_t minMessageSize() const override;
-        virtual bool residueAllowed() const override;
-
-        // Implementation of BlockCipher interface.
-        virtual UString name() const override;
-
     protected:
+        TS_BLOCK_CIPHER_DECLARE_PROPERTIES(CTR);
+
         // Implementation of BlockCipher interface.
+        //! @cond nodoxygen
         virtual bool encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length) override;
         virtual bool decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length) override;
+        //! @endcond
 
     private:
-        size_t _counter_bits; // size in bits of the counter part.
+        size_t _counter_bits = 0; // size in bits of the counter part.
 
         // We need two work blocks.
         // The first one contains the "input block" or counter.
         // The second one contains the "output block", the encrypted counter.
         // This private method increments the counter block.
-        bool incrementCounter();
+        void incrementCounter();
     };
 }
 
-#include "tsCTRTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+#if !defined(DOXYGEN)
+
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES_TEMPLATE(ts::CTR, CTR, (CIPHER::PROPERTIES(), u"CTR", true, 0, 2, CIPHER::BLOCK_SIZE));
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+ts::CTR<CIPHER,N>::CTR(size_t counter_bits) : CIPHER(CTR::PROPERTIES())
+{
+    setCounterBits(counter_bits);
+}
+
+
+//----------------------------------------------------------------------------
+// Set counter size in bits.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+void ts::CTR<CIPHER,N>::setCounterBits(size_t counter_bits)
+{
+    if (counter_bits == 0) {
+        // Default size is half the block size in bits.
+        _counter_bits = this->properties.block_size * 4;
+    }
+    else {
+        // Counter cannot be larger than the block size.
+        _counter_bits = std::min(counter_bits, this->properties.block_size * 8);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Increment the counter in the first work block.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+void ts::CTR<CIPHER,N>::incrementCounter()
+{
+    const size_t bsize = this->properties.block_size;
+    uint8_t* work1 = this->work.data();
+    size_t bits = _counter_bits;
+    bool carry = true; // initial increment.
+
+    // The first work block contains the "input block" or counter to increment.
+    for (uint8_t* b = work1 + bsize - 1; carry && bits > 0 && b > work1; --b) {
+        const size_t bits_in_byte = std::min<size_t>(bits, 8);
+        bits -= bits_in_byte;
+        const uint8_t mask = uint8_t(0xFF >> (8 - bits_in_byte));
+        *b = (*b & ~mask) | (((*b & mask) + 1) & mask);
+        carry = (*b & mask) == 0x00;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Encryption in CTR mode.
+// The algorithm is safe with overlapping buffers.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+bool ts::CTR<CIPHER,N>::encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length)
+{
+    const size_t bsize = this->properties.block_size;
+    uint8_t* work1 = this->work.data();
+    uint8_t* work2 = this->work.data() + bsize;
+
+    if (plain_length % bsize != 0 || this->currentIV().size() != bsize || cipher_maxsize < plain_length) {
+        return false;
+    }
+    if (cipher_length != nullptr) {
+        *cipher_length = plain_length;
+    }
+
+    // work1 = iv
+    MemCopy(work1, this->currentIV().data(), bsize);
+
+    // Loop on all blocks, including last truncated one.
+    const uint8_t* pt = reinterpret_cast<const uint8_t*>(plain);
+    uint8_t* ct = reinterpret_cast<uint8_t*>(cipher);
+
+    while (plain_length > 0) {
+        // work2 = encrypt(work1)
+        if (!CIPHER::encryptImpl(work1, bsize, work2, bsize, nullptr)) {
+            return false;
+        }
+        // This block size:
+        const size_t size = std::min(plain_length, bsize);
+        // cipher-text = plain-text XOR work2
+        MemXor(ct, work2, pt, size);
+        // work1 += 1
+        incrementCounter();
+        // advance one block
+        ct += size;
+        pt += size;
+        plain_length -= size;
+    }
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Decryption in CTR mode.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+bool ts::CTR<CIPHER,N>::decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length)
+{
+    // With CTR, the encryption and decryption are identical operations.
+    return encryptImpl(cipher, cipher_length, plain, plain_maxsize, plain_length);
+}
+
+#endif

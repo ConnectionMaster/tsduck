@@ -1,41 +1,25 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
 //  TSUnit test suite for tsSysUtils.h and tsFileUtils.h
 //
+//  While system-specific classes move to C++11 and C++17 predefined classes,
+//  we also adapt the tests and keep them for a while, to make sure that the
+//  predefined classes are effective replacements.
+//
 //----------------------------------------------------------------------------
 
-#include "tsFileUtils.h"
 #include "tsSysUtils.h"
+#include "tsFileUtils.h"
+#include "tsEnvironment.h"
 #include "tsSysInfo.h"
+#include "tsErrCodeReport.h"
 #include "tsRegistry.h"
-#include "tsMonotonic.h"
 #include "tsTime.h"
 #include "tsUID.h"
 #include "tsunit.h"
@@ -51,72 +35,36 @@
 
 class SysUtilsTest: public tsunit::Test
 {
+    TSUNIT_DECLARE_TEST(StdFileSystem);
+    TSUNIT_DECLARE_TEST(CurrentExecutableFile);
+    TSUNIT_DECLARE_TEST(Environment);
+    TSUNIT_DECLARE_TEST(Registry);
+    TSUNIT_DECLARE_TEST(IgnoreBrokenPipes);
+    TSUNIT_DECLARE_TEST(ErrorCode);
+    TSUNIT_DECLARE_TEST(Uid);
+    TSUNIT_DECLARE_TEST(VernacularFilePath);
+    TSUNIT_DECLARE_TEST(FilePaths);
+    TSUNIT_DECLARE_TEST(TempFiles);
+    TSUNIT_DECLARE_TEST(FileTime);
+    TSUNIT_DECLARE_TEST(Wildcard);
+    TSUNIT_DECLARE_TEST(SearchWildcard);
+    TSUNIT_DECLARE_TEST(HomeDirectory);
+    TSUNIT_DECLARE_TEST(ProcessCpuTime);
+    TSUNIT_DECLARE_TEST(ProcessVirtualSize);
+    TSUNIT_DECLARE_TEST(IsTerminal);
+    TSUNIT_DECLARE_TEST(SysInfo);
+    TSUNIT_DECLARE_TEST(IsAbsoluteFilePath);
+    TSUNIT_DECLARE_TEST(AbsoluteFilePath);
+    TSUNIT_DECLARE_TEST(CleanupFilePath);
+    TSUNIT_DECLARE_TEST(RelativeFilePath);
+
 public:
-    SysUtilsTest();
-
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testCurrentProcessId();
-    void testCurrentExecutableFile();
-    void testSleep();
-    void testEnvironment();
-    void testRegistry();
-    void testIgnoreBrokenPipes();
-    void testErrorCode();
-    void testUid();
-    void testVernacularFilePath();
-    void testFilePaths();
-    void testTempFiles();
-    void testFileSize();
-    void testFileTime();
-    void testDirectory();
-    void testWildcard();
-    void testSearchWildcard();
-    void testHomeDirectory();
-    void testProcessMetrics();
-    void testIsTerminal();
-    void testSysInfo();
-    void testSymLinks();
-    void testCurrentWorkingDirectory();
-    void testIsAbsoluteFilePath();
-    void testAbsoluteFilePath();
-    void testCleanupFilePath();
-    void testRelativeFilePath();
-
-    TSUNIT_TEST_BEGIN(SysUtilsTest);
-    TSUNIT_TEST(testCurrentProcessId);
-    TSUNIT_TEST(testCurrentExecutableFile);
-    TSUNIT_TEST(testSleep);
-    TSUNIT_TEST(testEnvironment);
-    TSUNIT_TEST(testRegistry);
-    TSUNIT_TEST(testIgnoreBrokenPipes);
-    TSUNIT_TEST(testErrorCode);
-    TSUNIT_TEST(testUid);
-    TSUNIT_TEST(testVernacularFilePath);
-    TSUNIT_TEST(testFilePaths);
-    TSUNIT_TEST(testTempFiles);
-    TSUNIT_TEST(testFileSize);
-    TSUNIT_TEST(testFileTime);
-    TSUNIT_TEST(testDirectory);
-    TSUNIT_TEST(testWildcard);
-    TSUNIT_TEST(testSearchWildcard);
-    TSUNIT_TEST(testHomeDirectory);
-    TSUNIT_TEST(testProcessMetrics);
-    TSUNIT_TEST(testIsTerminal);
-    TSUNIT_TEST(testSysInfo);
-    TSUNIT_TEST(testSymLinks);
-    TSUNIT_TEST(testCurrentWorkingDirectory);
-    TSUNIT_TEST(testIsAbsoluteFilePath);
-    TSUNIT_TEST(testAbsoluteFilePath);
-    TSUNIT_TEST(testCleanupFilePath);
-    TSUNIT_TEST(testRelativeFilePath);
-    TSUNIT_TEST_END();
+    virtual void beforeTestSuite() override;
+    virtual void afterTestSuite() override;
 
 private:
-    ts::NanoSecond  _nsPrecision;
-    ts::MilliSecond _msPrecision;
-};
+    cn::milliseconds _precision {};
+ };
 
 TSUNIT_REGISTER(SysUtilsTest);
 
@@ -125,26 +73,16 @@ TSUNIT_REGISTER(SysUtilsTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-SysUtilsTest::SysUtilsTest() :
-    _nsPrecision(0),
-    _msPrecision(0)
-{
-}
-
 // Test suite initialization method.
-void SysUtilsTest::beforeTest()
+void SysUtilsTest::beforeTestSuite()
 {
-    _nsPrecision = ts::Monotonic::SetPrecision(2 * ts::NanoSecPerMilliSec);
-    _msPrecision = (_nsPrecision + ts::NanoSecPerMilliSec - 1) / ts::NanoSecPerMilliSec;
-
-    // Request 2 milliseconds as system time precision.
-    debug() << "SysUtilsTest: timer precision = " << ts::UString::Decimal(_nsPrecision) << " ns, "
-            << ts::UString::Decimal(_msPrecision) << " ms" << std::endl;
+    _precision = cn::milliseconds(2);
+    ts::SetTimersPrecision(_precision);
+    debug() << "SysUtilsTest: timer precision = " << ts::UString::Chrono(_precision) << std::endl;
 }
 
 // Test suite cleanup method.
-void SysUtilsTest::afterTest()
+void SysUtilsTest::afterTestSuite()
 {
 }
 
@@ -162,10 +100,10 @@ namespace {
 // Create a file with the specified size using standard C++ I/O.
 // Return true on success, false on error.
 namespace {
-    bool _CreateFile(const ts::UString& name, size_t size)
+    bool _CreateFile(const fs::path& name, size_t size)
     {
         ts::UString data(size, '-');
-        std::ofstream file(name.toUTF8().c_str(), std::ios::binary);
+        std::ofstream file(name, std::ios::binary);
         if (file) {
             file << data;
             file.close();
@@ -179,38 +117,83 @@ namespace {
 // Test cases
 //----------------------------------------------------------------------------
 
-void SysUtilsTest::testCurrentProcessId()
+// Various tests on std::filesystem and std::filesystem::path.
+// We trust the C++ runtime library, this is just a test to understand what it does.
+TSUNIT_DEFINE_TEST(StdFileSystem)
 {
-    // Hard to make automated tests since we do not expect predictible values
+    bool success = true;
 
-    debug() << "SysUtilsTest: sizeof(ts::ProcessId) = " << sizeof(ts::ProcessId) << std::endl
-            << "SysUtilsTest: ts::CurrentProcessId() = " << ts::CurrentProcessId() << std::endl
-            << "SysUtilsTest: ts::IsPrivilegedUser() = " << ts::IsPrivilegedUser() << std::endl;
+    // Test directory creation.
+    const fs::path tmpDirName1(ts::TempFile(u""));
+    TSUNIT_ASSERT(!fs::exists(tmpDirName1));
+    TSUNIT_ASSERT(fs::create_directories(tmpDirName1));
+    TSUNIT_ASSERT(fs::exists(tmpDirName1));
+    TSUNIT_ASSERT(fs::is_directory(tmpDirName1));
+
+    // Test file in directory.
+    fs::path tmpName1(tmpDirName1);
+    tmpName1 /= u"foo.bar";
+    TSUNIT_ASSERT(_CreateFile(tmpName1, 0));
+    TSUNIT_ASSERT(fs::exists(tmpName1));
+    TSUNIT_ASSERT(!fs::is_directory(tmpName1));
+
+    // Test rename directory.
+    const fs::path tmpDirName2(ts::TempFile(u""));
+    TSUNIT_ASSERT(!fs::exists(tmpDirName2));
+    fs::rename(tmpDirName1, tmpDirName2, &ts::ErrCodeReport(success, CERR));
+    TSUNIT_ASSERT(success);
+    TSUNIT_ASSERT(fs::exists(tmpDirName2));
+    TSUNIT_ASSERT(fs::is_directory(tmpDirName2));
+    TSUNIT_ASSERT(!fs::exists(tmpDirName1));
+    TSUNIT_ASSERT(!fs::is_directory(tmpDirName1));
+    tmpName1 = tmpDirName2;
+    tmpName1 /= u"foo.bar";
+    TSUNIT_ASSERT(fs::exists(tmpName1));
+    TSUNIT_ASSERT(!fs::is_directory(tmpName1));
+
+    // Test remove directory and its content.
+    TSUNIT_ASSERT(fs::remove(tmpName1, &ts::ErrCodeReport(CERR, u"error deleting", tmpName1)));
+    TSUNIT_ASSERT(!fs::exists(tmpName1));
+    TSUNIT_ASSERT(fs::is_directory(tmpDirName2));
+    TSUNIT_ASSERT(fs::remove(tmpDirName2, &ts::ErrCodeReport(CERR, u"error deleting", tmpDirName2)));
+    TSUNIT_ASSERT(!fs::exists(tmpDirName2));
+    TSUNIT_ASSERT(!fs::is_directory(tmpDirName2));
+
+    // Test file size.
+    const fs::path tmpName2(ts::TempFile());
+    TSUNIT_ASSERT(!fs::exists(tmpName2));
+    TSUNIT_ASSERT(_CreateFile(tmpName2, 1234));
+    TSUNIT_ASSERT(fs::exists(tmpName2));
+    TSUNIT_EQUAL(1234, fs::file_size(tmpName2, &ts::ErrCodeReport(CERR)));
+    fs::resize_file(tmpName2, 567, &ts::ErrCodeReport(success, CERR));
+    TSUNIT_ASSERT(success);
+    TSUNIT_EQUAL(567, fs::file_size(tmpName2, &ts::ErrCodeReport(CERR)));
+
+    // Test rename file.
+    const fs::path tmpName3(ts::TempFile());
+    TSUNIT_ASSERT(!fs::exists(tmpName3));
+    fs::rename(tmpName2, tmpName3, &ts::ErrCodeReport(success, CERR));
+    TSUNIT_ASSERT(success);
+    TSUNIT_ASSERT(fs::exists(tmpName3));
+    TSUNIT_ASSERT(!fs::exists(tmpName2));
+    TSUNIT_EQUAL(567, fs::file_size(tmpName3, &ts::ErrCodeReport(CERR)));
+
+    // Remove previous temporary file.
+    TSUNIT_ASSERT(fs::remove(tmpName3, &ts::ErrCodeReport(CERR, u"error deleting", tmpName2)));
+    TSUNIT_ASSERT(!fs::exists(tmpName3));
 }
 
-void SysUtilsTest::testCurrentExecutableFile()
+TSUNIT_DEFINE_TEST(CurrentExecutableFile)
 {
     // Hard to make automated tests since we do not expect a predictible executable name.
 
-    ts::UString exe(ts::ExecutableFile());
-    debug() << "SysUtilsTest: ts::ExecutableFile() = \"" << exe << "\"" << std::endl;
+    fs::path exe(ts::ExecutableFile());
+    debug() << "SysUtilsTest: ts::ExecutableFile() = \"" << exe.string() << "\"" << std::endl;
     TSUNIT_ASSERT(!exe.empty());
-    TSUNIT_ASSERT(ts::FileExists(exe));
+    TSUNIT_ASSERT(fs::exists(exe));
 }
 
-void SysUtilsTest::testSleep()
-{
-    // The will slow down our test suites by 400 ms...
-
-    const ts::Time before(ts::Time::CurrentUTC());
-    ts::SleepThread(400);
-    const ts::Time after(ts::Time::CurrentUTC());
-    TSUNIT_ASSERT(after >= before + 400 - _msPrecision);
-
-    debug() << "SysUtilsTest: ts::SleepThread(400), measured " << (after - before) << " ms" << std::endl;
-}
-
-void SysUtilsTest::testEnvironment()
+TSUNIT_DEFINE_TEST(Environment)
 {
     debug() << "SysUtilsTest: EnvironmentExists(\"HOME\") = "
             << ts::EnvironmentExists(u"HOME") << std::endl
@@ -265,7 +248,7 @@ void SysUtilsTest::testEnvironment()
 
     ts::UString value(ref[0]);
     for (size_t i = 1; i < ref.size(); ++i) {
-        value += ts::SearchPathSeparator + ref[i];
+        value += ts::SEARCH_PATH_SEPARATOR + ref[i];
     }
     ts::SetEnvironment(u"UTEST_A", value);
 
@@ -292,7 +275,7 @@ void SysUtilsTest::testEnvironment()
     TSUNIT_EQUAL(u"abc123456789aabcdefghijklm123456789/qsd", ts::ExpandEnvironment(u"abc${UTEST_A}a$UTEST_B$UTEST_D$UTEST_A/qsd"));
 }
 
-void SysUtilsTest::testRegistry()
+TSUNIT_DEFINE_TEST(Registry)
 {
     debug() << "SysUtilsTest: SystemEnvironmentKey = " << ts::Registry::SystemEnvironmentKey << std::endl
             << "SysUtilsTest: UserEnvironmentKey = " << ts::Registry::UserEnvironmentKey << std::endl;
@@ -347,7 +330,7 @@ void SysUtilsTest::testRegistry()
 #endif
 }
 
-void SysUtilsTest::testIgnoreBrokenPipes()
+TSUNIT_DEFINE_TEST(IgnoreBrokenPipes)
 {
     // Ignoring SIGPIPE may break up with some debuggers.
     // When running the unitary tests under a debugger, it may be useful
@@ -383,11 +366,11 @@ void SysUtilsTest::testIgnoreBrokenPipes()
     }
 }
 
-void SysUtilsTest::testErrorCode()
+TSUNIT_DEFINE_TEST(ErrorCode)
 {
     // Hard to make automated tests since we do not expect portable strings
 
-    const ts::SysErrorCode code =
+    const int code =
 #if defined(TS_WINDOWS)
         WAIT_TIMEOUT;
 #elif defined(TS_UNIX)
@@ -397,29 +380,26 @@ void SysUtilsTest::testErrorCode()
 #endif
 
     const ts::UString codeMessage(ts::SysErrorCodeMessage(code));
-    const ts::UString successMessage(ts::SysErrorCodeMessage(ts::SYS_SUCCESS));
+    const ts::UString successMessage(ts::SysErrorCodeMessage(0));
 
-    debug()
-        << "SysUtilsTest: sizeof(ts::SysErrorCode) = " << sizeof(ts::SysErrorCode) << std::endl
-        << "SysUtilsTest: ts::SYS_SUCCESS = " << ts::SYS_SUCCESS << std::endl
-        << "SysUtilsTest: SUCCESS message = \"" << successMessage << "\"" << std::endl
-        << "SysUtilsTest: test code = " << code << std::endl
-        << "SysUtilsTest: test code message = \"" << codeMessage << "\"" << std::endl;
+    debug() << "SysUtilsTest: SUCCESS message = \"" << successMessage << "\"" << std::endl
+            << "SysUtilsTest: test code = " << code << std::endl
+            << "SysUtilsTest: test code message = \"" << codeMessage << "\"" << std::endl;
 
     TSUNIT_ASSERT(!codeMessage.empty());
     TSUNIT_ASSERT(!successMessage.empty());
 }
 
-void SysUtilsTest::testUid()
+TSUNIT_DEFINE_TEST(Uid)
 {
-    debug() << "SysUtilsTest: newUid() = 0x" << ts::UString::Hexa(ts::UID::Instance()->newUID()) << std::endl;
+    debug() << "SysUtilsTest: newUid() = 0x" << ts::UString::Hexa(ts::UID::Instance().newUID()) << std::endl;
 
-    TSUNIT_ASSERT(ts::UID::Instance()->newUID() != ts::UID::Instance()->newUID());
-    TSUNIT_ASSERT(ts::UID::Instance()->newUID() != ts::UID::Instance()->newUID());
-    TSUNIT_ASSERT(ts::UID::Instance()->newUID() != ts::UID::Instance()->newUID());
+    TSUNIT_ASSERT(ts::UID::Instance().newUID() != ts::UID::Instance().newUID());
+    TSUNIT_ASSERT(ts::UID::Instance().newUID() != ts::UID::Instance().newUID());
+    TSUNIT_ASSERT(ts::UID::Instance().newUID() != ts::UID::Instance().newUID());
 }
 
-void SysUtilsTest::testVernacularFilePath()
+TSUNIT_DEFINE_TEST(VernacularFilePath)
 {
 #if defined(TS_WINDOWS)
     TSUNIT_EQUAL(u"C:\\alpha\\beta\\gamma", ts::VernacularFilePath(u"C:\\alpha/beta\\gamma"));
@@ -436,11 +416,11 @@ void SysUtilsTest::testVernacularFilePath()
 #endif
 }
 
-void SysUtilsTest::testFilePaths()
+TSUNIT_DEFINE_TEST(FilePaths)
 {
     const ts::UString dir(ts::VernacularFilePath(u"/dir/for/this.test"));
-    const ts::UString sep(1, ts::PathSeparator);
-    const ts::UString dirSep(dir + ts::PathSeparator);
+    const ts::UString sep(1, fs::path::preferred_separator);
+    const ts::UString dirSep(dir + fs::path::preferred_separator);
 
     TSUNIT_ASSERT(ts::DirectoryName(dirSep + u"foo.bar") == dir);
     TSUNIT_ASSERT(ts::DirectoryName(u"foo.bar") == u".");
@@ -448,69 +428,33 @@ void SysUtilsTest::testFilePaths()
 
     TSUNIT_ASSERT(ts::BaseName(dirSep + u"foo.bar") == u"foo.bar");
     TSUNIT_ASSERT(ts::BaseName(dirSep) == u"");
-
-    TSUNIT_ASSERT(ts::PathSuffix(dirSep + u"foo.bar") == u".bar");
-    TSUNIT_ASSERT(ts::PathSuffix(dirSep + u"foo.") == u".");
-    TSUNIT_ASSERT(ts::PathSuffix(dirSep + u"foo") == u"");
-
-    TSUNIT_ASSERT(ts::AddPathSuffix(dirSep + u"foo", u".none") == dirSep + u"foo.none");
-    TSUNIT_ASSERT(ts::AddPathSuffix(dirSep + u"foo.", u".none") == dirSep + u"foo.");
-    TSUNIT_ASSERT(ts::AddPathSuffix(dirSep + u"foo.bar", u".none") == dirSep + u"foo.bar");
-
-    TSUNIT_ASSERT(ts::PathPrefix(dirSep + u"foo.bar") == dirSep + u"foo");
-    TSUNIT_ASSERT(ts::PathPrefix(dirSep + u"foo.") == dirSep + u"foo");
-    TSUNIT_ASSERT(ts::PathPrefix(dirSep + u"foo") == dirSep + u"foo");
 }
 
-void SysUtilsTest::testTempFiles()
+TSUNIT_DEFINE_TEST(TempFiles)
 {
-    debug() << "SysUtilsTest: TempDirectory() = \"" << ts::TempDirectory() << "\"" << std::endl;
+    debug() << "SysUtilsTest: TempDirectory() = \"" << fs::temp_directory_path() << "\"" << std::endl;
     debug() << "SysUtilsTest: TempFile() = \"" << ts::TempFile() << "\"" << std::endl;
     debug() << "SysUtilsTest: TempFile(\".foo\") = \"" << ts::TempFile(u".foo") << "\"" << std::endl;
 
     // Check that the temporary directory exists
-    TSUNIT_ASSERT(ts::IsDirectory(ts::TempDirectory()));
+    TSUNIT_ASSERT(fs::is_directory(fs::temp_directory_path()));
 
     // Check that temporary files are in this directory
-    const ts::UString tmpName(ts::TempFile());
-    TSUNIT_ASSERT(ts::DirectoryName(tmpName) == ts::TempDirectory());
+    const fs::path tmpName(ts::TempFile());
+    TSUNIT_EQUAL(fs::canonical(tmpName.parent_path()).string(), fs::canonical(fs::temp_directory_path()).string());
 
     // Check that we are allowed to create temporary files.
-    TSUNIT_ASSERT(!ts::FileExists(tmpName));
+    TSUNIT_ASSERT(!fs::exists(tmpName));
     TSUNIT_ASSERT(_CreateFile(tmpName, 0));
-    TSUNIT_ASSERT(ts::FileExists(tmpName));
-    TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 0);
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName));
-    TSUNIT_ASSERT(!ts::FileExists(tmpName));
+    TSUNIT_ASSERT(fs::exists(tmpName));
+    TSUNIT_EQUAL(0, fs::file_size(tmpName, &ts::ErrCodeReport(CERR)));
+    TSUNIT_ASSERT(fs::remove(tmpName, &ts::ErrCodeReport(CERR, u"error deleting", tmpName)));
+    TSUNIT_ASSERT(!fs::exists(tmpName));
 }
 
-void SysUtilsTest::testFileSize()
+TSUNIT_DEFINE_TEST(FileTime)
 {
-    const ts::UString tmpName(ts::TempFile());
-    TSUNIT_ASSERT(!ts::FileExists(tmpName));
-
-    // Create a file
-    TSUNIT_ASSERT(_CreateFile(tmpName, 1234));
-    TSUNIT_ASSERT(ts::FileExists(tmpName));
-    TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 1234);
-
-    TSUNIT_ASSERT(ts::TruncateFile(tmpName, 567));
-    TSUNIT_ASSERT(ts::GetFileSize(tmpName) == 567);
-
-    const ts::UString tmpName2(ts::TempFile());
-    TSUNIT_ASSERT(!ts::FileExists(tmpName2));
-    TSUNIT_ASSERT(ts::RenameFile(tmpName, tmpName2));
-    TSUNIT_ASSERT(ts::FileExists(tmpName2));
-    TSUNIT_ASSERT(!ts::FileExists(tmpName));
-    TSUNIT_ASSERT(ts::GetFileSize(tmpName2) == 567);
-
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName2));
-    TSUNIT_ASSERT(!ts::FileExists(tmpName2));
-}
-
-void SysUtilsTest::testFileTime()
-{
-    const ts::UString tmpName(ts::TempFile());
+    const fs::path tmpName(ts::TempFile());
 
     const ts::Time before(ts::Time::CurrentUTC());
     TSUNIT_ASSERT(_CreateFile(tmpName, 0));
@@ -536,22 +480,21 @@ void SysUtilsTest::testFileTime()
     // SysUtilsTest:      file local:  2020/08/27 11:23:25.000
 
     ts::Time::Fields beforeFields(before);
-    const ts::MilliSecond adjustment = beforeFields.millisecond < 100 ? ts::MilliSecPerSec : 0;
+    const cn::milliseconds adjustment = cn::milliseconds(beforeFields.millisecond < 100 ? 1009 : 0);
     beforeFields.millisecond = 0;
     ts::Time beforeBase(beforeFields);
     beforeBase -= adjustment;
 
-    TSUNIT_ASSERT(ts::FileExists(tmpName));
+    TSUNIT_ASSERT(fs::exists(tmpName));
     const ts::Time fileUtc(ts::GetFileModificationTimeUTC(tmpName));
     const ts::Time fileLocal(ts::GetFileModificationTimeLocal(tmpName));
 
-    debug()
-        << "SysUtilsTest: file: " << tmpName << std::endl
-        << "SysUtilsTest:      before:      " << before << std::endl
-        << "SysUtilsTest:      before base: " << beforeBase << std::endl
-        << "SysUtilsTest:      file UTC:    " << fileUtc << std::endl
-        << "SysUtilsTest:      after:       " << after << std::endl
-        << "SysUtilsTest:      file local:  " << fileLocal << std::endl;
+    debug() << "SysUtilsTest: file: " << tmpName << std::endl
+            << "SysUtilsTest:      before:      " << before << std::endl
+            << "SysUtilsTest:      before base: " << beforeBase << std::endl
+            << "SysUtilsTest:      file UTC:    " << fileUtc << std::endl
+            << "SysUtilsTest:      after:       " << after << std::endl
+            << "SysUtilsTest:      file local:  " << fileLocal << std::endl;
 
     // Check that file modification occured between before and after.
     // Some systems may not store the milliseconds in the file time.
@@ -562,66 +505,32 @@ void SysUtilsTest::testFileTime()
     TSUNIT_ASSERT(fileUtc.UTCToLocal() == fileLocal);
     TSUNIT_ASSERT(fileLocal.localToUTC() == fileUtc);
 
-    TSUNIT_ASSERT(ts::DeleteFile(tmpName));
-    TSUNIT_ASSERT(!ts::FileExists(tmpName));
+    TSUNIT_ASSERT(fs::remove(tmpName, &ts::ErrCodeReport(CERR, u"error deleting", tmpName)));
+    TSUNIT_ASSERT(!fs::exists(tmpName));
 }
 
-void SysUtilsTest::testDirectory()
+TSUNIT_DEFINE_TEST(Wildcard)
 {
     const ts::UString dirName(ts::TempFile(u""));
-    const ts::UString sep(1, ts::PathSeparator);
-    const ts::UString fileName(sep + u"foo.bar");
-
-    TSUNIT_ASSERT(!ts::FileExists(dirName));
-    TSUNIT_ASSERT(ts::CreateDirectory(dirName));
-    TSUNIT_ASSERT(ts::FileExists(dirName));
-    TSUNIT_ASSERT(ts::IsDirectory(dirName));
-
-    TSUNIT_ASSERT(_CreateFile(dirName + fileName, 0));
-    TSUNIT_ASSERT(ts::FileExists(dirName + fileName));
-    TSUNIT_ASSERT(!ts::IsDirectory(dirName + fileName));
-
-    const ts::UString dirName2(ts::TempFile(u""));
-    TSUNIT_ASSERT(!ts::FileExists(dirName2));
-    TSUNIT_ASSERT(ts::RenameFile(dirName, dirName2));
-    TSUNIT_ASSERT(ts::FileExists(dirName2));
-    TSUNIT_ASSERT(ts::IsDirectory(dirName2));
-    TSUNIT_ASSERT(!ts::FileExists(dirName));
-    TSUNIT_ASSERT(!ts::IsDirectory(dirName));
-    TSUNIT_ASSERT(ts::FileExists(dirName2 + fileName));
-    TSUNIT_ASSERT(!ts::IsDirectory(dirName2 + fileName));
-
-    TSUNIT_ASSERT(ts::DeleteFile(dirName2 + fileName));
-    TSUNIT_ASSERT(!ts::FileExists(dirName2 + fileName));
-    TSUNIT_ASSERT(ts::IsDirectory(dirName2));
-
-    TSUNIT_ASSERT(ts::DeleteFile(dirName2));
-    TSUNIT_ASSERT(!ts::FileExists(dirName2));
-    TSUNIT_ASSERT(!ts::IsDirectory(dirName2));
-}
-
-void SysUtilsTest::testWildcard()
-{
-    const ts::UString dirName(ts::TempFile(u""));
-    const ts::UString filePrefix(dirName + ts::PathSeparator + u"foo.");
+    const ts::UString filePrefix(dirName + fs::path::preferred_separator + u"foo.");
     const size_t count = 10;
 
     // Create temporary directory
-    TSUNIT_ASSERT(ts::CreateDirectory(dirName));
-    TSUNIT_ASSERT(ts::IsDirectory(dirName));
+    TSUNIT_ASSERT(fs::create_directory(dirName));
+    TSUNIT_ASSERT(fs::is_directory(dirName));
 
     // Create one file with unique pattern
-    const ts::UString spuriousFileName(dirName + ts::PathSeparator + u"tagada");
+    const ts::UString spuriousFileName(dirName + fs::path::preferred_separator + u"tagada");
     TSUNIT_ASSERT(_CreateFile(spuriousFileName, 0));
-    TSUNIT_ASSERT(ts::FileExists(spuriousFileName));
+    TSUNIT_ASSERT(fs::exists(spuriousFileName));
 
     // Create many files
     ts::UStringVector fileNames;
     fileNames.reserve(count);
     for (size_t i = 0; i < count; ++i) {
-        const ts::UString fileName(filePrefix + ts::UString::Format(u"%03d", {i}));
+        const ts::UString fileName(filePrefix + ts::UString::Format(u"%03d", i));
         TSUNIT_ASSERT(_CreateFile(fileName, 0));
-        TSUNIT_ASSERT(ts::FileExists(fileName));
+        TSUNIT_ASSERT(fs::exists(fileName));
         fileNames.push_back(fileName);
     }
     Display(u"created files:", u"file: ", fileNames);
@@ -635,49 +544,42 @@ void SysUtilsTest::testWildcard()
 
     // Final cleanup
     for (const auto& file : fileNames) {
-        TSUNIT_ASSERT(ts::DeleteFile(file));
-        TSUNIT_ASSERT(!ts::FileExists(file));
+        TSUNIT_ASSERT(fs::remove(file, &ts::ErrCodeReport(CERR, u"error deleting", file)));
+        TSUNIT_ASSERT(!fs::exists(file));
     }
-    TSUNIT_ASSERT(ts::DeleteFile(spuriousFileName));
-    TSUNIT_ASSERT(!ts::FileExists(spuriousFileName));
-    TSUNIT_ASSERT(ts::DeleteFile(dirName));
-    TSUNIT_ASSERT(!ts::FileExists(dirName));
+    TSUNIT_ASSERT(fs::remove(spuriousFileName, &ts::ErrCodeReport(CERR, u"error deleting", spuriousFileName)));
+    TSUNIT_ASSERT(!fs::exists(spuriousFileName));
+    TSUNIT_ASSERT(fs::remove(dirName, &ts::ErrCodeReport(CERR, u"error deleting", dirName)));
+    TSUNIT_ASSERT(!fs::exists(dirName));
 }
 
-void SysUtilsTest::testSearchWildcard()
+TSUNIT_DEFINE_TEST(SearchWildcard)
 {
 #if defined(TS_LINUX)
     ts::UStringList files;
     const bool ok = ts::SearchWildcard(files, u"/sys/devices", u"dvb*.frontend*");
     debug() << "SysUtilsTest::testSearchWildcard: searched dvb*.frontend* in /sys/devices, status = " << ts::UString::TrueFalse(ok) << std::endl;
-    for (auto it = files.begin(); it != files.end(); ++it) {
-        debug() << "    \"" << *it << "\"" << std::endl;
+    for (const auto& it : files) {
+        debug() << "    \"" << it << "\"" << std::endl;
     }
 #endif
 }
 
-void SysUtilsTest::testHomeDirectory()
+TSUNIT_DEFINE_TEST(HomeDirectory)
 {
     const ts::UString dir(ts::UserHomeDirectory());
     debug() << "SysUtilsTest: UserHomeDirectory() = \"" << dir << "\"" << std::endl;
 
     TSUNIT_ASSERT(!dir.empty());
-    TSUNIT_ASSERT(ts::FileExists(dir));
-    TSUNIT_ASSERT(ts::IsDirectory(dir));
+    TSUNIT_ASSERT(fs::exists(dir));
+    TSUNIT_ASSERT(fs::is_directory(dir));
 }
 
-void SysUtilsTest::testProcessMetrics()
+TSUNIT_DEFINE_TEST(ProcessCpuTime)
 {
-    ts::ProcessMetrics pm1;
-    TSUNIT_ASSERT(pm1.cpu_time == -1);
-    TSUNIT_ASSERT(pm1.vmem_size == 0);
-
-    ts::GetProcessMetrics(pm1);
-    debug() << "ProcessMetricsTest: CPU time (1) = " << pm1.cpu_time << " ms" << std::endl
-                 << "ProcessMetricsTest: virtual memory (1) = " << pm1.vmem_size << " bytes" << std::endl;
-
-    TSUNIT_ASSERT(pm1.cpu_time >= 0);
-    TSUNIT_ASSERT(pm1.vmem_size > 0);
+    const cn::milliseconds t1 = ts::GetProcessCpuTime();
+    debug() << "SysUtilsTest: CPU time (1) = " << ts::UString::Chrono(t1) << std::endl;
+    TSUNIT_ASSERT(t1.count() >= 0);
 
     // Consume some milliseconds of CPU time
     uint64_t counter = 7;
@@ -685,92 +587,104 @@ void SysUtilsTest::testProcessMetrics()
         counter = counter * counter;
     }
 
-    ts::ProcessMetrics pm2;
-    ts::GetProcessMetrics(pm2);
-    debug() << "ProcessMetricsTest: CPU time (2) = " << pm2.cpu_time << " ms" << std::endl
-                 << "ProcessMetricsTest: virtual memory (2) = " << pm2.vmem_size << " bytes" << std::endl;
-
-    TSUNIT_ASSERT(pm2.cpu_time >= 0);
-    TSUNIT_ASSERT(pm2.cpu_time >= pm1.cpu_time);
-    TSUNIT_ASSERT(pm2.vmem_size > 0);
+    const cn::milliseconds t2 = ts::GetProcessCpuTime();
+    debug() << "SysUtilsTest: CPU time (2) = " << ts::UString::Chrono(t2) << " ms" << std::endl;
+    TSUNIT_ASSERT(t2.count() >= 0);
+    TSUNIT_ASSERT(t2 >= t1);
 }
 
-void SysUtilsTest::testIsTerminal()
+TSUNIT_DEFINE_TEST(ProcessVirtualSize)
+{
+    const size_t m1 = ts::GetProcessVirtualSize();
+    debug() << "SysUtilsTest: virtual memory (1) = " << m1 << " bytes" << std::endl;
+    TSUNIT_ASSERT(m1 > 0);
+
+    // Consume (maybe) some new memory.
+    void* mem = ::malloc(5000000);
+    const size_t m2 = ts::GetProcessVirtualSize();
+    ::free(mem);
+
+    debug() << "SysUtilsTest: virtual memory (2) = " << m2 << " bytes" << std::endl;
+    TSUNIT_ASSERT(m2 > 0);
+}
+
+TSUNIT_DEFINE_TEST(IsTerminal)
 {
 #if defined(TS_WINDOWS)
     debug() << "SysUtilsTest::testIsTerminal: stdin  = \"" << ts::WinDeviceName(::GetStdHandle(STD_INPUT_HANDLE)) << "\"" << std::endl
-        << "SysUtilsTest::testIsTerminal: stdout = \"" << ts::WinDeviceName(::GetStdHandle(STD_OUTPUT_HANDLE)) << "\"" << std::endl
-        << "SysUtilsTest::testIsTerminal: stderr = \"" << ts::WinDeviceName(::GetStdHandle(STD_ERROR_HANDLE)) << "\"" << std::endl;
+            << "SysUtilsTest::testIsTerminal: stdout = \"" << ts::WinDeviceName(::GetStdHandle(STD_OUTPUT_HANDLE)) << "\"" << std::endl
+            << "SysUtilsTest::testIsTerminal: stderr = \"" << ts::WinDeviceName(::GetStdHandle(STD_ERROR_HANDLE)) << "\"" << std::endl;
 #endif
     debug() << "SysUtilsTest::testIsTerminal: StdInIsTerminal = " << ts::UString::TrueFalse(ts::StdInIsTerminal())
-        << ", StdOutIsTerminal = " << ts::UString::TrueFalse(ts::StdOutIsTerminal())
-        << ", StdErrIsTerminal = " << ts::UString::TrueFalse(ts::StdErrIsTerminal())
-        << std::endl;
+            << ", StdOutIsTerminal = " << ts::UString::TrueFalse(ts::StdOutIsTerminal())
+            << ", StdErrIsTerminal = " << ts::UString::TrueFalse(ts::StdErrIsTerminal())
+            << std::endl;
 }
 
-void SysUtilsTest::testSysInfo()
+TSUNIT_DEFINE_TEST(SysInfo)
 {
     debug() << "SysUtilsTest::testSysInfo: " << std::endl
-                 << "    isLinux = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isLinux()) << std::endl
-                 << "    isFedora = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isFedora()) << std::endl
-                 << "    isRedHat = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isRedHat()) << std::endl
-                 << "    isUbuntu = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isUbuntu()) << std::endl
-                 << "    isDebian = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isDebian()) << std::endl
-                 << "    isMacOS = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isMacOS()) << std::endl
-                 << "    isWindows = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isWindows()) << std::endl
-                 << "    isIntel32 = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isIntel32()) << std::endl
-                 << "    isIntel64 = " << ts::UString::TrueFalse(ts::SysInfo::Instance()->isIntel64()) << std::endl
-                 << "    systemVersion = \"" << ts::SysInfo::Instance()->systemVersion() << '"' << std::endl
-                 << "    systemName = \"" << ts::SysInfo::Instance()->systemName() << '"' << std::endl
-                 << "    hostName = \"" << ts::SysInfo::Instance()->hostName() << '"' << std::endl
-                 << "    memoryPageSize = " << ts::SysInfo::Instance()->memoryPageSize() << std::endl;
+            << "    arch() = " << int(ts::SysInfo::Instance().arch()) << std::endl
+            << "    os() = " << int(ts::SysInfo::Instance().os()) << std::endl
+            << "    osFlavor() = " << int(ts::SysInfo::Instance().osFlavor()) << std::endl
+            << "    systemVersion = \"" << ts::SysInfo::Instance().systemVersion() << '"' << std::endl
+            << "    systemMajorVersion = " << ts::SysInfo::Instance().systemMajorVersion() << std::endl
+            << "    systemName = \"" << ts::SysInfo::Instance().systemName() << '"' << std::endl
+            << "    hostName = \"" << ts::SysInfo::Instance().hostName() << '"' << std::endl
+            << "    memoryPageSize = " << ts::SysInfo::Instance().memoryPageSize() << std::endl;
 
 #if defined(TS_WINDOWS)
-    TSUNIT_ASSERT(ts::SysInfo::Instance()->isWindows());
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isLinux());
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isMacOS());
+    TSUNIT_EQUAL(ts::SysInfo::WINDOWS, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::NONE, ts::SysInfo::Instance().osFlavor());
 #elif defined(TS_LINUX)
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isWindows());
-    TSUNIT_ASSERT(ts::SysInfo::Instance()->isLinux());
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isMacOS());
+    TSUNIT_EQUAL(ts::SysInfo::LINUX, ts::SysInfo::Instance().os());
 #elif defined(TS_MAC)
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isWindows());
-    TSUNIT_ASSERT(!ts::SysInfo::Instance()->isLinux());
-    TSUNIT_ASSERT(ts::SysInfo::Instance()->isMacOS());
+    TSUNIT_EQUAL(ts::SysInfo::MACOS, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::NONE, ts::SysInfo::Instance().osFlavor());
+#elif defined(TS_FREEBSD)
+    TSUNIT_EQUAL(ts::SysInfo::BSD, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::FREEBSD, ts::SysInfo::Instance().osFlavor());
+#elif defined(TS_NETBSD)
+    TSUNIT_EQUAL(ts::SysInfo::BSD, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::NETBSD, ts::SysInfo::Instance().osFlavor());
+#elif defined(TS_OPENBSD)
+    TSUNIT_EQUAL(ts::SysInfo::BSD, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::OPENBSD, ts::SysInfo::Instance().osFlavor());
+#elif defined(TS_DRAGONFLYBSD)
+    TSUNIT_EQUAL(ts::SysInfo::BSD, ts::SysInfo::Instance().os());
+    TSUNIT_EQUAL(ts::SysInfo::DFLYBSD, ts::SysInfo::Instance().osFlavor());
+#endif
+
+#if defined(TS_I386)
+    // TS_I386 means 32-bit compiled code.
+    // Win32 code can run on Win32 or Win64 systems.
+    TSUNIT_ASSERT(ts::SysInfo::Instance().arch() == ts::SysInfo::INTEL32 || ts::SysInfo::Instance().arch() == ts::SysInfo::INTEL64);
+#elif defined(TS_X86_64)
+    TSUNIT_EQUAL(ts::SysInfo::INTEL64, ts::SysInfo::Instance().arch());
+#elif defined(TS_ARM32)
+    TSUNIT_EQUAL(ts::SysInfo::ARM32, ts::SysInfo::Instance().arch());
+#elif defined(TS_ARM64)
+    TSUNIT_EQUAL(ts::SysInfo::ARM64, ts::SysInfo::Instance().arch());
+#elif defined(TS_POWERPC)
+    TSUNIT_EQUAL(ts::SysInfo::PPC32, ts::SysInfo::Instance().arch());
+#elif defined(TS_POWERPC64)
+    TSUNIT_EQUAL(ts::SysInfo::PPC64, ts::SysInfo::Instance().arch());
+#elif defined(TS_MIPS)
+    TSUNIT_EQUAL(ts::SysInfo::MIPS32, ts::SysInfo::Instance().arch());
+#elif defined(TS_MIPS64)
+    TSUNIT_EQUAL(ts::SysInfo::MIPS64, ts::SysInfo::Instance().arch());
+#elif defined(TS_RISCV64)
+    TSUNIT_EQUAL(ts::SysInfo::RISCV64, ts::SysInfo::Instance().arch());
+#elif defined(TS_S390X)
+    TSUNIT_EQUAL(ts::SysInfo::S390X, ts::SysInfo::Instance().arch());
 #endif
 
     // We can't predict the memory page size, except that it must be a multiple of 256.
-    TSUNIT_ASSERT(ts::SysInfo::Instance()->memoryPageSize() > 0);
-    TSUNIT_ASSERT(ts::SysInfo::Instance()->memoryPageSize() % 256 == 0);
+    TSUNIT_ASSERT(ts::SysInfo::Instance().memoryPageSize() > 0);
+    TSUNIT_ASSERT(ts::SysInfo::Instance().memoryPageSize() % 256 == 0);
 }
 
-void SysUtilsTest::testSymLinks()
-{
-    debug() << "SysUtilsTest::testSymLinks: " << std::endl
-                 << "    /proc/self -> \"" << ts::ResolveSymbolicLinks(u"/proc/self") << '"' << std::endl;
-
-    // Obviously non existent paths should translate to themselves.
-    const ts::UString badName(u"khzkfjhzHJKHK35464.foo.BAD.NOT.THERE");
-    TSUNIT_ASSERT(!ts::IsSymbolicLink(badName));
-    TSUNIT_EQUAL(badName, ts::ResolveSymbolicLinks(badName));
-
-#if defined(TS_LINUX)
-    TSUNIT_ASSERT(ts::IsSymbolicLink(u"/proc/self"));
-    TSUNIT_ASSERT(!ts::ResolveSymbolicLinks(u"/proc/self").empty());
-    TSUNIT_ASSERT(ts::ResolveSymbolicLinks(u"/proc/self") != u"/proc/self");
-#endif
-}
-
-void SysUtilsTest::testCurrentWorkingDirectory()
-{
-    debug() << "SysUtilsTest::testCurrentWorkingDirectory: " << ts::CurrentWorkingDirectory() << std::endl;
-
-    TSUNIT_ASSERT(!ts::CurrentWorkingDirectory().empty());
-    TSUNIT_ASSERT(ts::IsDirectory(ts::CurrentWorkingDirectory()));
-}
-
-
-void SysUtilsTest::testIsAbsoluteFilePath()
+TSUNIT_DEFINE_TEST(IsAbsoluteFilePath)
 {
 #if defined(TS_WINDOWS)
     TSUNIT_ASSERT(ts::IsAbsoluteFilePath(u"C:\\foo\\bar"));
@@ -785,8 +699,7 @@ void SysUtilsTest::testIsAbsoluteFilePath()
 #endif
 }
 
-
-void SysUtilsTest::testAbsoluteFilePath()
+TSUNIT_DEFINE_TEST(AbsoluteFilePath)
 {
 #if defined(TS_WINDOWS)
     TSUNIT_EQUAL(u"C:\\foo\\bar\\ab\\cd", ts::AbsoluteFilePath(u"ab\\cd", u"C:\\foo\\bar"));
@@ -799,8 +712,7 @@ void SysUtilsTest::testAbsoluteFilePath()
 #endif
 }
 
-
-void SysUtilsTest::testCleanupFilePath()
+TSUNIT_DEFINE_TEST(CleanupFilePath)
 {
 #if defined(TS_WINDOWS)
     TSUNIT_EQUAL(u"ab\\cd", ts::CleanupFilePath(u"ab\\cd"));
@@ -819,8 +731,7 @@ void SysUtilsTest::testCleanupFilePath()
 #endif
 }
 
-
-void SysUtilsTest::testRelativeFilePath()
+TSUNIT_DEFINE_TEST(RelativeFilePath)
 {
 #if defined(TS_WINDOWS)
     TSUNIT_EQUAL(u"ef", ts::RelativeFilePath(u"C:\\ab\\cd\\ef", u"C:\\ab\\cd\\"));

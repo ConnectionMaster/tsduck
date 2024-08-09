@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,7 +12,6 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPlatform.h"
 #include "tsUChar.h"
 #include "tsEnumUtils.h"
 #include "tsAbstractNumber.h"
@@ -95,6 +73,11 @@ namespace ts {
         //!
         bool isOutputInteger() const { return (_type & (INTEGER | POINTER)) == (INTEGER | POINTER); }
         //!
+        //! Check if the argument value is an output floating point.
+        //! @return True if the argument value is an output integer.
+        //!
+        bool isOutputFloat() const { return (_type & (DOUBLE | POINTER)) == (DOUBLE | POINTER); }
+        //!
         //! Check if the argument value is a signed integer, either input or output.
         //! @return True if the argument value is a signed integer.
         //!
@@ -154,6 +137,11 @@ namespace ts {
         //! @return True if the argument value is an AbstractNumber.
         //!
         bool isAbstractNumber() const { return (_type & ANUMBER) == ANUMBER; }
+        //!
+        //! Check if the argument value is a std::chrono::duration value.
+        //! @return True if the argument value is a std::chrono::duration value.
+        //!
+        bool isChrono() const { return (_type & CHRONO) == CHRONO; }
         //!
         //! Get the original integer size in bytes of the argument data.
         //! @return The original integer size in bytes of the argument data or zero for a string or double.
@@ -224,7 +212,18 @@ namespace ts {
         //! @return Reference to the AbstractNumber.
         //!
         const AbstractNumber& toAbstractNumber() const;
-
+        //!
+        //! In the case of a std::chrono::duration value, return the numerator of the ratio.
+        //! The chrono count is obtained using tsInt64().
+        //! @return The numerator of the ratio for a std::chrono::duration value, zero otherwise.
+        //!
+        std::intmax_t num() const { return _num; }
+        //!
+        //! In the case of a std::chrono::duration value, return the denominator of the ratio.
+        //! The chrono count is obtained using tsInt64().
+        //! @return The denominator of the ratio for a std::chrono::duration value, zero otherwise.
+        //!
+        std::intmax_t den() const { return _den; }
         //!
         //! Store an integer value in the argument data, for pointers to integer.
         //! @tparam INT An integer type.
@@ -233,6 +232,14 @@ namespace ts {
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
         bool storeInteger(INT i) const;
+
+        //!
+        //! Store a floating point value in the argument data, for pointers to double.
+        //! @param [in] f The floating point value to store in the argument data.
+        //! @return True on success, false if the argument data is not a pointer to double.
+        //!
+        template <typename FLOAT, typename std::enable_if<std::is_floating_point<FLOAT>::value>::type* = nullptr>
+        bool storeFloat(FLOAT f) const;
 
         //!
         //! Copy constructor.
@@ -255,7 +262,7 @@ namespace ts {
         //!
         //! Type of an argument, used as bitmask.
         //!
-        typedef uint16_t TypeFlags;
+        using TypeFlags = uint16_t;
 
         //!
         //! Anonymous enum, used as bitmask.
@@ -272,9 +279,23 @@ namespace ts {
             BIT64     = 0x0100,  //!< 64-bit integer.
             POINTER   = 0x0200,  //!< A pointer to a writeable data (data type is given by other bits).
             STRINGIFY = 0x0400,  //!< A pointer to a StringifyInterface object.
-            DOUBLE    = 0x0800,  //!< Double floating point type.
-            ANUMBER   = 0x1000,  //!< A pointer to an AbstractNumber object.
+            PATH      = 0x0800,  //!< A pointer to a StringifyInterface object.
+            DOUBLE    = 0x1000,  //!< Double floating point type.
+            ANUMBER   = 0x2000,  //!< A pointer to an AbstractNumber object.
+            CHRONO    = 0x4000,  //!< A instance of std::chrono::duration.
         };
+
+        //!
+        //! Size flag for std::filesystem::path, either BIT8 or BIT16.
+        //!
+        static constexpr TypeFlags BITPATH =
+#if defined(TS_WINDOWS)
+            BIT16;
+        static_assert(sizeof(fs::path::value_type) == 2);
+#else
+            BIT8;
+        static_assert(sizeof(fs::path::value_type) == 1);
+#endif
 
 #if !defined(DOXYGEN)
         //
@@ -288,13 +309,14 @@ namespace ts {
             double                    dbl;
             const char*               charptr;
             const UChar*              ucharptr;
-            void*                     intptr;  // output
+            void*                     vptr;  // output
             const std::string*        string;
             const UString*            ustring;
             const StringifyInterface* stringify;
+            const fs::path*           path;
             const AbstractNumber*     anumber;
 
-            Value(void* p)              : intptr(p) {}
+            Value(void* p)              : vptr(p) {}
             Value(bool b)               : uint32(b) {}
             Value(int32_t i)            : int32(i) {}
             Value(uint32_t i)           : uint32(i) {}
@@ -305,8 +327,9 @@ namespace ts {
             Value(const UChar* s)       : ucharptr(s) {}
             Value(const std::string& s) : string(&s) {}
             Value(const UString& s)     : ustring(&s) {}
-            Value(const StringifyInterface& s) : stringify(&s) {}
+            Value(const fs::path& s)    : path(&s) {}
             Value(const AbstractNumber& s) : anumber(&s) {}
+            Value(const StringifyInterface& s) : stringify(&s) {}
         };
 #endif // DOXYGEN
 
@@ -321,8 +344,10 @@ namespace ts {
         //! @param [in] type Indicate which overlay to use in _value.
         //! @param [in] size Original size for integer type.
         //! @param [in] value Actual value of the argument.
+        //! @param [in] num Numerator of the ratio in the case of a std::chrono::duration value.
+        //! @param [in] den Denominator of the ratio in the case of a std::chrono::duration value.
         //!
-        ArgMix(TypeFlags type, size_t size, const Value value);
+        ArgMix(TypeFlags type, size_t size, const Value value, std::intmax_t num = 0, std::intmax_t den = 0);
 
 #if !defined(DOXYGEN)
         // Warning: The rest of this class is carefully crafted template meta-programming (aka. Black Magic).
@@ -335,14 +360,14 @@ namespace ts {
         struct storage_type {
 
             // The meta-type "type" is the storage type, namely one of int32_t, uint32_t, int64_t, uint64_t.
-            typedef typename std::conditional<
+            using type = typename std::conditional<
                 std::is_signed<typename ts::underlying_type<T>::type>::value,
                 typename std::conditional<(sizeof(T) > 4), int64_t, int32_t>::type,
                 typename std::conditional<(sizeof(T) > 4), uint64_t, uint32_t>::type
-            >::type type;
+            >::type;
 
             // The meta-type "type_constant" defines the ArgMix type flags value for the type T.
-            typedef typename std::conditional<
+            using type_constant = typename std::conditional<
                 std::is_signed<typename ts::underlying_type<T>::type>::value,
                 typename std::conditional<
                     (sizeof(T) > 4),
@@ -354,7 +379,7 @@ namespace ts {
                     std::integral_constant<TypeFlags, INTEGER | BIT64>,
                     std::integral_constant<TypeFlags, INTEGER | BIT32>
                 >::type
-            >::type type_constant;
+            >::type;
 
             // The "value" is the ArgMix type flags value for the type T.
             static constexpr TypeFlags value = type_constant::value;
@@ -366,14 +391,14 @@ namespace ts {
         struct reference_type {
 
             // The meta-type "type" is the storage type.
-            typedef typename std::conditional<
+            using type = typename std::conditional<
                 std::is_signed<typename ts::underlying_type<T>::type>::value,
                 typename std::conditional<(sizeof(T) > 4), int64_t, std::conditional<(sizeof(T) > 2), int32_t, std::conditional<(sizeof(T) > 1), int16_t, int8_t>>>::type,
                 typename std::conditional<(sizeof(T) > 4), uint64_t, std::conditional<(sizeof(T) > 2), uint32_t, std::conditional<(sizeof(T) > 1), uint16_t, uint8_t>>>::type
-            >::type type;
+            >::type;
 
             // The meta-type "type_constant" defines the ArgMix type flags value for the type T.
-            typedef typename std::conditional<
+            using type_constant = typename std::conditional<
                 std::is_signed<typename ts::underlying_type<T>::type>::value,
                 typename std::conditional<
                     (sizeof(T) > 4),
@@ -401,7 +426,7 @@ namespace ts {
                         >::type
                     >::type
                 >::type
-            >::type type_constant;
+            >::type;
 
             // The "value" is the ArgMix type flags value for the type T.
             static constexpr TypeFlags value = type_constant::value;
@@ -410,10 +435,12 @@ namespace ts {
 
     private:
         // Implementation of an ArgMix.
-        const TypeFlags  _type;      //!< Indicate which overlay to use in _value.
-        const uint8_t    _size;      //!< Original size for integer type (not greater than 8).
-        const Value      _value;     //!< Actual value of the argument.
-        mutable UString* _aux;       //!< Auxiliary string (for StringifyInterface and character pointers).
+        const TypeFlags     _type;      //!< Indicate which overlay to use in _value.
+        const uint8_t       _size;      //!< Original size for integer type (not greater than 8).
+        const Value         _value;     //!< Actual value of the argument.
+        const std::intmax_t _num;       //!< Ratio numerator for chrono types.
+        const std::intmax_t _den;       //!< Ratio denominator for chrono types.
+        mutable UString*    _aux;       //!< Auxiliary string (for StringifyInterface and character pointers).
 
         // Static data used to return references to constant empty string class objects.
         static const std::string empty;
@@ -453,7 +480,7 @@ namespace ts {
         //! Move constructor.
         //! @param [in,out] other Other instance to move.
         //!
-        ArgMixIn(ArgMixIn&& other) noexcept : ArgMix(other) {}
+        ArgMixIn(ArgMixIn&& other) noexcept : ArgMix(std::move(other)) {}
         //!
         //! Constructor from a nul-terminated string of 8-bit characters.
         //! @param [in] s Address of nul-terminated string.
@@ -480,6 +507,11 @@ namespace ts {
         //!
         ArgMixIn(const StringifyInterface& s) : ArgMix(STRING | BIT16 | CLASS | STRINGIFY, 0, s) {}
         //!
+        //! Constructor from a std::filesystem::path object.
+        //! @param [in] s Reference to a path object.
+        //!
+        ArgMixIn(const fs::path& s) : ArgMix(STRING | BITPATH | CLASS | PATH, 0, s) {}
+        //!
         //! Constructor from an AbstractNumber object.
         //! @param [in] s Reference to an AbstractNumber object.
         //!
@@ -500,15 +532,18 @@ namespace ts {
         //!
         template<typename T, typename std::enable_if<std::is_integral<T>::value || std::is_enum<T>::value, int>::type = 0>
         ArgMixIn(T i) : ArgMix(storage_type<T>::value, sizeof(i), static_cast<typename storage_type<T>::type>(i)) {}
+        //!
+        //! Constructor from a std::chrono::duration value.
+        //! @param [in] d A std::chrono::duration value.
+        //!
+        template <class Rep, class Period>
+        ArgMixIn(const cn::duration<Rep, Period>& d) :
+            ArgMix(storage_type<int64_t>::value | CHRONO, sizeof(int64_t), int64_t(d.count()), Period::num, Period::den) {}
 
     private:
         // Instances are directly built in initializer lists and cannot be assigned.
-        // LLVM says "definition of implicit copy constructor is deprecated because it has a user-declared copy assignment operator"
-        TS_PUSH_WARNING()
-        TS_LLVM_NOWARNING(deprecated)
         ArgMixIn& operator=(ArgMixIn&&) = delete;
         ArgMixIn& operator=(const ArgMixIn&) = delete;
-        TS_POP_WARNING()
     };
 
     //!
@@ -540,13 +575,18 @@ namespace ts {
         //! Move constructor.
         //! @param [in,out] other Other instance to move.
         //!
-        ArgMixOut(ArgMixOut&& other) : ArgMix(other) {}
+        ArgMixOut(ArgMixOut&& other) noexcept : ArgMix(std::move(other)) {}
         //!
         //! Constructor from the address of an integer or enum data.
         //! @param [in] ptr Address of an integer or enum data.
         //!
         template<typename T, typename std::enable_if<std::is_integral<T>::value || std::is_enum<T>::value>::type* = nullptr>
         ArgMixOut(T* ptr) : ArgMix(reference_type<T>::value, sizeof(T), Value(ptr)) {}
+        //!
+        //! Constructor from the address of floating point data.
+        //! @param [in] ptr Address of a double floating point.
+        //!
+        ArgMixOut(double* ptr) : ArgMix(POINTER | DOUBLE, 0, Value(ptr)) {}
 
     private:
         // Instances are directly built in initializer lists and cannot be assigned.
@@ -555,4 +595,97 @@ namespace ts {
     };
 }
 
-#include "tsArgMixTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Return ArgMix value as an integer.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::ArgMix::toInteger(bool raw) const
+{
+    switch (_type) {
+        case INTEGER | BIT32 | SIGNED:
+            return static_cast<INT>(_value.int32);
+        case INTEGER | BIT1: // bool
+        case INTEGER | BIT32:
+            return static_cast<INT>(_value.uint32);
+        case INTEGER | BIT64 | SIGNED:
+        case INTEGER | BIT64 | SIGNED | CHRONO:
+            return static_cast<INT>(_value.int64);
+        case INTEGER | BIT64:
+            return static_cast<INT>(_value.uint64);
+        case POINTER | INTEGER | BIT8  | SIGNED:
+            return static_cast<INT>(*reinterpret_cast<int8_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT8:
+            return static_cast<INT>(*reinterpret_cast<uint8_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT16 | SIGNED:
+            return static_cast<INT>(*reinterpret_cast<int16_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT16:
+            return static_cast<INT>(*reinterpret_cast<uint16_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT32 | SIGNED:
+            return static_cast<INT>(*reinterpret_cast<int32_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT32:
+            return static_cast<INT>(*reinterpret_cast<uint32_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT64 | SIGNED:
+            return static_cast<INT>(*reinterpret_cast<int64_t*>(_value.vptr));
+        case POINTER | INTEGER | BIT64:
+            return static_cast<INT>(*reinterpret_cast<uint64_t*>(_value.vptr));
+        case ANUMBER:
+            return static_cast<INT>(_value.anumber->toInt64());
+        default:
+            return static_cast<INT>(0);
+    }
+}
+
+// Store an integer value in the argument data, for pointers to integer.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::ArgMix::storeInteger(INT i) const
+{
+    switch (_type) {
+        case POINTER | INTEGER | BIT8  | SIGNED:
+            *reinterpret_cast<int8_t*>(_value.vptr) = static_cast<int8_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT8:
+            *reinterpret_cast<uint8_t*>(_value.vptr) = static_cast<uint8_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT16 | SIGNED:
+            *reinterpret_cast<int16_t*>(_value.vptr) = static_cast<int16_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT16:
+            *reinterpret_cast<uint16_t*>(_value.vptr) = static_cast<uint16_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT32 | SIGNED:
+            *reinterpret_cast<int32_t*>(_value.vptr) = static_cast<int32_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT32:
+            *reinterpret_cast<uint32_t*>(_value.vptr) = static_cast<uint32_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT64 | SIGNED:
+            *reinterpret_cast<int64_t*>(_value.vptr) = static_cast<int64_t>(i);
+            return true;
+        case POINTER | INTEGER | BIT64:
+            *reinterpret_cast<uint64_t*>(_value.vptr) = static_cast<uint64_t>(i);
+            return true;
+        case POINTER | DOUBLE:
+            *reinterpret_cast<double*>(_value.vptr) = static_cast<double>(i);
+            return true;
+        default:
+            // Not a pointer to integer or float.
+            return false;
+    }
+}
+
+// Store a floating point value in the argument data, for pointers to double.
+template <typename FLOAT, typename std::enable_if<std::is_floating_point<FLOAT>::value>::type*>
+bool ts::ArgMix::storeFloat(FLOAT f) const
+{
+    if (_type == (POINTER | DOUBLE)) {
+        *reinterpret_cast<double*>(_value.vptr) = static_cast<double>(f);
+        return true;
+    }
+    else {
+        // Not a pointer to double, try integer or error.
+        return storeInteger(std::intmax_t(f));
+    }
+}

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -38,10 +17,6 @@
 #include "tsTSProcessorArgs.h"
 #include "tsPluginEventHandlerRegistry.h"
 #include "tsPlugin.h"
-#include "tsUserInterrupt.h"
-#include "tsCondition.h"
-#include "tsMutex.h"
-#include "tsThread.h"
 
 namespace ts {
     namespace tsp {
@@ -68,7 +43,7 @@ namespace ts {
                            PluginType type,
                            const PluginOptions& pl_options,
                            const ThreadAttributes& attributes,
-                           Mutex& global_mutex,
+                           std::recursive_mutex& global_mutex,
                            Report* report);
 
             //!
@@ -150,9 +125,9 @@ namespace ts {
             virtual void signalPluginEvent(uint32_t event_code, Object* plugin_data = nullptr) const override;
 
         protected:
-            PacketBuffer*         _buffer;    //!< Description of shared packet buffer.
-            PacketMetadataBuffer* _metadata;  //!< Description of shared packet metadata buffer.
-            volatile bool         _suspended; //!< The plugin is suspended / resumed.
+            PacketBuffer*         _buffer = nullptr;    //!< Description of shared packet buffer.
+            PacketMetadataBuffer* _metadata = nullptr;  //!< Description of shared packet metadata buffer.
+            volatile bool         _suspended = false;   //!< The plugin is suspended / resumed.
 
             //!
             //! Pass processed packets to the next packet processor.
@@ -223,19 +198,19 @@ namespace ts {
 
             // A structure which is used to handle a restart of the plugin.
             class RestartData;
-            typedef SafePtr<RestartData,Mutex> RestartDataPtr;
+            using RestartDataPtr = std::shared_ptr<RestartData>;
 
             // The following private data must be accessed exclusively under the protection of the global mutex.
             // Implementation details: see the file src/docs/developing-plugins.dox.
             // [*] After initialization, these fields are read/written only in passPackets() and waitWork().
-            Condition         _to_do;          // Notify processor to do something.
-            size_t            _pkt_first;      // Starting index of packets area [*]
-            size_t            _pkt_cnt;        // Size of packets area [*]
-            bool              _input_end;      // No more packet after current ones [*]
-            BitRate           _bitrate;        // Input bitrate (set by previous plugin) [*]
-            BitRateConfidence _br_confidence;  // Input bitrate confidence (set by previous plugin) [*]
-            bool              _restart;        // Restart the plugin asap using _restart_data
-            RestartDataPtr    _restart_data;   // How to restart the plugin
+            std::condition_variable_any _to_do {}; // Notify the processor thread to do something.
+            size_t            _pkt_first = 0;      // Starting index of packets area [*]
+            size_t            _pkt_cnt = 0;        // Size of packets area [*]
+            bool              _input_end = false;  // No more packet after current ones [*]
+            BitRate           _bitrate = 0;        // Input bitrate (set by previous plugin) [*]
+            BitRateConfidence _br_confidence = BitRateConfidence::LOW;  // Input bitrate confidence (set by previous plugin) [*]
+            bool              _restart = false;    // Restart the plugin asap using _restart_data
+            RestartDataPtr    _restart_data {};    // How to restart the plugin
 
             // Description of a restart operation.
             class RestartData
@@ -245,12 +220,12 @@ namespace ts {
                 // Constructor.
                 RestartData(const UStringVector& params, bool same, Report& rep);
 
-                Report&       report;      // Report progress and error messages.
-                bool          same_args;   // Use same args as previously.
-                UStringVector args;        // New command line parameters for the plugin (read-only).
-                Mutex         mutex;       // Mutex to protect the following fields.
-                Condition     condition;   // Condition to report the end of restart (for the requesting thread).
-                bool          completed;   // End of operation, restarted or aborted.
+                Report&                     report;             // Report progress and error messages.
+                bool                        same_args = false;  // Use same args as previously.
+                UStringVector               args {};            // New command line parameters for the plugin (read-only).
+                std::recursive_mutex        mutex {};           // Mutex to protect the following fields.
+                std::condition_variable_any condition {};       // Condition to report the end of restart (for the requesting thread).
+                bool                        completed = false;  // End of operation, restarted or aborted.
             };
 
             // Restart this plugin.

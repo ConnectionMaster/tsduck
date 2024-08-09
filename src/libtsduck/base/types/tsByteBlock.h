@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 
 #pragma once
 #include "tsMemory.h"
-#include "tsSafePtr.h"
 
 namespace ts {
 
@@ -65,7 +43,7 @@ namespace ts {
         //!
         //! Explicit name of superclass, @c std::vector on @c uint8_t.
         //!
-        typedef std::vector<uint8_t> ByteVector;
+        using ByteVector = std::vector<uint8_t>;
 
         //!
         //! Default constructor.
@@ -102,6 +80,14 @@ namespace ts {
         TSDUCKDLL ByteBlock(std::initializer_list<uint8_t> init);
 
         //!
+        //! Find the first occurence of a byte value in a byte block.
+        //! @param [in] value The byte value to search.
+        //! @param [in] start Index where to start (at the beginning by default).
+        //! @return The index of the first occurence of @a value in the byte block or @a NPOS if not found.
+        //!
+        TSDUCKDLL size_type find(uint8_t value, size_type start = 0);
+
+        //!
         //! Replace the content of a byte block.
         //! @param [in] data Address of the new area to copy.
         //! @param [in] size Size of the area to copy.
@@ -131,7 +117,7 @@ namespace ts {
         void append(const void* data, size_type size)
         {
             if (size > 0 && data != nullptr) {
-                ::memcpy(enlarge(size), data, size);  // Flawfinder: ignore: memcpy()
+                MemCopy(enlarge(size), data, size);
             }
         }
 
@@ -173,7 +159,7 @@ namespace ts {
         void append(uint8_t i, size_type size)
         {
             if (size > 0) {
-                ::memset(enlarge(size), i, size);
+                MemSet(enlarge(size), i, size);
             }
         }
 
@@ -561,24 +547,19 @@ namespace ts {
 #endif
 
     //!
-    //! Safe pointer for ByteBlock, not thread-safe.
+    //! Safe pointer for ByteBlock.
     //!
-    typedef SafePtr<ByteBlock, NullMutex> ByteBlockPtr;
-
-    //!
-    //! Safe pointer for ByteBlock, thread-safe (MT = multi-thread).
-    //!
-    typedef SafePtr<ByteBlock, Mutex> ByteBlockPtrMT;
+    using ByteBlockPtr = std::shared_ptr<ByteBlock>;
 
     //!
     //! Vector of ByteBlock.
     //!
-    typedef std::vector<ByteBlock> ByteBlockVector;
+    using ByteBlockVector = std::vector<ByteBlock>;
 
     //!
     //! List of ByteBlock.
     //!
-    typedef std::list<ByteBlock> ByteBlockList;
+    using ByteBlockList = std::list<ByteBlock>;
 }
 
 //!

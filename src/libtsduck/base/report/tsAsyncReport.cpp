@@ -1,33 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsAsyncReport.h"
+#include "tsTime.h"
 
 
 //----------------------------------------------------------------------------
@@ -39,8 +19,7 @@ ts::AsyncReport::AsyncReport(int max_severity, const AsyncReportArgs& args) :
     Thread(ThreadAttributes().setPriority(ThreadAttributes::GetMinimumPriority())),
     _log_queue(args.log_msg_count),
     _time_stamp(args.timed_log),
-    _synchronous(args.sync_log),
-    _terminated(false)
+    _synchronous(args.sync_log)
 {
     // Start the logging thread
     start();
@@ -66,7 +45,7 @@ void ts::AsyncReport::terminate()
     if (!_terminated) {
         // Insert an "end of report" message in the queue.
         // This message will tell the logging thread to terminate.
-        _log_queue.forceEnqueue(new LogMessage(true, 0, UString()));
+        _log_queue.forceEnqueue(new LogMessage {true, 0, UString()});
 
         // Wait for termination of the logging thread
         waitForTermination();
@@ -91,9 +70,15 @@ void ts::AsyncReport::writeLog(int severity, const UString &msg)
 #endif
 
     if (!_terminated) {
-        // Enqueue the message immediately (timeout = 0), drop message on overflow.
-        // On the contrary, in synchronous mode, wait infinitely until the message is queued.
-        _log_queue.enqueue(new LogMessage(false, severity, msg), _synchronous ? Infinite : 0);
+        LogMessage* p = new LogMessage {false, severity, msg};
+        if (_synchronous) {
+            // Synchronous mode, wait infinitely until the message is queued.
+            _log_queue.enqueue(p);
+        }
+        else {
+            // Enqueue the message immediately (timeout = 0), drop message on overflow.
+            _log_queue.enqueue(p, cn::milliseconds::zero());
+        }
     }
 }
 
@@ -109,17 +94,25 @@ void ts::AsyncReport::main()
     // Notify subclasses (if any) of thread start.
     asyncThreadStarted();
 
-    while (_log_queue.dequeue(msg) && !msg->terminate) {
+    for (;;) {
+        // Dequeue next message (infinite wait).
+        _log_queue.dequeue(msg);
 
+        // Exit when received a termination message.
+        if (msg->terminate) {
+            break;
+        }
+
+        // Notify subclass of message (or log it on standard error).
         asyncThreadLog(msg->severity, msg->message);
 
         // Abort application on fatal error
         if (msg->severity == Severity::Fatal) {
-            ::exit(EXIT_FAILURE);
+            std::exit(EXIT_FAILURE);
         }
     }
 
-    if (_max_severity >= Severity::Debug) {
+    if (maxSeverity() >= Severity::Debug) {
         asyncThreadLog(Severity::Debug, u"Report logging thread terminated");
     }
 

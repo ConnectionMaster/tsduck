@@ -1,34 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsLNB.h"
-#include "tsGuardMutex.h"
 #include "tsAlgorithm.h"
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
@@ -39,44 +17,19 @@
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::LNB::LNB() :
-    _name(),
-    _alias(),
-    _bands()
-{
-}
-
-ts::LNB::LNB(const UString& name, Report& report) : LNB()
+ts::LNB::LNB(const UString& name, Report& report)
 {
     set(name, report);
 }
 
-ts::LNB::LNB(uint64_t frequency) : LNB()
+ts::LNB::LNB(uint64_t frequency)
 {
     set(frequency);
 }
 
-ts::LNB::LNB(uint64_t low_frequency, uint64_t high_frequency, uint64_t switch_frequency) : LNB()
+ts::LNB::LNB(uint64_t low_frequency, uint64_t high_frequency, uint64_t switch_frequency)
 {
     set(low_frequency, high_frequency, switch_frequency);
-}
-
-ts::LNB::Transposition::Transposition() :
-    satellite_frequency(0),
-    intermediate_frequency(0),
-    oscillator_frequency(0),
-    stacked(false),
-    band_index(0)
-{
-}
-
-ts::LNB::Band::Band() :
-    low(0),
-    high(0),
-    oscillator(0),
-    switch_freq(0),
-    polarity(POL_NONE)
-{
 }
 
 
@@ -126,7 +79,7 @@ bool ts::LNB::transpose(Transposition& transposition, uint64_t sat_freq, Polariz
     // We need to know the polarity on polarization-controlled LNB.
     const bool pol_control = isPolarizationControlled();
     if (pol_control && (polarity == POL_NONE || polarity == POL_AUTO)) {
-        report.error(u"no polarization provided on polarization-controlled LNB, type %s", {_name});
+        report.error(u"no polarization provided on polarization-controlled LNB, type %s", _name);
         return false;
     }
 
@@ -151,7 +104,7 @@ bool ts::LNB::transpose(Transposition& transposition, uint64_t sat_freq, Polariz
 
     // Now compute the transposition.
     if (index >= _bands.size()) {
-        report.error(u"satellite frequency %'d Hz cannot be transposed using LNB type %s", {sat_freq, _name});
+        report.error(u"satellite frequency %'d Hz cannot be transposed using LNB type %s", sat_freq, _name);
         return false;
     }
     else {
@@ -182,7 +135,7 @@ ts::UString ts::LNB::toString() const
 bool ts::LNB::set(const UString& name, Report& report)
 {
     // Try to find a matching name of alias in the repository.
-    const LNB* lnb = LNBRepository::Instance()->get(name, report);
+    const LNB* lnb = LNBRepository::Instance().get(name, report);
     if (lnb != nullptr) {
         // Found a matching name in the repository.
         *this = *lnb;
@@ -198,13 +151,13 @@ bool ts::LNB::set(const UString& name, Report& report)
         set(low_freq * 1000000);
         return true;
     }
-    else if (name.scan(u"%d,%d,%d", {&low_freq, &high_freq, &switch_freq})) {
+    else if (name.scan(u"%d,%d,%d", &low_freq, &high_freq, &switch_freq)) {
         // "low,high,switch" legacy format. Frequencies in MHz.
         set(low_freq * 1000000, high_freq * 1000000, switch_freq * 1000000);
         return true;
     }
     else {
-        report.error(u"unknown LNB name \"%s\"", {name});
+        report.error(u"unknown LNB name \"%s\"", name);
         return false;
     }
 }
@@ -223,7 +176,7 @@ void ts::LNB::set(uint64_t low_frequency, uint64_t high_frequency, uint64_t swit
 {
     if (high_frequency == 0 && switch_frequency == 0) {
         // No high band, just an oscillator frequency and "unlimited" band.
-        _name.format(u"%d", {low_frequency / 1000000});
+        _name.format(u"%d", low_frequency / 1000000);
         _alias.clear();
         _bands.clear();
         _bands.resize(1);
@@ -233,7 +186,7 @@ void ts::LNB::set(uint64_t low_frequency, uint64_t high_frequency, uint64_t swit
     }
     else {
         // High band, two oscillators (low and high). The switch frequency is the boundary between the two bands.
-        _name.format(u"%d,%d,%d", {low_frequency / 1000000, high_frequency / 1000000, switch_frequency / 1000000});
+        _name.format(u"%d,%d,%d", low_frequency / 1000000, high_frequency / 1000000, switch_frequency / 1000000);
         _alias.clear();
         _bands.clear();
         _bands.resize(2);
@@ -254,7 +207,7 @@ void ts::LNB::set(uint64_t low_frequency, uint64_t high_frequency, uint64_t swit
 
 ts::UStringList ts::LNB::GetAllNames(Report& report)
 {
-    return LNBRepository::Instance()->allNames(report);
+    return LNBRepository::Instance().allNames(report);
 }
 
 
@@ -264,11 +217,7 @@ ts::UStringList ts::LNB::GetAllNames(Report& report)
 
 TS_DEFINE_SINGLETON(ts::LNB::LNBRepository);
 
-ts::LNB::LNBRepository::LNBRepository() :
-    _mutex(),
-    _default_lnb(),
-    _lnbs(),
-    _names()
+ts::LNB::LNBRepository::LNBRepository()
 {
 }
 
@@ -280,7 +229,7 @@ ts::LNB::LNBRepository::LNBRepository() :
 const ts::UStringList& ts::LNB::LNBRepository::allNames(Report& report)
 {
     // Lock access to the repository. Load XML file if not already done.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutex);
     load(report);
 
     // After loading, the _names list won't change, return a constant reference to it.
@@ -308,7 +257,7 @@ ts::UString ts::LNB::LNBRepository::ToIndex(const UString& name)
 const ts::LNB* ts::LNB::LNBRepository::get(const UString& name, Report& report)
 {
     // Lock access to the repository.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutex);
 
     if (!load(report)) {
         // Error loading XML configuration file.
@@ -316,12 +265,12 @@ const ts::LNB* ts::LNB::LNBRepository::get(const UString& name, Report& report)
     }
     else if (name.empty()) {
         // Get default LNB. Null pointer if repository is empty.
-        return _default_lnb.pointer();
+        return _default_lnb.get();
     }
     else {
         // Lookup by name, lower case, without space.
         const auto it(_lnbs.find(ToIndex(name)));
-        return it == _lnbs.end() ? nullptr : it->second.pointer();
+        return it == _lnbs.end() ? nullptr : it->second.get();
     }
 }
 
@@ -340,7 +289,7 @@ bool ts::LNB::LNBRepository::getNameAttribute(const xml::Element* node, UString&
     // Check if the name is already known.
     const UString iname(ToIndex(name));
     if (Contains(_lnbs, iname)) {
-        node->report().error(u"duplicate LNB name '%s' in <%s> line %d", {name, node->name(), node->lineNumber()});
+        node->report().error(u"duplicate LNB name '%s' in <%s> line %d", name, node->name(), node->lineNumber());
         return false;
     }
 
@@ -391,7 +340,7 @@ bool ts::LNB::LNBRepository::load(Report& report)
 
         // Allocate LNB object.
         LNBPtr lnb(new LNB);
-        if (lnb.isNull()) {
+        if (lnb == nullptr) {
             success = false;
             break;
         }
@@ -410,9 +359,9 @@ bool ts::LNB::LNBRepository::load(Report& report)
             node->getChildren(xband, u"band", 1);
 
         // Get all aliases. Don't stop on error.
-        for (auto it = xalias.begin(); it != xalias.end(); ++it) {
+        for (auto it : xalias) {
             UString alias;
-            lnb_ok = getNameAttribute(*it, alias, index_names) && lnb_ok;
+            lnb_ok = getNameAttribute(it, alias, index_names) && lnb_ok;
             // Check if the alias is suitable for command line usage.
             if (lnb_ok && lnb->_alias.empty()) {
                 bool ok = true;
@@ -421,20 +370,20 @@ bool ts::LNB::LNBRepository::load(Report& report)
                     ok = IsAlpha(c) || IsDigit(c) || c == u'-' || c == u'_' || c == u',' || c == u':';
                 }
                 if (ok) {
-                    lnb->_alias = alias;
+                    lnb->_alias = std::move(alias);
                 }
             }
         }
 
         // Get all bands.
-        for (auto it = xband.begin(); it != xband.end(); ++it) {
+        for (auto it : xband) {
             Band band;
             const bool band_ok =
-                (*it)->getIntAttribute<uint64_t>(band.low, u"low", true) &&
-                (*it)->getIntAttribute<uint64_t>(band.high, u"high", true) &&
-                (*it)->getIntAttribute<uint64_t>(band.oscillator, u"oscillator", true) &&
-                (*it)->getIntAttribute<uint64_t>(band.switch_freq, u"switch", false, 0) &&
-                (*it)->getIntEnumAttribute<Polarization>(band.polarity, PolarizationEnum, u"polarity", false, POL_NONE);
+                it->getIntAttribute<uint64_t>(band.low, u"low", true) &&
+                it->getIntAttribute<uint64_t>(band.high, u"high", true) &&
+                it->getIntAttribute<uint64_t>(band.oscillator, u"oscillator", true) &&
+                it->getIntAttribute<uint64_t>(band.switch_freq, u"switch", false, 0) &&
+                it->getIntEnumAttribute<Polarization>(band.polarity, PolarizationEnum, u"polarity", false, POL_NONE);
             if (band_ok) {
                 lnb->_bands.push_back(band);
             }
@@ -445,13 +394,13 @@ bool ts::LNB::LNBRepository::load(Report& report)
 
         // Register the new LNB with its name and all aliases.
         if (lnb_ok) {
-            for (auto it = index_names.begin(); it != index_names.end(); ++it) {
-                _lnbs.insert(std::make_pair(*it, lnb));
+            for (const auto& it : index_names) {
+                _lnbs.insert(std::make_pair(it, lnb));
             }
             // The last <lnb> with default="true" is the default one.
             // If there is no explicit default, the first <lnb> is the default one.
-            if (_default_lnb.isNull() || is_default) {
-                _default_lnb = lnb;
+            if (_default_lnb == nullptr || is_default) {
+                _default_lnb = std::move(lnb); // last use of lnb (declared inside loop)
             }
         }
 
@@ -459,7 +408,7 @@ bool ts::LNB::LNBRepository::load(Report& report)
     }
 
     // Override the default LNB if specified in the TSDuck configuration file.
-    const UString def_name(DuckConfigFile::Instance()->value(u"default.lnb"));
+    const UString def_name(DuckConfigFile::Instance().value(u"default.lnb"));
     const UString def_index(ToIndex(def_name));
     if (!def_index.empty()) {
         auto it = _lnbs.find(def_index);
@@ -467,7 +416,7 @@ bool ts::LNB::LNBRepository::load(Report& report)
             _default_lnb = it->second;
         }
         else {
-            report.error(u"default LNB \"%s\" not found", {def_name});
+            report.error(u"default LNB \"%s\" not found", def_name);
         }
     }
 

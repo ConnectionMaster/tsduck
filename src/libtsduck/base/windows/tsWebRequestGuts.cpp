@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -160,10 +139,10 @@ void ts::WebRequest::abort()
 void ts::WebRequest::SystemGuts::error(const UChar* message, ::DWORD code)
 {
     if (code == ERROR_SUCCESS) {
-        _request._report.error(u"Web error: %s", {message});
+        _request._report.error(u"Web error: %s", message);
     }
     else {
-        _request._report.error(u"Web error: %s (%s)", {message, WinErrorMessage(code, u"Wininet.dll", INTERNET_ERROR_BASE, INTERNET_ERROR_LAST)});
+        _request._report.error(u"Web error: %s (%s)", message, WinErrorMessage(code, u"Wininet.dll", INTERNET_ERROR_BASE, INTERNET_ERROR_LAST));
     }
 }
 
@@ -205,7 +184,7 @@ bool ts::WebRequest::SystemGuts::init()
     if (useProxy) {
         access = INTERNET_OPEN_TYPE_PROXY;
         if (_request.proxyPort() != 0) {
-            proxyName += UString::Format(u":%d", {_request.proxyPort()});
+            proxyName += UString::Format(u":%d", _request.proxyPort());
         }
         proxy = proxyName.wc_str();
     }
@@ -233,17 +212,32 @@ bool ts::WebRequest::SystemGuts::init()
         }
     }
 
+    // List of request headers as one string.
+    UString headers;
+
+    // Set compression.
+    if (_request._useCompression) {
+        // We must separately set the Accept-Encoding header and configure automatic decompression.
+        headers = u"Accept-Encoding: deflate, gzip";
+        ::BOOL mode = TRUE;
+        if (!::InternetSetOptionW(_inet, INTERNET_OPTION_HTTP_DECODING, &mode, ::DWORD(sizeof(mode)))) {
+            error(u"error setting compression mode");
+            clear();
+            return false;
+        }
+    }
+
     // Specify the various timeouts.
-    if (_request._connectionTimeout > 0) {
-        ::DWORD timeout = ::DWORD(_request._connectionTimeout);
+    if (_request._connectionTimeout.count() > 0) {
+        ::DWORD timeout = ::DWORD(_request._connectionTimeout.count());
         if (!::InternetSetOptionW(_inet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, ::DWORD(sizeof(timeout)))) {
             error(u"error setting connection timeout");
             clear();
             return false;
         }
     }
-    if (_request._receiveTimeout > 0) {
-        ::DWORD timeout = ::DWORD(_request._receiveTimeout);
+    if (_request._receiveTimeout.count() > 0) {
+        ::DWORD timeout = ::DWORD(_request._receiveTimeout.count());
         if (!::InternetSetOptionW(_inet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, ::DWORD(sizeof(timeout))) ||
             !::InternetSetOptionW(_inet, INTERNET_OPTION_DATA_RECEIVE_TIMEOUT, &timeout, ::DWORD(sizeof(timeout))))
         {
@@ -263,9 +257,6 @@ bool ts::WebRequest::SystemGuts::init()
         INTERNET_FLAG_NO_CACHE_WRITE;     // Don't save downloaded data to local disk cache.
 
     // Build the list of request headers.
-    ::WCHAR* headerAddress = 0;
-    ::DWORD headerLength = 0;
-    UString headers;
     if (!_request._requestHeaders.empty()) {
         for (const auto& it : _request._requestHeaders) {
             if (!headers.empty()) {
@@ -275,6 +266,10 @@ bool ts::WebRequest::SystemGuts::init()
             headers.append(u": ");
             headers.append(it.second);
         }
+    }
+    ::WCHAR* headerAddress = 0;
+    ::DWORD  headerLength = 0;
+    if (!headers.empty()) {
         headerAddress = headers.wc_str();
         headerLength = ::DWORD(headers.size());
     }

@@ -1,35 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPacketizer.h"
-#include "tsNullReport.h"
 #include "tsTSPacket.h"
+#include "tsSection.h"
 #include "tsNames.h"
 
 
@@ -39,12 +18,7 @@
 
 ts::Packetizer::Packetizer(const DuckContext& duck, PID pid, SectionProviderInterface* provider) :
     AbstractPacketizer(duck, pid),
-    _provider(provider),
-    _split_headers(false),
-    _section(nullptr),
-    _next_byte(0),
-    _section_out_count(0),
-    _section_in_count(0)
+    _provider(provider)
 {
 }
 
@@ -60,7 +34,7 @@ ts::Packetizer::~Packetizer()
 void ts::Packetizer::reset()
 {
     AbstractPacketizer::reset();
-    _section.clear();
+    _section.reset();
     _next_byte = 0;
 }
 
@@ -72,16 +46,16 @@ void ts::Packetizer::reset()
 bool ts::Packetizer::getNextPacket(TSPacket& pkt)
 {
     // If there is no current section, get the next one.
-    if (_section.isNull() && _provider != nullptr) {
+    if (_section == nullptr && _provider != nullptr) {
         _provider->provideSection(_section_in_count, _section);
         _next_byte = 0;
-        if (!_section.isNull()) {
+        if (_section != nullptr) {
             _section_in_count++;
         }
     }
 
     // If there is still no current section, return a null packet
-    if (_section.isNull()) {
+    if (_section == nullptr) {
         configurePacket(pkt, true);
         return false;
     }
@@ -106,7 +80,7 @@ bool ts::Packetizer::getNextPacket(TSPacket& pkt)
             // No stuffing before next section => get next section.
             // Note that _provider cannot be null here.
             _provider->provideSection(_section_in_count, next_section);
-            if (next_section.isNull()) {
+            if (next_section == nullptr) {
                 // If no next section, do stuffing anyway.
                 do_stuffing = true;
             }
@@ -150,7 +124,7 @@ bool ts::Packetizer::getNextPacket(TSPacket& pkt)
     while (remain_in_packet > 0) {
         // Copy a part of the current section in the packet
         size_t length = remain_in_section < remain_in_packet ? remain_in_section : remain_in_packet;
-        ::memcpy(data, _section->content() + _next_byte, length);  // Flawfinder: ignore: memcpy()
+        MemCopy(data, _section->content() + _next_byte, length);
         // Advance pointers
         data += length;
         remain_in_packet -= length;
@@ -163,20 +137,20 @@ bool ts::Packetizer::getNextPacket(TSPacket& pkt)
             // Remember next section if known
             _section = next_section;
             _next_byte = 0;
-            next_section.clear();
+            next_section.reset();
             // If stuffing required at the end of packet, don't use next section
             if (do_stuffing) {
                 break;
             }
             // If next section unknown, get it now
-            if (_section.isNull()) {
+            if (_section == nullptr) {
                 // If stuffing required before this section, give up
                 if (_provider == nullptr || _provider->doStuffing()) {
                     break;
                 }
                 _provider->provideSection(_section_in_count, _section);
                 // If no next section, stuff the end of packet
-                if (_section.isNull()) {
+                if (_section == nullptr) {
                     break;
                 }
                 else {
@@ -195,13 +169,8 @@ bool ts::Packetizer::getNextPacket(TSPacket& pkt)
     }
 
     // Do packet stuffing if necessary.
-    // Note: the following test is normally useless since memset() works fine when
-    // the size is zero. However, GCC 4.8.x erroneously deduces that remain_in_packet
-    // is always zero (which is not true) and complains that memset() is always useless.
-    // The test fixes this GCC error. However, it has not yet been tested if the behaviour
-    // of the compiled code is correct with this version of GCC.
     if (remain_in_packet > 0) {
-        ::memset(data, 0xFF, remain_in_packet);
+        MemSet(data, 0xFF, remain_in_packet);
     }
     return true;
 }
@@ -214,9 +183,9 @@ bool ts::Packetizer::getNextPacket(TSPacket& pkt)
 std::ostream& ts::Packetizer::display(std::ostream& strm) const
 {
     return AbstractPacketizer::display(strm)
-        << UString::Format(u"  Output sections: %'d", {_section_out_count}) << std::endl
-        << UString::Format(u"  Provided sections: %'d", {_section_in_count}) << std::endl
+        << UString::Format(u"  Output sections: %'d", _section_out_count) << std::endl
+        << UString::Format(u"  Provided sections: %'d", _section_in_count) << std::endl
         << "  Current section: "
-        << (_section.isNull() ? UString(u"none") : UString::Format(u"%s, offset %d", {names::TID(duck(), _section->tableId()), _next_byte}))
+        << (_section == nullptr ? UString(u"none") : UString::Format(u"%s, offset %d", names::TID(duck(), _section->tableId()), _next_byte))
         << std::endl;
 }

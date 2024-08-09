@@ -1,37 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSFileInputBuffered.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-const size_t ts::TSFileInputBuffered::MIN_BUFFER_SIZE;
-#endif
 
 
 //----------------------------------------------------------------------------
@@ -41,10 +16,7 @@ const size_t ts::TSFileInputBuffered::MIN_BUFFER_SIZE;
 ts::TSFileInputBuffered::TSFileInputBuffered(size_t buffer_size) :
     TSFile(),
     _buffer(std::max(buffer_size, MIN_BUFFER_SIZE)),
-    _metadata(_buffer.size()),
-    _first_index(0),
-    _current_offset(0),
-    _total_count(0)
+    _metadata(_buffer.size())
 {
 }
 
@@ -65,7 +37,7 @@ ts::TSFileInputBuffered::~TSFileInputBuffered()
 bool ts::TSFileInputBuffered::setBufferSize(size_t buffer_size, Report& report)
 {
     if (isOpen()) {
-        report.error(u"file %s is already open, cannot resize buffer", {getFileName()});
+        report.error(u"file %s is already open, cannot resize buffer", getFileName());
         return false;
     }
     else {
@@ -80,10 +52,10 @@ bool ts::TSFileInputBuffered::setBufferSize(size_t buffer_size, Report& report)
 // Open file. Override TSFile::openRead().
 //----------------------------------------------------------------------------
 
-bool ts::TSFileInputBuffered::openRead(const UString& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format)
+bool ts::TSFileInputBuffered::openRead(const fs::path& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format)
 {
     if (isOpen()) {
-        report.error(u"file %s is already open", {getFileName()});
+        report.error(u"file %s is already open", getFileName());
         return false;
     }
     else {
@@ -99,7 +71,7 @@ bool ts::TSFileInputBuffered::openRead(const UString& filename, size_t repeat_co
 // Make sure that the generic open() returns an error.
 //----------------------------------------------------------------------------
 
-bool ts::TSFileInputBuffered::open(const UString& filename, OpenFlags flags, Report& report, TSPacketFormat format)
+bool ts::TSFileInputBuffered::open(const fs::path& filename, OpenFlags flags, Report& report, TSPacketFormat format)
 {
     // Accept read-only mode only.
     return (flags & (READ | WRITE | APPEND)) == READ && openRead(filename, 1, 0, report, format);

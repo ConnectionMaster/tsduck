@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -34,12 +13,6 @@
 #include "tsVersionInfo.h"
 #include "tsOutputPager.h"
 #include "tsDuckConfigFile.h"
-
-// Unlimited number of occurences
-const size_t ts::Args::UNLIMITED_COUNT = std::numeric_limits<size_t>::max();
-
-// Unlimited value.
-const int64_t ts::Args::UNLIMITED_VALUE = std::numeric_limits<int64_t>::max();
 
 // List of characters which are allowed thousands separators and decimal points in integer values
 const ts::UChar* const ts::Args::THOUSANDS_SEPARATORS = u", ";
@@ -57,31 +30,22 @@ const ts::Enumeration ts::Args::HelpFormatEnum({
 
 
 //----------------------------------------------------------------------------
-// Constructors for ArgValue
-//----------------------------------------------------------------------------
-
-ts::Args::ArgValue::ArgValue() :
-    string(),
-    int_base(0),
-    int_count(0)
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Constructors for IOption
 //----------------------------------------------------------------------------
 
-ts::Args::IOption::IOption(const UChar* name_,
-                           UChar        short_name_,
-                           ArgType      type_,
-                           size_t       min_occur_,
-                           size_t       max_occur_,
-                           int64_t      min_value_,
-                           int64_t      max_value_,
-                           size_t       decimals_,
-                           uint32_t     flags_,
-                           AbstractNumber* anumber_) :
+ts::Args::IOption::IOption(Args*           parent,
+                           const UChar*    name_,
+                           UChar           short_name_,
+                           ArgType         type_,
+                           size_t          min_occur_,
+                           size_t          max_occur_,
+                           int64_t         min_value_,
+                           int64_t         max_value_,
+                           size_t          decimals_,
+                           uint32_t        flags_,
+                           AbstractNumber* anumber_,
+                           std::intmax_t   num_,
+                           std::intmax_t   den_) :
 
     name(name_ == nullptr ? UString() : name_),
     short_name(short_name_),
@@ -92,12 +56,9 @@ ts::Args::IOption::IOption(const UChar* name_,
     max_value(max_value_),
     decimals(decimals_),
     flags(flags_),
-    enumeration(),
-    syntax(),
-    help(),
-    values(),
-    value_count(0),
-    anumber(anumber_)
+    anumber(anumber_),
+    num(num_),
+    den(den_)
 {
     // Provide default max_occur
     if (max_occur == 0) {
@@ -105,7 +66,7 @@ ts::Args::IOption::IOption(const UChar* name_,
     }
     // Handle invalid values
     if (max_occur < min_occur) {
-        throw ArgsError(u"invalid occurences for " + display());
+        parent->fatalArgError(u"invalid occurences for " + display());
     }
     // Parameters are values by definition
     if (name.empty() && type == NONE) {
@@ -115,6 +76,11 @@ ts::Args::IOption::IOption(const UChar* name_,
     switch (type) {
         case NONE:
         case TRISTATE:
+        case IPADDR:
+        case IPSOCKADDR:
+        case IPSOCKADDR_OA:
+        case IPSOCKADDR_OP:
+        case IPSOCKADDR_OAP:
             min_value = 0;
             max_value = 0;
             break;
@@ -129,11 +95,12 @@ ts::Args::IOption::IOption(const UChar* name_,
             if (max_value == 0) {
                 max_value = bounded_cast<int64_t>(std::numeric_limits<size_t>::max());
             }
-            TS_FALLTHROUGH
+            [[fallthrough]];
         case INTEGER:
         case ANUMBER:
+        case CHRONO:
             if (max_value < min_value) {
-                throw ArgsError(u"invalid value range for " + display());
+                parent->fatalArgError(u"invalid value range for " + display());
             }
             break;
         case UNSIGNED:
@@ -182,7 +149,7 @@ ts::Args::IOption::IOption(const UChar* name_,
             type = INTEGER;
             break;
         case INT32:
-            min_value = -TS_CONST64(0x80000000);
+            min_value = -0x80000000LL;
             max_value = 0x7FFFFFFF;
             type = INTEGER;
             break;
@@ -192,11 +159,12 @@ ts::Args::IOption::IOption(const UChar* name_,
             type = INTEGER;
             break;
         default:
-            throw ArgsError(UString::Format(u"invalid option type %d", {type}));
+            parent->fatalArgError(UString::Format(u"invalid option type %d", type));
     }
 }
 
-ts::Args::IOption::IOption(const UChar*       name_,
+ts::Args::IOption::IOption(Args*              parent,
+                           const UChar*       name_,
                            UChar              short_name_,
                            const Enumeration& enumeration_,
                            size_t             min_occur_,
@@ -210,14 +178,8 @@ ts::Args::IOption::IOption(const UChar*       name_,
     max_occur(max_occur_),
     min_value(std::numeric_limits<int>::min()),
     max_value(std::numeric_limits<int>::max()),
-    decimals(0),
     flags(flags_),
-    enumeration(enumeration_),
-    syntax(),
-    help(),
-    values(),
-    value_count(0),
-    anumber()
+    enumeration(enumeration_)
 {
     // Provide default max_occur
     if (max_occur == 0) {
@@ -225,7 +187,7 @@ ts::Args::IOption::IOption(const UChar*       name_,
     }
     // Handle invalid values
     if (max_occur < min_occur) {
-        throw ArgsError(u"invalid occurences for " + display());
+        parent->fatalArgError(u"invalid occurences for " + display());
     }
 }
 
@@ -264,11 +226,17 @@ ts::UString ts::Args::IOption::valueDescription(ValueContext ctx) const
         TS_LLVM_NOWARNING(switch-enum)
         TS_MSC_NOWARNING(4061)
         switch (type) {
-            case NONE:      break;
-            case FILENAME:  desc = u"file-name"; break;
-            case DIRECTORY: desc = u"directory-name"; break;
-            case HEXADATA:  desc = u"hexa-data"; break;
-            default:        desc = u"value"; break;
+            case NONE:           break;
+            case FILENAME:       desc = u"file-name"; break;
+            case DIRECTORY:      desc = u"directory-name"; break;
+            case HEXADATA:       desc = u"hexa-data"; break;
+            case IPADDR:         desc = u"ip-address"; break;
+            case IPSOCKADDR:     desc = u"ip-address:port"; break;
+            case IPSOCKADDR_OA:  desc = u"[ip-address:]port"; break;
+            case IPSOCKADDR_OP:  desc = u"ip-address[:port]"; break;
+            case IPSOCKADDR_OAP: desc = u"[ip-address]:[port]"; break;
+            case CHRONO:         desc = UString::ChronoUnit(num, den, false, true); break;
+            default:             desc = u"value"; break;
         }
         TS_POP_WARNING()
     }
@@ -277,11 +245,11 @@ ts::UString ts::Args::IOption::valueDescription(ValueContext ctx) const
         // No value or value is optional and shall not be documented.
         return UString();
     }
-    else if ((flags & IOPT_OPTVALUE) != 0) {
-        return (ctx == LONG ? u"[=" : u"[") + desc + u"]";
-    }
     else if (ctx == ALONE) {
         return desc;
+    }
+    else if ((flags & IOPT_OPTVALUE) != 0) {
+        return (ctx == LONG ? u"[=" : u"[") + desc + u"]";
     }
     else {
         return SPACE + desc;
@@ -295,7 +263,14 @@ ts::UString ts::Args::IOption::valueDescription(ValueContext ctx) const
 
 ts::UString ts::Args::IOption::optionNames(const UString& separator) const
 {
-    return enumeration.nameList(separator, u"\"", u"\"");
+    UStringList names;
+    enumeration.getAllNames(names);
+    names.sort([](const UString& s1, const UString& s2) { return s1.superCompare(s2, SCOMP_IGNORE_BLANKS | SCOMP_CASE_INSENSITIVE | SCOMP_NUMERIC) < 0; });
+    for (auto& n : names) {
+        n.insert(0, 1, u'"');
+        n.append(u'"');
+    }
+    return UString::Join(names, separator);
 }
 
 
@@ -322,6 +297,7 @@ ts::UString ts::Args::IOption::optionType() const
         case INT16:
         case INT32:
         case INT64:
+        case CHRONO:
             if (enumeration.empty()) {
                 desc += u":int";
             }
@@ -347,6 +323,15 @@ ts::UString ts::Args::IOption::optionType() const
             break;
         case HEXADATA:
             desc += u":hexadata";
+            break;
+        case IPADDR:
+            desc += u":ipaddress";
+            break;
+        case IPSOCKADDR:
+        case IPSOCKADDR_OA:
+        case IPSOCKADDR_OP:
+        case IPSOCKADDR_OAP:
+            desc += u":ipsocket";
             break;
         case NONE:
             desc += u":bool";
@@ -383,9 +368,9 @@ ts::UString ts::Args::IOption::helpText(size_t line_width) const
         // This is an option.
         indent_desc = OPTION_DESC;
         if (short_name != 0) {
-            text += HelpLines(OPTION_NAME, UString::Format(u"-%c%s", {short_name, valueDescription(IOption::SHORT)}), line_width);
+            text += HelpLines(OPTION_NAME, UString::Format(u"-%c%s", short_name, valueDescription(IOption::SHORT)), line_width);
         }
-        text += HelpLines(OPTION_NAME, UString::Format(u"--%s%s", {name, valueDescription(IOption::LONG)}), line_width);
+        text += HelpLines(OPTION_NAME, UString::Format(u"--%s%s", name, valueDescription(IOption::LONG)), line_width);
     }
 
     // Add option description.
@@ -399,17 +384,17 @@ ts::UString ts::Args::IOption::helpText(size_t line_width) const
 
     // Document all possible values for enumeration types.
     if (!enumeration.empty() && (flags & (IOPT_OPTVALUE | IOPT_OPTVAL_NOHELP)) != (IOPT_OPTVALUE | IOPT_OPTVAL_NOHELP)) {
-        text += HelpLines(indent_desc, u"Must be one of " + optionNames(u", ") + u".", line_width);
+        text += HelpLines(indent_desc, u"The '" + valueDescription(IOption::ALONE) + u"' must be one of " + optionNames(u", ") + u".", line_width);
     }
 
     // Document decimal values (with a decimal point).
     if (decimals > 0) {
-        text += HelpLines(indent_desc, UString::Format(u"The value may include up to %d meaningful decimal digits.", {decimals}), line_width);
+        text += HelpLines(indent_desc, UString::Format(u"The value may include up to %d meaningful decimal digits.", decimals), line_width);
     }
-    if (type == ANUMBER && !anumber.isNull()) {
+    if (type == ANUMBER && anumber != nullptr) {
         const UString desc(anumber->description());
         if (!desc.empty()) {
-            text += HelpLines(indent_desc, UString::Format(u"The value must be a %s.", {desc}), line_width);
+            text += HelpLines(indent_desc, UString::Format(u"The value must be a %s.", desc), line_width);
         }
     }
 
@@ -423,20 +408,28 @@ ts::UString ts::Args::IOption::helpText(size_t line_width) const
 
 ts::Args::Args(const UString& description, const UString& syntax, int flags) :
     Report(),
-    _subreport(nullptr),
-    _saved_severity(maxSeverity()),
-    _iopts(),
     _description(description),
-    _shell(),
     _syntax(syntax),
-    _intro(),
-    _tail(),
-    _app_name(),
-    _args(),
-    _is_valid(false),
     _flags(flags)
 {
     adjustPredefinedOptions();
+}
+
+
+//----------------------------------------------------------------------------
+// Fatal internal error in the application.
+//----------------------------------------------------------------------------
+
+void ts::Args::fatalArgError(const UString& reason) const
+{
+    CERR.fatal(u"%s: application internal error, %s", _app_name, reason);
+    std::exit(EXIT_FAILURE);
+}
+
+void ts::Args::fatalArgError(const UString& option, const UString& reason) const
+{
+    CERR.fatal(u"%s: application internal error, option --%s %s", _app_name, option, reason);
+    std::exit(EXIT_FAILURE);
 }
 
 
@@ -482,7 +475,7 @@ void ts::Args::adjustPredefinedOptions()
         _iopts.erase(u"help");
     }
     else if (!Contains(_iopts, u"help")) {
-        addOption(IOption(u"help", 0, HelpFormatEnum, 0, 1, IOPT_PREDEFINED | IOPT_OPTVALUE | IOPT_OPTVAL_NOHELP));
+        addOption(IOption(this, u"help", 0, HelpFormatEnum, 0, 1, IOPT_PREDEFINED | IOPT_OPTVALUE | IOPT_OPTVAL_NOHELP));
         help(u"help", u"Display this help text.");
     }
 
@@ -491,8 +484,8 @@ void ts::Args::adjustPredefinedOptions()
         _iopts.erase(u"version");
     }
     else if (!Contains(_iopts, u"version")) {
-        addOption(IOption(u"version", 0,  VersionInfo::FormatEnum, 0, 1, IOPT_PREDEFINED | IOPT_OPTVALUE | IOPT_OPTVAL_NOHELP));
-        help(u"version", u"Display the TSDuck version number.");
+        addOption(IOption(this, u"version", 0,  VersionInfo::FormatEnum, 0, 1, IOPT_PREDEFINED | IOPT_OPTVALUE));
+        help(u"version", u"name", u"Display the TSDuck version number.");
     }
 
     // Option --verbose.
@@ -500,7 +493,7 @@ void ts::Args::adjustPredefinedOptions()
         _iopts.erase(u"verbose");
     }
     else if (!Contains(_iopts, u"verbose")) {
-        addOption(IOption(u"verbose", 'v', NONE, 0, 1, 0, 0, 0, IOPT_PREDEFINED));
+        addOption(IOption(this, u"verbose", 'v', NONE, 0, 1, 0, 0, 0, IOPT_PREDEFINED));
         help(u"verbose", u"Produce verbose output.");
     }
 
@@ -509,7 +502,7 @@ void ts::Args::adjustPredefinedOptions()
         _iopts.erase(u"debug");
     }
     else if (!Contains(_iopts, u"debug")) {
-        addOption(IOption(u"debug", 'd', POSITIVE, 0, 1, 0, 0, 0, IOPT_PREDEFINED | IOPT_OPTVALUE));
+        addOption(IOption(this, u"debug", 'd', POSITIVE, 0, 1, 0, 0, 0, IOPT_PREDEFINED | IOPT_OPTVALUE));
         help(u"debug", u"level", u"Produce debug traces. The default level is 1. Higher levels produce more messages.");
     }
 }
@@ -639,44 +632,6 @@ ts::Args& ts::Args::copyOptions(const Args& other, const bool replace)
 
 
 //----------------------------------------------------------------------------
-// Redirect report logging. Redirection cancelled if zero.
-//----------------------------------------------------------------------------
-
-ts::Report* ts::Args::redirectReport(Report* rep)
-{
-    // When leaving the default report, save the severity.
-    if (_subreport == nullptr) {
-        _saved_severity = this->maxSeverity();
-    }
-
-    // Switch report.
-    Report* previous = _subreport;
-    _subreport = rep;
-
-    // Adjust severity.
-    this->setMaxSeverity(rep == nullptr ? _saved_severity : rep->maxSeverity());
-
-    return previous;
-}
-
-
-//----------------------------------------------------------------------------
-// Adjust debug level, always increase verbosity, never decrease.
-//----------------------------------------------------------------------------
-
-void ts::Args::raiseMaxSeverity(int level)
-{
-    // Propagate to superclass (for this object).
-    Report::raiseMaxSeverity(level);
-
-    // Propagate to redirected report, if one is set.
-    if (_subreport != nullptr) {
-        _subreport->raiseMaxSeverity(level);
-    }
-}
-
-
-//----------------------------------------------------------------------------
 // Display an error message, as if it was produced during command line analysis.
 //----------------------------------------------------------------------------
 
@@ -684,26 +639,18 @@ void ts::Args::writeLog(int severity, const UString& message)
 {
     // Process error message if flag NO_ERROR_DISPLAY it not set.
     if ((_flags & NO_ERROR_DISPLAY) == 0) {
-        if (_subreport != nullptr) {
-            _subreport->log(severity, message);
+        if (severity < Severity::Info) {
+            std::cerr << _app_name << ": ";
         }
-        else {
-            if (severity < Severity::Info) {
-                std::cerr << _app_name << ": ";
-            }
-            else if (severity > Severity::Verbose) {
-                std::cerr << _app_name << ": " << Severity::Header(severity);
-            }
-            std::cerr << message << std::endl;
+        else if (severity > Severity::Verbose) {
+            std::cerr << _app_name << ": " << Severity::Header(severity);
         }
+        std::cerr << message << std::endl;
     }
 
-    // Mark this instance as error if severity <= Severity::Error.
-    _is_valid = _is_valid && severity > Severity::Error;
-
-    // Immediately abort application is severity == Severity::Fatal.
-    if (severity == Severity::Fatal) {
-        ::exit(EXIT_FAILURE);
+    // Immediately abort application is severity is Fatal (or worse).
+    if (severity <= Severity::Fatal) {
+        std::exit(EXIT_FAILURE);
     }
 }
 
@@ -714,8 +661,8 @@ void ts::Args::writeLog(int severity, const UString& message)
 
 void ts::Args::exitOnError(bool force)
 {
-    if (!_is_valid && (force || (_flags & NO_EXIT_ON_ERROR) == 0)) {
-        ::exit(EXIT_FAILURE);
+    if (!valid() && (force || (_flags & NO_EXIT_ON_ERROR) == 0)) {
+        std::exit(EXIT_FAILURE);
     }
 }
 
@@ -731,7 +678,7 @@ ts::Args::IOption* ts::Args::search(UChar c)
             return &it.second;
         }
     }
-    error(UString::Format(u"unknown option -%c", {c}));
+    error(UString::Format(u"unknown option -%c", c));
     return nullptr;
 }
 
@@ -780,7 +727,7 @@ ts::Args::IOption* ts::Args::search(const UString& name)
 
 //----------------------------------------------------------------------------
 // Locate an IOption based on its complete long name.
-// Throw ArgsError if option does not exist (application internal error)
+// Fatal error if option does not exist (application internal error)
 //----------------------------------------------------------------------------
 
 ts::Args::IOption& ts::Args::getIOption(const UChar* name)
@@ -791,7 +738,7 @@ ts::Args::IOption& ts::Args::getIOption(const UChar* name)
         return it->second;
     }
     else {
-        throw ArgsError(_app_name + u": application internal error, option --" + name1 + u" undefined");
+        fatalArgError(name1, u"undefined");
     }
 }
 
@@ -826,53 +773,55 @@ size_t ts::Args::count(const UChar* name) const
 //----------------------------------------------------------------------------
 // Get the value of an option. The index designates the occurence of
 // the option. If the option is not present, or not with this
-// occurence, defValue is returned.
+// occurence, def_value is returned.
 //----------------------------------------------------------------------------
 
-ts::UString ts::Args::value(const UChar* name, const UChar* defValue, size_t index) const
+ts::UString ts::Args::value(const UChar* name, const UChar* def_value, size_t index) const
+{
+    UString v;
+    getValue(v, name, def_value, index);
+    return v;
+}
+
+void ts::Args::getValue(UString& value, const UChar* name, const UChar* def_value, size_t index) const
 {
     const IOption& opt(getIOption(name));
     if (opt.type == INTEGER) {
-        throw ArgsError(_app_name + u": application internal error, option --" + opt.name + u" is integer, cannot be accessed as string");
+        fatalArgError(opt.name, u"is integer, cannot be accessed as string");
     }
-    return index >= opt.values.size() || !opt.values[index].string.set() ? defValue : opt.values[index].string.value();
+    else if (index >= opt.values.size() || !opt.values[index].string.has_value()) {
+        value= def_value;
+    }
+    else {
+        value = opt.values[index].string.value();
+    }
 }
 
-void ts::Args::getValue(UString& value_, const UChar* name, const UChar* defValue, size_t index) const
-{
-    value_ = value(name, defValue, index);
-}
-
-void ts::Args::getOptionalValue(Variable<UString>& value, const UChar* name, bool clear_if_absent) const
+void ts::Args::getOptionalValue(std::optional<UString>& value, const UChar* name, bool clear_if_absent) const
 {
     const IOption& opt(getIOption(name));
     if (opt.type == INTEGER) {
-        throw ArgsError(_app_name + u": application internal error, option --" + opt.name + u" is integer, cannot be accessed as string");
+        fatalArgError(opt.name, u"is integer, cannot be accessed as string");
     }
-    else if (!opt.values.empty() && opt.values[0].string.set()) {
+    else if (!opt.values.empty() && opt.values[0].string.has_value()) {
         value = opt.values[0].string;
     }
     else if (clear_if_absent) {
-        value.clear();
+        value.reset();
     }
 }
 
-
-//----------------------------------------------------------------------------
-// Return all occurences of this option in a vector
-//----------------------------------------------------------------------------
-
-void ts::Args::getValues(UStringVector& values, const UChar* name) const
+void ts::Args::getPathValue(fs::path& value, const UChar* name, const fs::path& def_value, size_t index) const
 {
     const IOption& opt(getIOption(name));
-
-    values.clear();
-    values.reserve(opt.values.size());
-
-    for (auto& it : opt.values) {
-        if (it.string.set()) {
-            values.push_back(it.string.value());
-        }
+    if (opt.type != FILENAME && opt.type != DIRECTORY) {
+        fatalArgError(opt.name, u"is not a filesystem path");
+    }
+    else if (index >= opt.values.size() || !opt.values[index].string.has_value()) {
+        value = def_value;
+    }
+    else {
+        value = fs::path(opt.values[index].string.value());
     }
 }
 
@@ -884,15 +833,14 @@ void ts::Args::getValues(UStringVector& values, const UChar* name) const
 void ts::Args::getTristateValue(Tristate& value, const UChar* name, size_t index) const
 {
     const IOption& opt(getIOption(name));
-
     if (opt.type == INTEGER) {
-        throw ArgsError(_app_name + u": application internal error, option --" + opt.name + u" is integer, cannot be accessed as tristate");
+        fatalArgError(opt.name, u"is integer, cannot be accessed as tristate");
     }
     if (index >= opt.values.size()) {
         // Option not present, meaning unspecified.
         value = Tristate::Maybe;
     }
-    else if (!opt.values[index].string.set()) {
+    else if (!opt.values[index].string.has_value()) {
         // Option present without value, meaning true.
         value = Tristate::True;
     }
@@ -919,11 +867,10 @@ ts::Tristate ts::Args::tristateValue(const UChar* name, size_t index) const
 void ts::Args::getHexaValue(ByteBlock& value, const UChar* name, const ByteBlock& def_value, size_t index) const
 {
     const IOption& opt(getIOption(name));
-
     if (opt.type != STRING && opt.type != HEXADATA) {
-        throw ArgsError(_app_name + u": application internal error, option --" + opt.name + u" is not declared as string or hexa string");
+        fatalArgError(opt.name, u"is not declared as string or hexa string");
     }
-    if (index >= opt.values.size() || !opt.values[index].string.set()) {
+    if (index >= opt.values.size() || !opt.values[index].string.has_value()) {
         value = def_value;
     }
     else {
@@ -935,6 +882,52 @@ ts::ByteBlock ts::Args::hexaValue(const UChar* name, const ByteBlock& def_value,
 {
     ByteBlock value;
     getHexaValue(value, name, def_value, index);
+    return value;
+}
+
+
+//----------------------------------------------------------------------------
+// Get the value of an option as an IPv4 address or socket address.
+//----------------------------------------------------------------------------
+
+void ts::Args::getIPValue(IPv4Address& value, const UChar* name, const IPv4Address& def_value, size_t index) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.type != IPADDR && opt.type != IPSOCKADDR && opt.type != IPSOCKADDR_OA && opt.type != IPSOCKADDR_OP && opt.type != IPSOCKADDR_OAP) {
+        fatalArgError(opt.name, u"is not declared as IPv4 address");
+    }
+    value = index >= opt.values.size() ? def_value : opt.values[index].address;
+    if (!value.hasAddress() && def_value.hasAddress()) {
+        value.setAddress(def_value.address());
+    }
+}
+
+ts::IPv4Address ts::Args::ipValue(const UChar* name, const IPv4Address& def_value, size_t index) const
+{
+    IPv4Address value;
+    getIPValue(value, name, def_value, index);
+    return value;
+}
+
+void ts::Args::getSocketValue(IPv4SocketAddress& value, const UChar* name, const IPv4SocketAddress& def_value, size_t index) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.type != IPSOCKADDR && opt.type != IPSOCKADDR_OA && opt.type != IPSOCKADDR_OP && opt.type != IPSOCKADDR_OAP) {
+        fatalArgError(opt.name, u"is not declared as IPv4 socket address");
+    }
+    value = index >= opt.values.size() ? def_value : opt.values[index].address;
+    if (!value.hasAddress() && def_value.hasAddress()) {
+        value.setAddress(def_value.address());
+    }
+    if (!value.hasPort() && def_value.hasPort()) {
+        value.setPort(def_value.port());
+    }
+}
+
+ts::IPv4SocketAddress ts::Args::socketValue(const UChar* name, const IPv4SocketAddress& def_value, size_t index) const
+{
+    IPv4SocketAddress value;
+    getSocketValue(value, name, def_value, index);
     return value;
 }
 
@@ -960,7 +953,7 @@ ts::UString ts::Args::commandLine() const
 
 ts::UString ts::Args::GetAppName(int argc, char* argv[])
 {
-    return argc < 1 || argv == nullptr ? UString() : BaseName(UString::FromUTF8(argv[0]), TS_EXECUTABLE_SUFFIX);
+    return argc < 1 || argv == nullptr ? UString() : BaseName(UString::FromUTF8(argv[0]), EXECUTABLE_FILE_SUFFIX);
 }
 
 
@@ -1011,16 +1004,19 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
         // Prepend and append default options.
         UStringVector pre;
         UStringVector post;
-        DuckConfigFile::Instance()->value(u"prepend.options").splitShellStyle(pre);
-        DuckConfigFile::Instance()->value(u"append.options").splitShellStyle(post);
+        DuckConfigFile::Instance().value(u"prepend.options").splitShellStyle(pre);
+        DuckConfigFile::Instance().value(u"append.options").splitShellStyle(post);
         _args.insert(_args.begin(), pre.begin(), pre.end());
         _args.insert(_args.end(), post.begin(), post.end());
 
         // Default arguments if there is none.
         if (_args.empty()) {
-            DuckConfigFile::Instance()->value(u"default.options").splitShellStyle(_args);
+            DuckConfigFile::Instance().value(u"default.options").splitShellStyle(_args);
         }
     }
+
+    // Reset previously logged errors.
+    resetErrors();
 
     // Process redirections.
     _is_valid = !processRedirections || processArgsRedirection(_args);
@@ -1034,7 +1030,7 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
     while (_is_valid && (short_opt_arg != NPOS || next_arg < _args.size())) {
 
         IOption* opt = nullptr;
-        Variable<UString> val;
+        std::optional<UString> val;
 
         // Locate option name and value
         if (short_opt_arg != NPOS) {
@@ -1089,7 +1085,7 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
         if (opt != nullptr) {
             // Get the value string from short option, if present
             if (short_opt_arg != NPOS && opt->type != NONE) {
-                assert(!val.set());
+                assert(!val.has_value());
                 // Get the value from the rest of the short option string
                 val = _args[short_opt_arg].substr(short_opt_index);
                 short_opt_arg = NPOS;
@@ -1097,7 +1093,7 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
             }
 
             // Check presence of mandatory values in next arg if not already found
-            if (!val.set() && opt->type != NONE && (opt->flags & IOPT_OPTVALUE) == 0 && next_arg < _args.size()) {
+            if (!val.has_value() && opt->type != NONE && (opt->flags & IOPT_OPTVALUE) == 0 && next_arg < _args.size()) {
                 val = _args[next_arg++];
             }
 
@@ -1108,18 +1104,18 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
 
     // Process --verbose predefined option
     if ((_flags & NO_VERBOSE) == 0 && present(u"verbose") && (search(u"verbose")->flags & IOPT_PREDEFINED) != 0) {
-        raiseMaxSeverity(Severity::Verbose);
+        raiseMaxSeverity(Severity::Verbose, true);
     }
 
     // Process --debug predefined option
     if ((_flags & NO_DEBUG) == 0 && present(u"debug") && (search(u"debug")->flags & IOPT_PREDEFINED) != 0) {
-        raiseMaxSeverity(intValue(u"debug", Severity::Debug));
+        raiseMaxSeverity(intValue(u"debug", Severity::Debug), true);
     }
 
     // Display the analyzed command line. Do it outside the previous condition (checking for --debug) if the debug
     // mode was set outside this analysis (typically debug mode set at command level and propagated to plugins).
     if (debug()) {
-        debug(u"====> %s%s%s %s", {_shell, _shell.empty() ? u"" : u" ", _app_name.toQuoted(), UString::ToQuotedLine(_args)});
+        debug(u"====> %s%s%s %s", _shell, _shell.empty() ? u"" : u" ", _app_name.toQuoted(), UString::ToQuotedLine(_args));
     }
 
     // Process --help predefined option
@@ -1138,17 +1134,17 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
 
     // Look for parameters/options number of occurences.
     // Don't do that if command already proven wrong.
-    if (_is_valid) {
+    if (valid()) {
         for (auto& it : _iopts) {
             const IOption& op(it.second);
             // Don't check number of occurences when the option has no value.
             // Specifying such an option multiple times is the same as once.
             if (op.type != NONE) {
                 if (op.value_count < op.min_occur) {
-                    error(u"missing " + op.display() + (op.min_occur < 2 ? u"" : UString::Format(u", %d required", {op.min_occur})));
+                    error(u"missing " + op.display() + (op.min_occur < 2 ? u"" : UString::Format(u", %d required", op.min_occur)));
                 }
                 else if (op.value_count > op.max_occur) {
-                    error(u"too many " + op.display() + (op.max_occur < 2 ? u"" : UString::Format(u", %d maximum", {op.max_occur})));
+                    error(u"too many " + op.display() + (op.max_occur < 2 ? u"" : UString::Format(u", %d maximum", op.max_occur)));
                 }
             }
         }
@@ -1157,7 +1153,7 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
     // In case of error, exit
     exitOnError();
 
-    return _is_valid;
+    return valid();
 }
 
 
@@ -1165,7 +1161,7 @@ bool ts::Args::analyze(const UString& app_name, const UStringVector& arguments, 
 // Validate the content of an option, add the value.
 //----------------------------------------------------------------------------
 
-bool ts::Args::validateParameter(IOption& opt, const Variable<UString>& val)
+bool ts::Args::validateParameter(IOption& opt, const std::optional<UString>& val)
 {
     int64_t last = 0;
     size_t point = NPOS;
@@ -1176,48 +1172,48 @@ bool ts::Args::validateParameter(IOption& opt, const Variable<UString>& val)
 
     if (opt.type == NONE) {
         // There should be no value, this is a flag without value.
-        if (val.set()) {
+        if (val.has_value()) {
             // In the case --option=value
-            error(u"no value allowed for %s", {opt.display()});
+            error(u"no value allowed for %s", opt.display());
             return false;
         }
     }
-    else if (!val.set()) {
+    else if (!val.has_value()) {
         // No value set, must be an optional value.
         if ((opt.flags & IOPT_OPTVALUE) == 0) {
-            error(u"missing value for %s", {opt.display()});
+            error(u"missing value for %s", opt.display());
             return false;
         }
     }
     else if (opt.type == TRISTATE) {
         Tristate t;
         if (!val.value().toTristate(t)) {
-            error(u"invalid value %s for %s, use one of %s", {val.value(), opt.display(), UString::TristateNamesList()});
+            error(u"invalid value %s for %s, use one of %s", val.value(), opt.display(), UString::TristateNamesList());
             return false;
         }
     }
     else if (opt.type == ANUMBER) {
         // We keep the arg as a string value after validation and will parse it again when the value is queried later.
-        if (opt.anumber.isNull()) {
-            error(u"internal error, option %s has no abstract number instance for validation", {opt.display()});
+        if (opt.anumber == nullptr) {
+            error(u"internal error, option %s has no abstract number instance for validation", opt.display());
             return false;
         }
         else if (!opt.anumber->fromString(val.value())) {
-            error(u"invalid value %s for %s", {val.value(), opt.display()});
+            error(u"invalid value %s for %s", val.value(), opt.display());
             return false;
         }
         else if (!opt.anumber->inRange(opt.min_value, opt.max_value)) {
-            error(u"value for %s must be in range %'d to %'d", {opt.display(), opt.min_value, opt.max_value});
+            error(u"value for %s must be in range %'d to %'d", opt.display(), opt.min_value, opt.max_value);
             return false;
         }
     }
     else if (opt.type == STRING) {
         if (val.value().size() < size_t(opt.min_value)) {
-            error(u"invalid size %d for %s, must be at least %d characters", {val.value().size(), opt.display(), opt.min_value});
+            error(u"invalid size %d for %s, must be at least %d characters", val.value().size(), opt.display(), opt.min_value);
             return false;
         }
         if (val.value().size() > size_t(opt.max_value)) {
-            error(u"invalid size %d for %s, must be at most %d characters", {val.value().size(), opt.display(), opt.max_value});
+            error(u"invalid size %d for %s, must be at most %d characters", val.value().size(), opt.display(), opt.max_value);
             return false;
         }
     }
@@ -1225,19 +1221,40 @@ bool ts::Args::validateParameter(IOption& opt, const Variable<UString>& val)
         // We keep the arg as a string value after validation and will parse it again when the value is queried later.
         ByteBlock data;
         if (!val.value().hexaDecode(data)) {
-            error(u"invalid hexadecimal value '%s' for %s", {val.value(), opt.display()});
+            error(u"invalid hexadecimal value '%s' for %s", val.value(), opt.display());
             return false;
         }
         if (data.size() < size_t(opt.min_value)) {
-            error(u"invalid size %d for %s, must be at least %d bytes", {data.size(), opt.display(), opt.min_value});
+            error(u"invalid size %d for %s, must be at least %d bytes", data.size(), opt.display(), opt.min_value);
             return false;
         }
         if (data.size() > size_t(opt.max_value)) {
-            error(u"invalid size %d for %s, must be at most %d bytes", {data.size(), opt.display(), opt.max_value});
+            error(u"invalid size %d for %s, must be at most %d bytes", data.size(), opt.display(), opt.max_value);
             return false;
         }
     }
-    else if (opt.type != INTEGER) {
+    else if (opt.type == IPADDR) {
+        IPv4Address addr;
+        if (!addr.resolve(val.value(), *this)) {
+            return false;
+        }
+        arg.address.setAddress(addr);
+        arg.address.setPort(0);
+    }
+    else if (opt.type == IPSOCKADDR || opt.type == IPSOCKADDR_OA || opt.type == IPSOCKADDR_OP || opt.type == IPSOCKADDR_OAP) {
+        if (!arg.address.resolve(val.value(), *this)) {
+            return false;
+        }
+        if (!arg.address.hasAddress() && opt.type != IPSOCKADDR_OA && opt.type != IPSOCKADDR_OAP) {
+            error(u"mandatory IP address is missing in %s, use ip-address:port", val.value());
+            return false;
+        }
+        if (!arg.address.hasPort() && opt.type != IPSOCKADDR_OP && opt.type != IPSOCKADDR_OAP) {
+            error(u"mandatory port number is missing in %s, use ip-address:port", val.value());
+            return false;
+        }
+    }
+    else if (opt.type != INTEGER && opt.type != CHRONO) {
         // These cases must have been previously eliminated.
         assert(opt.type != UNSIGNED);
         assert(opt.type != POSITIVE);
@@ -1253,7 +1270,7 @@ bool ts::Args::validateParameter(IOption& opt, const Variable<UString>& val)
         // Enumeration value expected, get corresponding integer value (not case sensitive)
         int i = opt.enumeration.value(val.value(), false);
         if (i == Enumeration::UNKNOWN) {
-            error(u"invalid value %s for %s, use one of %s", {val.value(), opt.display(), optionNames(opt.name.c_str())});
+            error(u"invalid value %s for %s, use one of %s", val.value(), opt.display(), optionNames(opt.name.c_str()));
             return false;
         }
         // Replace with actual integer value.
@@ -1271,24 +1288,24 @@ bool ts::Args::validateParameter(IOption& opt, const Variable<UString>& val)
     {
         // Found one range of integer values.
         if (last < arg.int_base) {
-            error(u"invalid range of integer values \"%s\" for %s", {val.value(), opt.display()});
+            error(u"invalid range of integer values \"%s\" for %s", val.value(), opt.display());
             return false;
         }
         arg.int_count = size_t(last + 1 - arg.int_base);
     }
     else {
-        error(u"invalid integer value %s for %s", {val.value(), opt.display()});
+        error(u"invalid integer value %s for %s", val.value(), opt.display());
         return false;
     }
 
     // Check validity of integer values.
     if (opt.type == INTEGER && arg.int_count > 0) {
         if (arg.int_base < opt.min_value) {
-            error(u"value for %s must be >= %'d", {opt.display(), opt.min_value});
+            error(u"value for %s must be >= %'d", opt.display(), opt.min_value);
             return false;
         }
         else if (arg.int_base + int64_t(arg.int_count) - 1 > opt.max_value) {
-            error(u"value for %s must be <= %'d", {opt.display(), opt.max_value});
+            error(u"value for %s must be <= %'d", opt.display(), opt.max_value);
             return false;
         }
     }
@@ -1420,7 +1437,7 @@ void ts::Args::processHelp()
 
     // Exit application, unless specified otherwise.
     if ((_flags & NO_EXIT_ON_HELP) == 0) {
-        ::exit(EXIT_SUCCESS);
+        std::exit(EXIT_SUCCESS);
     }
 }
 
@@ -1436,7 +1453,7 @@ void ts::Args::processVersion()
 
     // Exit application, unless specified otherwise.
     if ((_flags & NO_EXIT_ON_VERSION) == 0) {
-        ::exit(EXIT_SUCCESS);
+        std::exit(EXIT_SUCCESS);
     }
 }
 
@@ -1469,22 +1486,12 @@ bool ts::Args::processArgsRedirection(UStringVector& args)
             if (UString::Load(lines, fileName)) {
                 // Insert the loaded lines. Then, make "it" point to the first inserted element.
                 // This means that the loaded content will now be processed, allowing nested '@' directives.
-#if defined(TS_CXX11_STRING)
-                // Starting with C++11, std::vector::insert() shall return an iterator.
                 it = args.insert(it, lines.begin(), lines.end());
-#else
-                // However, with GCC, there is the same problem as C++11 strings, GCC 4 claims to
-                // be C++11 compliant but in fact it is not. So, we have to manually recompute
-                // the iterator after insertion for old versions of GCC.
-                const size_t index = it - args.begin();
-                args.insert(it, lines.begin(), lines.end());
-                it = args.begin() + index;
-#endif
             }
             else {
                 // Error loading file.
                 result = false;
-                error(u"error reading command line arguments from file \"%s\"", {fileName});
+                error(u"error reading command line arguments from file \"%s\"", fileName);
             }
         }
         else {

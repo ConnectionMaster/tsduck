@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,54 +22,26 @@
 
 class TSPacketTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testPacket();
-    void testConstruction();
-    void testInit();
-    void testCreatePCR();
-    void testAFStuffingSize();
-    void testSetPayloadSize();
-    void testFlags();
-    void testPrivateData();
-
-    TSUNIT_TEST_BEGIN(TSPacketTest);
-    TSUNIT_TEST(testPacket);
-    TSUNIT_TEST(testConstruction);
-    TSUNIT_TEST(testInit);
-    TSUNIT_TEST(testCreatePCR);
-    TSUNIT_TEST(testAFStuffingSize);
-    TSUNIT_TEST(testSetPayloadSize);
-    TSUNIT_TEST(testFlags);
-    TSUNIT_TEST(testPrivateData);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Packet);
+    TSUNIT_DECLARE_TEST(Construction);
+    TSUNIT_DECLARE_TEST(Init);
+    TSUNIT_DECLARE_TEST(CreatePCR);
+    TSUNIT_DECLARE_TEST(AFStuffingSize);
+    TSUNIT_DECLARE_TEST(SetPayloadSize);
+    TSUNIT_DECLARE_TEST(Flags);
+    TSUNIT_DECLARE_TEST(PrivateData);
+    TSUNIT_DECLARE_TEST(BitRate);
+    TSUNIT_DECLARE_TEST(PCR);
 };
 
 TSUNIT_REGISTER(TSPacketTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void TSPacketTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void TSPacketTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void TSPacketTest::testPacket()
+TSUNIT_DEFINE_TEST(Packet)
 {
     ts::TSPacket::SanityCheck();
 
@@ -102,7 +53,7 @@ void TSPacketTest::testPacket()
     TSUNIT_EQUAL(7 * ts::PKT_SIZE, sizeof(packets));
 }
 
-void TSPacketTest::testConstruction()
+TSUNIT_DEFINE_TEST(Construction)
 {
     // Test aggregate initialization.
     ts::TSPacket p1 = {{
@@ -148,7 +99,7 @@ void TSPacketTest::testConstruction()
     }
 }
 
-void TSPacketTest::testInit()
+TSUNIT_DEFINE_TEST(Init)
 {
     ts::TSPacket pkt;
     pkt.init(0x1ABC, 7, 0x35);
@@ -163,7 +114,7 @@ void TSPacketTest::testInit()
     }
 }
 
-void TSPacketTest::testCreatePCR()
+TSUNIT_DEFINE_TEST(CreatePCR)
 {
     ts::TSPacket pkt;
     pkt.init(0x1ABC);
@@ -176,7 +127,7 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_ASSERT(!pkt.hasPCR());
     TSUNIT_EQUAL(ts::INVALID_PCR, pkt.getPCR());
 
-    TSUNIT_ASSERT(!pkt.setPCR(TS_UCONST64(0x000000126789ABCD), false));
+    TSUNIT_ASSERT(!pkt.setPCR(0x000000126789ABCD, false));
 
     TSUNIT_ASSERT(!pkt.hasAF());
     TSUNIT_EQUAL(184, pkt.getPayloadSize());
@@ -184,23 +135,23 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_ASSERT(!pkt.hasPCR());
     TSUNIT_EQUAL(ts::INVALID_PCR, pkt.getPCR());
 
-    TSUNIT_ASSERT(pkt.setPCR(TS_UCONST64(0x000000126789ABCD), true));
+    TSUNIT_ASSERT(pkt.setPCR(0x000000126789ABCD, true));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_EQUAL(8, pkt.getAFSize());
     TSUNIT_ASSERT(pkt.hasPayload());
     TSUNIT_EQUAL(176, pkt.getPayloadSize());
     TSUNIT_ASSERT(pkt.hasPCR());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000126789ABCD), pkt.getPCR());
+    TSUNIT_EQUAL(0x000000126789ABCD, pkt.getPCR());
 
-    TSUNIT_ASSERT(pkt.setPCR(TS_UCONST64(0x0000023456789ABC), true));
+    TSUNIT_ASSERT(pkt.setPCR(0x0000023456789ABC, true));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_EQUAL(8, pkt.getAFSize());
     TSUNIT_ASSERT(pkt.hasPayload());
     TSUNIT_EQUAL(176, pkt.getPayloadSize());
     TSUNIT_ASSERT(pkt.hasPCR());
-    TSUNIT_EQUAL(TS_UCONST64(0x0000023456789ABC), pkt.getPCR());
+    TSUNIT_EQUAL(0x0000023456789ABC, pkt.getPCR());
 
     pkt.removePCR();
 
@@ -210,7 +161,7 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_EQUAL(6, pkt.getAFStuffingSize());
     TSUNIT_ASSERT(!pkt.hasPCR());
 
-    TSUNIT_ASSERT(pkt.setPCR(TS_UCONST64(0x00000089642CA4F7), true));
+    TSUNIT_ASSERT(pkt.setPCR(0x00000089642CA4F7, true));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_EQUAL(8, pkt.getAFSize());
@@ -219,7 +170,7 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_ASSERT(pkt.hasPCR());
     TSUNIT_ASSERT(!pkt.hasOPCR());
     TSUNIT_ASSERT(!pkt.hasSpliceCountdown());
-    TSUNIT_EQUAL(TS_UCONST64(0x00000089642CA4F7), pkt.getPCR());
+    TSUNIT_EQUAL(0x00000089642CA4F7, pkt.getPCR());
     TSUNIT_EQUAL(ts::INVALID_PCR, pkt.getOPCR());
     TSUNIT_EQUAL(0, pkt.getSpliceCountdown());
 
@@ -233,11 +184,11 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_ASSERT(pkt.hasPCR());
     TSUNIT_ASSERT(!pkt.hasOPCR());
     TSUNIT_ASSERT(pkt.hasSpliceCountdown());
-    TSUNIT_EQUAL(TS_UCONST64(0x00000089642CA4F7), pkt.getPCR());
+    TSUNIT_EQUAL(0x00000089642CA4F7, pkt.getPCR());
     TSUNIT_EQUAL(ts::INVALID_PCR, pkt.getOPCR());
     TSUNIT_EQUAL(-97, pkt.getSpliceCountdown());
 
-    TSUNIT_ASSERT(pkt.setOPCR(TS_UCONST64(0x000000B964FEA456), true));
+    TSUNIT_ASSERT(pkt.setOPCR(0x000000B964FEA456, true));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_EQUAL(15, pkt.getAFSize());
@@ -246,12 +197,12 @@ void TSPacketTest::testCreatePCR()
     TSUNIT_ASSERT(pkt.hasPCR());
     TSUNIT_ASSERT(pkt.hasOPCR());
     TSUNIT_ASSERT(pkt.hasSpliceCountdown());
-    TSUNIT_EQUAL(TS_UCONST64(0x00000089642CA4F7), pkt.getPCR());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000B964FEA456), pkt.getOPCR());
+    TSUNIT_EQUAL(0x00000089642CA4F7, pkt.getPCR());
+    TSUNIT_EQUAL(0x000000B964FEA456, pkt.getOPCR());
     TSUNIT_EQUAL(-97, int(pkt.getSpliceCountdown()));
 }
 
-void TSPacketTest::testAFStuffingSize()
+TSUNIT_DEFINE_TEST(AFStuffingSize)
 {
     ts::TSPacket pkt;
 
@@ -271,7 +222,7 @@ void TSPacketTest::testAFStuffingSize()
     TSUNIT_EQUAL(25, pkt.getAFStuffingSize());
 }
 
-void TSPacketTest::testSetPayloadSize()
+TSUNIT_DEFINE_TEST(SetPayloadSize)
 {
     ts::TSPacket pkt;
 
@@ -347,7 +298,7 @@ void TSPacketTest::testSetPayloadSize()
     TSUNIT_EQUAL(0x15, pkt.getPayload()[4]);
 }
 
-void TSPacketTest::testFlags()
+TSUNIT_DEFINE_TEST(Flags)
 {
     ts::TSPacket pkt;
     pkt.init();
@@ -422,8 +373,7 @@ void TSPacketTest::testFlags()
     TSUNIT_ASSERT(pkt.getESPI());
 }
 
-
-void TSPacketTest::testPrivateData()
+TSUNIT_DEFINE_TEST(PrivateData)
 {
     ts::ByteBlock data;
     ts::TSPacket pkt;
@@ -441,7 +391,7 @@ void TSPacketTest::testPrivateData()
     const ts::ByteBlock refPrivate2({0x60, 0x61, 0x62});
 
     uint8_t* pl = pkt.getPayload();
-    ::memcpy(pl, refPayload.data(), refPayload.size());
+    ts::MemCopy(pl, refPayload.data(), refPayload.size());
 
     TSUNIT_ASSERT(!pkt.setPrivateData(refPrivate1, false));
 
@@ -461,10 +411,10 @@ void TSPacketTest::testPrivateData()
     TSUNIT_EQUAL(0, pkt.getAFStuffingSize());
     TSUNIT_EQUAL(171, pkt.getPayloadSize());
     TSUNIT_ASSERT(pkt.getPayload() == pl + 13);
-    TSUNIT_ASSERT(::memcmp(pkt.getPayload(), refPayload.data(), refPayload.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPayload(), refPayload.data(), refPayload.size()));
     TSUNIT_EQUAL(ts::UString::Dump(refPrivate1, ts::UString::SINGLE_LINE),
                  ts::UString::Dump(pkt.getPrivateData(), pkt.getPrivateDataSize(), ts::UString::SINGLE_LINE));
-    TSUNIT_ASSERT(::memcmp(pkt.getPrivateData(), refPrivate1.data(), refPrivate1.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPrivateData(), refPrivate1.data(), refPrivate1.size()));
     pkt.getPrivateData(data);
     TSUNIT_ASSERT(data == refPrivate1);
 
@@ -477,14 +427,14 @@ void TSPacketTest::testPrivateData()
     TSUNIT_EQUAL(7, pkt.getAFStuffingSize());
     TSUNIT_EQUAL(171, pkt.getPayloadSize());
     TSUNIT_ASSERT(pkt.getPayload() == pl + 13);
-    TSUNIT_ASSERT(::memcmp(pkt.getPayload(), refPayload.data(), refPayload.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPayload(), refPayload.data(), refPayload.size()));
     TSUNIT_EQUAL(ts::UString::Dump(refPrivate2, ts::UString::SINGLE_LINE),
                  ts::UString::Dump(pkt.getPrivateData(), pkt.getPrivateDataSize(), ts::UString::SINGLE_LINE));
-    TSUNIT_ASSERT(::memcmp(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()));
     pkt.getPrivateData(data);
     TSUNIT_ASSERT(data == refPrivate2);
 
-    TSUNIT_ASSERT(pkt.setPCR(TS_UCONST64(0x000000126789ABCD), false));
+    TSUNIT_ASSERT(pkt.setPCR(0x000000126789ABCD, false));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_ASSERT(pkt.hasPCR());
@@ -493,18 +443,18 @@ void TSPacketTest::testPrivateData()
     TSUNIT_EQUAL(3, pkt.getPrivateDataSize());
     TSUNIT_EQUAL(1, pkt.getAFStuffingSize());
     TSUNIT_EQUAL(171, pkt.getPayloadSize());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000126789ABCD), pkt.getPCR());
+    TSUNIT_EQUAL(0x000000126789ABCD, pkt.getPCR());
     TSUNIT_ASSERT(pkt.getPayload() == pl + 13);
-    TSUNIT_ASSERT(::memcmp(pkt.getPayload(), refPayload.data(), refPayload.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPayload(), refPayload.data(), refPayload.size()));
     TSUNIT_EQUAL(ts::UString::Dump(refPrivate2, ts::UString::SINGLE_LINE),
                  ts::UString::Dump(pkt.getPrivateData(), pkt.getPrivateDataSize(), ts::UString::SINGLE_LINE));
-    TSUNIT_ASSERT(::memcmp(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()));
     data.clear();
     pkt.getPrivateData(data);
     TSUNIT_ASSERT(data == refPrivate2);
 
-    TSUNIT_ASSERT(!pkt.setOPCR(TS_UCONST64(0x000000AB67925678), false));
-    TSUNIT_ASSERT(pkt.setOPCR(TS_UCONST64(0x000000AB67925678), true));
+    TSUNIT_ASSERT(!pkt.setOPCR(0x000000AB67925678, false));
+    TSUNIT_ASSERT(pkt.setOPCR(0x000000AB67925678, true));
 
     TSUNIT_ASSERT(pkt.hasAF());
     TSUNIT_ASSERT(pkt.hasPCR());
@@ -514,13 +464,13 @@ void TSPacketTest::testPrivateData()
     TSUNIT_EQUAL(3, pkt.getPrivateDataSize());
     TSUNIT_EQUAL(0, pkt.getAFStuffingSize());
     TSUNIT_EQUAL(166, pkt.getPayloadSize());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000126789ABCD), pkt.getPCR());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000AB67925678), pkt.getOPCR());
+    TSUNIT_EQUAL(0x000000126789ABCD, pkt.getPCR());
+    TSUNIT_EQUAL(0x000000AB67925678, pkt.getOPCR());
     TSUNIT_ASSERT(pkt.getPayload() == pl + 18);
-    TSUNIT_ASSERT(::memcmp(pkt.getPayload(), refPayload.data(), refPayload.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPayload(), refPayload.data(), refPayload.size()));
     TSUNIT_EQUAL(ts::UString::Dump(refPrivate2, ts::UString::SINGLE_LINE),
                                   ts::UString::Dump(pkt.getPrivateData(), pkt.getPrivateDataSize(), ts::UString::SINGLE_LINE));
-    TSUNIT_ASSERT(::memcmp(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPrivateData(), refPrivate2.data(), refPrivate2.size()));
     data.clear();
     pkt.getPrivateData(data);
     TSUNIT_ASSERT(data == refPrivate2);
@@ -535,10 +485,42 @@ void TSPacketTest::testPrivateData()
     TSUNIT_EQUAL(0, pkt.getPrivateDataSize());
     TSUNIT_EQUAL(4, pkt.getAFStuffingSize());
     TSUNIT_EQUAL(166, pkt.getPayloadSize());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000126789ABCD), pkt.getPCR());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000AB67925678), pkt.getOPCR());
+    TSUNIT_EQUAL(0x000000126789ABCD, pkt.getPCR());
+    TSUNIT_EQUAL(0x000000AB67925678, pkt.getOPCR());
     TSUNIT_ASSERT(pkt.getPayload() == pl + 18);
-    TSUNIT_ASSERT(::memcmp(pkt.getPayload(), refPayload.data(), refPayload.size()) == 0);
+    TSUNIT_EQUAL(0, ts::MemCompare(pkt.getPayload(), refPayload.data(), refPayload.size()));
     pkt.getPrivateData(data);
     TSUNIT_ASSERT(data.empty());
+}
+
+TSUNIT_DEFINE_TEST(BitRate)
+{
+    TSUNIT_EQUAL(8 * 188 * 1000, ts::PacketBitRate(1000, cn::seconds(1)).toInt64());
+    TSUNIT_EQUAL(8 * 188 * 1000, ts::PacketBitRate(1000, cn::milliseconds(1000)).toInt64());
+
+    TSUNIT_EQUAL(1000, ts::PacketDistance(8 * 188 * 1000, cn::seconds(1)));
+    TSUNIT_EQUAL(1000, ts::PacketDistance(8 * 188 * 1000, cn::milliseconds(1000)));
+
+    using tq = cn::duration<std::intmax_t, std::ratio<3,4>>;
+    TSUNIT_EQUAL(8 * 188 * 1000, ts::PacketBitRate(3000, tq(4)).toInt64());
+    TSUNIT_EQUAL(3000, ts::PacketDistance(8 * 188 * 1000, tq(4)));
+
+    cn::milliseconds ms = cn::milliseconds(2500);
+    TSUNIT_EQUAL(25, std::chrono::duration_cast<ts::deciseconds>(ms).count());
+
+    ts::BitRate br = 14'800'000;
+    ts::PacketCounter pk = 200;
+    debug() << "TSPacketTest::testBitRate: intervals: "
+            << ts::PacketInterval<ts::PCR>(br, pk).count() << "  "
+            << ts::PacketInterval(br, pk).count()
+            << std::endl;
+}
+
+TSUNIT_DEFINE_TEST(PCR)
+{
+    TSUNIT_EQUAL(1100, ts::AddPCR(1000, 100));
+    TSUNIT_EQUAL(900, ts::AddPCR(1000, -100));
+    TSUNIT_EQUAL(10, ts::AddPCR(ts::PCR_SCALE - 90, 100));
+    TSUNIT_EQUAL(ts::PCR_SCALE - 90, ts::AddPCR(10, -100));
+    TSUNIT_EQUAL(ts::INVALID_PCR, ts::AddPCR(ts::PCR_SCALE, 100));
 }

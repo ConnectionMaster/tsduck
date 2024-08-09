@@ -1,39 +1,16 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstspControlServer.h"
 #include "tstspPluginExecutor.h"
-#include "tsNullMutex.h"
 #include "tsNullReport.h"
 #include "tsReportBuffer.h"
 #include "tsTelnetConnection.h"
-#include "tsGuardMutex.h"
 #include "tsSysUtils.h"
 
 
@@ -41,21 +18,15 @@
 // Constructor and destructor.
 //----------------------------------------------------------------------------
 
-ts::tsp::ControlServer::ControlServer(TSProcessorArgs& options, Report& log, Mutex& global_mutex, InputExecutor* input) :
-    _is_open(false),
-    _terminate(false),
+ts::tsp::ControlServer::ControlServer(TSProcessorArgs& options, Report& log, std::recursive_mutex& global_mutex, InputExecutor* input) :
     _options(options),
-    _log(log, u"control commands: "),
-    _reference(_log),
-    _server(),
-    _mutex(global_mutex),
-    _input(input),
-    _output(nullptr),
-    _plugins()
+    _log(log.maxSeverity(), u"control commands: ", &log),
+    _global_mutex(global_mutex),
+    _input(input)
 {
     // Locate output plugin, count packet processor plugins.
     if (_input != nullptr) {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_global_mutex);
 
         // The output plugin "precedes" the input plugin in the ring.
         _output = _input->ringPrevious<OutputExecutor>();
@@ -69,7 +40,7 @@ ts::tsp::ControlServer::ControlServer(TSProcessorArgs& options, Report& log, Mut
             _plugins.push_back(pe);
         }
     }
-    _log.debug(u"found %d packet processor plugins", {_plugins.size()});
+    _log.debug(u"found %d packet processor plugins", _plugins.size());
 
     // Register command handlers.
     _reference.setCommandLineHandler(this, &ControlServer::executeExit, u"exit");
@@ -144,7 +115,7 @@ void ts::tsp::ControlServer::main()
     _log.debug(u"control command thread started");
 
     // Get accept errors in a buffer since some errors are normal.
-    ReportBuffer<NullMutex> error(_log.maxSeverity());
+    ReportBuffer<ThreadSafety::None> error(_log.maxSeverity());
 
     // Client address and connection.
     IPv4SocketAddress source;
@@ -158,11 +129,11 @@ void ts::tsp::ControlServer::main()
         // Filter allowed sources.
         // Set receive timeout on the connection and read one line.
         if (std::find(_options.control_sources.begin(), _options.control_sources.end(), source.address()) == _options.control_sources.end()) {
-            _log.warning(u"connection attempt from unauthorized source %s (ignored)", {source});
+            _log.warning(u"connection attempt from unauthorized source %s (ignored)", source);
             conn.sendLine("error: client address is not authorized", _log);
         }
         else if (conn.setReceiveTimeout(_options.control_timeout, _log) && conn.receiveLine(line, nullptr, _log)) {
-            _log.verbose(u"received from %s: %s", {source, line});
+            _log.verbose(u"received from %s: %s", source, line);
 
             // Reset the severity of the connection before analysing the line.
             // A previous analysis may have used --verbose or --debug.
@@ -170,7 +141,7 @@ void ts::tsp::ControlServer::main()
 
             // Analyze the command, return errors on the client connection.
             if (_reference.processCommand(line, &conn) != CommandStatus::SUCCESS) {
-                conn.error(u"invalid tsp control command: %s", {line});
+                conn.error(u"invalid tsp control command: %s", line);
             }
         }
 
@@ -179,8 +150,8 @@ void ts::tsp::ControlServer::main()
     }
 
     // If termination was requested, receive error is not an error.
-    if (!_terminate && !error.emptyMessages()) {
-        _log.error(error.getMessages());
+    if (!_terminate && !error.empty()) {
+        _log.error(error.messages());
     }
     _log.debug(u"control command thread completed");
 }
@@ -194,7 +165,7 @@ ts::CommandStatus ts::tsp::ControlServer::executeExit(const UString& command, Ar
 {
     if (args.present(u"abort")) {
         // Immediate exit.
-        ::exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     else {
         _log.info(u"exit requested by remote tspcontrol command");
@@ -218,14 +189,14 @@ ts::CommandStatus ts::tsp::ControlServer::executeSetLog(const UString& command, 
     const int level = args.intValue(u"", Severity::Info);
 
     // Set log severity of the main logger.
-    _log.setMaxSeverity(level);
-    _log.log(level, u"set log level to %s", {Severity::Enums.name(level)});
+    _log.setMaxSeverity(level, true);
+    _log.log(level, u"set log level to %s", Severity::Enums.name(level));
 
     // Also set the log severity on each individual plugin.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_global_mutex);
     PluginExecutor* proc = _input;
     do {
-        proc->setMaxSeverity(level);
+        proc->plugin()->setMaxSeverity(level, true);
     } while ((proc = proc->ringNext<ts::tsp::PluginExecutor>()) != _input);
 
     return CommandStatus::SUCCESS;
@@ -240,7 +211,7 @@ ts::CommandStatus ts::tsp::ControlServer::executeList(const UString& command, Ar
 {
     if (args.verbose()) {
         args.info(u"");
-        args.info(u"Executable: %s", {ExecutableFile()});
+        args.info(u"Executable: %s", ExecutableFile());
         args.info(u"");
     }
 
@@ -261,11 +232,11 @@ void ts::tsp::ControlServer::listOnePlugin(size_t index, UChar type, PluginExecu
 {
     const bool verbose = report.verbose();
     const bool suspended = plugin->getSuspended();
-    report.info(u"%2d: %s-%c %s", {
+    report.info(u"%2d: %s-%c %s",
                 index,
                 verbose && suspended ? u"(suspended) " : u"",
                 type,
-                verbose ? plugin->plugin()->commandLine() : plugin->pluginName() });
+                verbose ? plugin->plugin()->commandLine() : plugin->pluginName());
 }
 
 
@@ -296,7 +267,7 @@ ts::CommandStatus ts::tsp::ControlServer::executeSuspendResume(bool state, Args&
         args.error(u"cannot suspend/resume the input plugin");
     }
     else {
-        args.error(u"invalid plugin index %d, specify 1 to %d", {index, _plugins.size() + 1});
+        args.error(u"invalid plugin index %d, specify 1 to %d", index, _plugins.size() + 1);
     }
     return CommandStatus::SUCCESS;
 }

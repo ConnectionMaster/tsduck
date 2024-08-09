@@ -1,84 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsMuxerArgs.h"
 #include "tsArgsWithPlugins.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::MuxerArgs::DEFAULT_MAX_INPUT_PACKETS;
-constexpr size_t ts::MuxerArgs::MIN_INPUT_PACKETS;
-constexpr size_t ts::MuxerArgs::DEFAULT_MAX_OUTPUT_PACKETS;
-constexpr size_t ts::MuxerArgs::MIN_OUTPUT_PACKETS;
-constexpr size_t ts::MuxerArgs::DEFAULT_BUFFERED_PACKETS;
-constexpr size_t ts::MuxerArgs::MIN_BUFFERED_PACKETS;
-constexpr size_t ts::MuxerArgs::DEFAULT_LOSSY_INPUT_PACKETS;
-constexpr ts::MilliSecond ts::MuxerArgs::DEFAULT_RESTART_DELAY;
-constexpr ts::MicroSecond ts::MuxerArgs::DEFAULT_CADENCE;
-constexpr ts::BitRate::int_t ts::MuxerArgs::MIN_PSI_BITRATE;
-constexpr ts::BitRate::int_t ts::MuxerArgs::DEFAULT_PSI_BITRATE;
-#endif
-
-
-//----------------------------------------------------------------------------
-// Constructors.
-//----------------------------------------------------------------------------
-
-ts::MuxerArgs::MuxerArgs() :
-    appName(),
-    inputs(),
-    output(),
-    outputBitRate(0),
-    patBitRate(DEFAULT_PSI_BITRATE),
-    catBitRate(DEFAULT_PSI_BITRATE),
-    nitBitRate(DEFAULT_PSI_BITRATE),
-    sdtBitRate(DEFAULT_PSI_BITRATE),
-    lossyReclaim(DEFAULT_LOSSY_INPUT_PACKETS),
-    lossyInput(false),
-    inputOnce(false),
-    outputOnce(false),
-    ignoreConflicts(false),
-    inputRestartDelay(DEFAULT_RESTART_DELAY),
-    outputRestartDelay(DEFAULT_RESTART_DELAY),
-    cadence(DEFAULT_CADENCE),
-    inBufferPackets(DEFAULT_BUFFERED_PACKETS),
-    outBufferPackets(DEFAULT_BUFFERED_PACKETS),
-    maxInputPackets(DEFAULT_MAX_INPUT_PACKETS),
-    maxOutputPackets(DEFAULT_MAX_OUTPUT_PACKETS),
-    outputTSId(0),
-    outputNetwId(0),
-    nitScope(TableScope::ACTUAL),
-    sdtScope(TableScope::ACTUAL),
-    eitScope(TableScope::ACTUAL),
-    timeInputIndex(NPOS),
-    duckArgs()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -126,10 +55,10 @@ void ts::MuxerArgs::defineArgs(Args& args)
               u"The default is " + UString::Decimal(DEFAULT_BUFFERED_PACKETS) + u" packets. "
               u"The size of the output buffer is the sum of all input buffers sizes.");
 
-    args.option(u"cadence", 0, Args::POSITIVE);
-    args.help(u"cadence", u"microseconds",
+    args.option<cn::microseconds>(u"cadence");
+    args.help(u"cadence",
               u"Specify the internal polling cadence in microseconds. "
-              u"The default is " + UString::Decimal(DEFAULT_CADENCE) + u" microseconds.");
+              u"The default is " + UString::Chrono(DEFAULT_CADENCE) + u".");
 
     args.option<BitRate>(u"cat-bitrate", 0, 0, 0, MIN_PSI_BITRATE);
     args.help(u"cat-bitrate",
@@ -178,12 +107,12 @@ void ts::MuxerArgs::defineArgs(Args& args)
     args.help(u"pat-bitrate",
               u"PAT bitrate in output stream. The default is " + UString::Decimal(DEFAULT_PSI_BITRATE) + u" b/s.");
 
-    args.option(u"restart-delay", 0, Args::UNSIGNED);
-    args.help(u"restart-delay", u"milliseconds",
-              u"Specify a restart delay in milliseconds for plugins. "
+    args.option<cn::milliseconds>(u"restart-delay");
+    args.help(u"restart-delay",
+              u"Specify a restart delay for plugins. "
               u"When a plugin fails or terminates, it is immediately restarted. "
               u"In case of initial restart error, wait the specified delay before retrying. "
-              u"The default is " + UString::Decimal(DEFAULT_RESTART_DELAY) + u" milliseconds.");
+              u"The default is " + UString::Chrono(DEFAULT_RESTART_DELAY, true) + u".");
 
     args.option(u"sdt", 0, TableScopeEnum);
     args.help(u"sdt", u"type",
@@ -227,9 +156,9 @@ bool ts::MuxerArgs::loadArgs(DuckContext& duck, Args& args)
     outputOnce = args.present(u"terminate-with-output");
     ignoreConflicts = args.present(u"ignore-conflicts");
     args.getValue(outputBitRate, u"bitrate");
-    args.getIntValue(inputRestartDelay, u"restart-delay", DEFAULT_RESTART_DELAY);
-    args.getIntValue(cadence, u"cadence", DEFAULT_CADENCE);
+    args.getChronoValue(inputRestartDelay, u"restart-delay", DEFAULT_RESTART_DELAY);
     outputRestartDelay = inputRestartDelay;
+    args.getChronoValue(cadence, u"cadence", DEFAULT_CADENCE);
     args.getIntValue(inBufferPackets, u"buffer-packets", DEFAULT_BUFFERED_PACKETS);
     args.getIntValue(maxInputPackets, u"max-input-packets", DEFAULT_MAX_INPUT_PACKETS);
     args.getIntValue(maxOutputPackets, u"max-output-packets", DEFAULT_MAX_OUTPUT_PACKETS);
@@ -259,7 +188,7 @@ bool ts::MuxerArgs::loadArgs(DuckContext& duck, Args& args)
         inputs.push_back(PluginOptions(u"file"));
     }
     if (timeInputIndex != NPOS && timeInputIndex >= inputs.size()) {
-        args.error(u"%d is not a valid input plugin index in --time-reference-input", {timeInputIndex});
+        args.error(u"%d is not a valid input plugin index in --time-reference-input", timeInputIndex);
     }
 
     // Default output buffer size is the sum of all input buffer sizes.

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -34,9 +13,14 @@
 #include "tsNamesFile.h"
 #include "tsNames.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
 #include "tsDuckContext.h"
+#include "tsCASFamily.h"
 #include "tsMPEG2.h"
 #include "tsAVC.h"
+#include "tsCodecType.h"
+#include "tsDVBAC3Descriptor.h"
+#include "tsComponentDescriptor.h"
 #include "tsPES.h"
 #include "tsunit.h"
 
@@ -47,93 +31,54 @@
 
 class NamesTest: public tsunit::Test
 {
+    TSUNIT_DECLARE_TEST(ConfigFile);
+    TSUNIT_DECLARE_TEST(TID);
+    TSUNIT_DECLARE_TEST(SharedTID);
+    TSUNIT_DECLARE_TEST(DID);
+    TSUNIT_DECLARE_TEST(EDID);
+    TSUNIT_DECLARE_TEST(StreamType);
+    TSUNIT_DECLARE_TEST(StreamId);
+    TSUNIT_DECLARE_TEST(PESStartCode);
+    TSUNIT_DECLARE_TEST(PrivateDataSpecifier);
+    TSUNIT_DECLARE_TEST(CASFamily);
+    TSUNIT_DECLARE_TEST(CASId);
+    TSUNIT_DECLARE_TEST(BouquetId);
+    TSUNIT_DECLARE_TEST(OriginalNetworkId);
+    TSUNIT_DECLARE_TEST(NetworkId);
+    TSUNIT_DECLARE_TEST(DataBroadcastId);
+    TSUNIT_DECLARE_TEST(Content);
+    TSUNIT_DECLARE_TEST(OUI);
+    TSUNIT_DECLARE_TEST(AspectRatio);
+    TSUNIT_DECLARE_TEST(ChromaFormat);
+    TSUNIT_DECLARE_TEST(AVCUnitType);
+    TSUNIT_DECLARE_TEST(AVCProfile);
+    TSUNIT_DECLARE_TEST(ServiceType);
+    TSUNIT_DECLARE_TEST(ScramblingControl);
+    TSUNIT_DECLARE_TEST(DTSExtendedSurroundMode);
+    TSUNIT_DECLARE_TEST(DTSSurroundMode);
+    TSUNIT_DECLARE_TEST(DTSBitRateCode);
+    TSUNIT_DECLARE_TEST(DTSSampleRateCode);
+    TSUNIT_DECLARE_TEST(AC3ComponentType);
+    TSUNIT_DECLARE_TEST(ComponentType);
+    TSUNIT_DECLARE_TEST(SubtitlingType);
+    TSUNIT_DECLARE_TEST(LinkageType);
+    TSUNIT_DECLARE_TEST(TeletextType);
+    TSUNIT_DECLARE_TEST(RunningStatus);
+    TSUNIT_DECLARE_TEST(AudioType);
+    TSUNIT_DECLARE_TEST(T2MIPacketType);
+    TSUNIT_DECLARE_TEST(PlatformId);
+    TSUNIT_DECLARE_TEST(Dektec);
+    TSUNIT_DECLARE_TEST(HiDes);
+    TSUNIT_DECLARE_TEST(IP);
+    TSUNIT_DECLARE_TEST(Extension);
+    TSUNIT_DECLARE_TEST(Inheritance);
+
 public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testConfigFile();
-    void testTID();
-    void testSharedTID();
-    void testDID();
-    void testEDID();
-    void testStreamType();
-    void testStreamId();
-    void testPESStartCode();
-    void testPrivateDataSpecifier();
-    void testCASFamily();
-    void testCASId();
-    void testBouquetId();
-    void testOriginalNetworkId();
-    void testNetworkId();
-    void testDataBroadcastId();
-    void testContent();
-    void testOUI();
-    void testAspectRatio();
-    void testChromaFormat();
-    void testAVCUnitType();
-    void testAVCProfile();
-    void testServiceType();
-    void testScramblingControl();
-    void testDTSExtendedSurroundMode();
-    void testDTSSurroundMode();
-    void testDTSBitRateCode();
-    void testDTSSampleRateCode();
-    void testAC3ComponentType();
-    void testComponentType();
-    void testSubtitlingType();
-    void testLinkageType();
-    void testTeletextType();
-    void testRunningStatus();
-    void testAudioType();
-    void testT2MIPacketType();
-    void testPlatformId();
-    void testDektec();
-    void testHiDes();
-    void testIP();
-    void testExtension();
-
-    TSUNIT_TEST_BEGIN(NamesTest);
-    TSUNIT_TEST(testConfigFile);
-    TSUNIT_TEST(testTID);
-    TSUNIT_TEST(testSharedTID);
-    TSUNIT_TEST(testDID);
-    TSUNIT_TEST(testEDID);
-    TSUNIT_TEST(testStreamType);
-    TSUNIT_TEST(testStreamId);
-    TSUNIT_TEST(testPESStartCode);
-    TSUNIT_TEST(testPrivateDataSpecifier);
-    TSUNIT_TEST(testCASFamily);
-    TSUNIT_TEST(testCASId);
-    TSUNIT_TEST(testBouquetId);
-    TSUNIT_TEST(testOriginalNetworkId);
-    TSUNIT_TEST(testNetworkId);
-    TSUNIT_TEST(testDataBroadcastId);
-    TSUNIT_TEST(testContent);
-    TSUNIT_TEST(testOUI);
-    TSUNIT_TEST(testAspectRatio);
-    TSUNIT_TEST(testChromaFormat);
-    TSUNIT_TEST(testAVCUnitType);
-    TSUNIT_TEST(testAVCProfile);
-    TSUNIT_TEST(testServiceType);
-    TSUNIT_TEST(testScramblingControl);
-    TSUNIT_TEST(testDTSExtendedSurroundMode);
-    TSUNIT_TEST(testDTSSurroundMode);
-    TSUNIT_TEST(testDTSBitRateCode);
-    TSUNIT_TEST(testDTSSampleRateCode);
-    TSUNIT_TEST(testAC3ComponentType);
-    TSUNIT_TEST(testComponentType);
-    TSUNIT_TEST(testSubtitlingType);
-    TSUNIT_TEST(testLinkageType);
-    TSUNIT_TEST(testTeletextType);
-    TSUNIT_TEST(testRunningStatus);
-    TSUNIT_TEST(testAudioType);
-    TSUNIT_TEST(testT2MIPacketType);
-    TSUNIT_TEST(testPlatformId);
-    TSUNIT_TEST(testDektec);
-    TSUNIT_TEST(testHiDes);
-    TSUNIT_TEST(testIP);
-    TSUNIT_TEST(testExtension);
-    TSUNIT_TEST_END();
+private:
+    fs::path _tempFileName {};
 };
 
 TSUNIT_REGISTER(NamesTest);
@@ -146,11 +91,16 @@ TSUNIT_REGISTER(NamesTest);
 // Test suite initialization method.
 void NamesTest::beforeTest()
 {
+    if (_tempFileName.empty()) {
+        _tempFileName = ts::TempFile(u".names");
+    }
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void NamesTest::afterTest()
 {
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 
@@ -158,41 +108,40 @@ void NamesTest::afterTest()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void NamesTest::testConfigFile()
+TSUNIT_DEFINE_TEST(ConfigFile)
 {
     const ts::NamesFile* const dtv = ts::NamesFile::Instance(ts::NamesFile::Predefined::DTV);
     debug() << "NamesTest: DTV configuration file: " << dtv->configurationFile() << std::endl;
-    TSUNIT_EQUAL(dtv, ts::names::File());
     TSUNIT_ASSERT(!dtv->configurationFile().empty());
-    TSUNIT_ASSERT(ts::FileExists(dtv->configurationFile()));
+    TSUNIT_ASSERT(fs::exists(dtv->configurationFile()));
     TSUNIT_EQUAL(0, dtv->errorCount());
 
     const ts::NamesFile* const oui = ts::NamesFile::Instance(ts::NamesFile::Predefined::OUI);
     debug() << "NamesTest: OUI configuration file: " << oui->configurationFile() << std::endl;
     TSUNIT_ASSERT(!oui->configurationFile().empty());
-    TSUNIT_ASSERT(ts::FileExists(oui->configurationFile()));
+    TSUNIT_ASSERT(fs::exists(oui->configurationFile()));
     TSUNIT_EQUAL(0, oui->errorCount());
 
     const ts::NamesFile* const ip = ts::NamesFile::Instance(ts::NamesFile::Predefined::IP);
     debug() << "NamesTest: IP configuration file: " << ip->configurationFile() << std::endl;
     TSUNIT_ASSERT(!ip->configurationFile().empty());
-    TSUNIT_ASSERT(ts::FileExists(ip->configurationFile()));
+    TSUNIT_ASSERT(fs::exists(ip->configurationFile()));
     TSUNIT_EQUAL(0, ip->errorCount());
 
     const ts::NamesFile* const dektec = ts::NamesFile::Instance(ts::NamesFile::Predefined::DEKTEC);
     debug() << "NamesTest: Dektec configuration file: " << dektec->configurationFile() << std::endl;
     TSUNIT_ASSERT(!dektec->configurationFile().empty());
-    TSUNIT_ASSERT(ts::FileExists(dektec->configurationFile()));
+    TSUNIT_ASSERT(fs::exists(dektec->configurationFile()));
     TSUNIT_EQUAL(0, dektec->errorCount());
 
     const ts::NamesFile* const hides = ts::NamesFile::Instance(ts::NamesFile::Predefined::HIDES);
     debug() << "NamesTest: HiDes configuration file: " << hides->configurationFile() << std::endl;
     TSUNIT_ASSERT(!hides->configurationFile().empty());
-    TSUNIT_ASSERT(ts::FileExists(hides->configurationFile()));
+    TSUNIT_ASSERT(fs::exists(hides->configurationFile()));
     TSUNIT_EQUAL(0, hides->errorCount());
 }
 
-void NamesTest::testTID()
+TSUNIT_DEFINE_TEST(TID)
 {
     ts::DuckContext duck;
     TSUNIT_EQUAL(u"CAT", ts::names::TID(duck, ts::TID_CAT));
@@ -207,7 +156,7 @@ void NamesTest::testTID()
     TSUNIT_EQUAL(u"unknown (0x90)", ts::names::TID(duck, ts::TID_LW_DMT));
 }
 
-void NamesTest::testSharedTID()
+TSUNIT_DEFINE_TEST(SharedTID)
 {
     // Shared table ids between ATSC and ISDB.
 
@@ -224,7 +173,7 @@ void NamesTest::testSharedTID()
     TSUNIT_EQUAL(u"TVCT (ATSC)", ts::names::TID(duck, ts::TID_TVCT));
 }
 
-void NamesTest::testPrivateDataSpecifier()
+TSUNIT_DEFINE_TEST(PrivateDataSpecifier)
 {
     const ts::UString tdfRef = ts::UString(u"T") + ts::LATIN_SMALL_LETTER_E_WITH_ACUTE + ts::UString(u"l") + ts::LATIN_SMALL_LETTER_E_WITH_ACUTE + ts::UString(u"diffusion de France (TDF)");
 
@@ -244,49 +193,49 @@ void NamesTest::testPrivateDataSpecifier()
     TSUNIT_EQUAL(u"unknown (0x00008123, 33059)", ts::names::PrivateDataSpecifier(0x8123, ts::NamesFlags::DECIMAL | ts::NamesFlags::HEXA));
 }
 
-void NamesTest::testCASFamily()
+TSUNIT_DEFINE_TEST(CASFamily)
 {
-    TSUNIT_EQUAL(u"Other", ts::names::CASFamily(ts::CAS_OTHER));
-    TSUNIT_EQUAL(u"MediaGuard", ts::names::CASFamily(ts::CAS_MEDIAGUARD));
-    TSUNIT_EQUAL(u"Nagravision", ts::names::CASFamily(ts::CAS_NAGRA));
-    TSUNIT_EQUAL(u"Viaccess", ts::names::CASFamily(ts::CAS_VIACCESS));
-    TSUNIT_EQUAL(u"ThalesCrypt", ts::names::CASFamily(ts::CAS_THALESCRYPT));
-    TSUNIT_EQUAL(u"SafeAccess", ts::names::CASFamily(ts::CAS_SAFEACCESS));
+    TSUNIT_EQUAL(u"Other", ts::CASFamilyName(ts::CAS_OTHER));
+    TSUNIT_EQUAL(u"MediaGuard", ts::CASFamilyName(ts::CAS_MEDIAGUARD));
+    TSUNIT_EQUAL(u"Nagravision", ts::CASFamilyName(ts::CAS_NAGRA));
+    TSUNIT_EQUAL(u"Viaccess", ts::CASFamilyName(ts::CAS_VIACCESS));
+    TSUNIT_EQUAL(u"ThalesCrypt", ts::CASFamilyName(ts::CAS_THALESCRYPT));
+    TSUNIT_EQUAL(u"SafeAccess", ts::CASFamilyName(ts::CAS_SAFEACCESS));
 }
 
-void NamesTest::testCASId()
+TSUNIT_DEFINE_TEST(CASId)
 {
     ts::DuckContext duck;
     TSUNIT_EQUAL(u"Viaccess", ts::names::CASId(duck, 0x500));
     TSUNIT_EQUAL(u"Irdeto", ts::names::CASId(duck, 0x601));
 }
 
-void NamesTest::testBouquetId()
+TSUNIT_DEFINE_TEST(BouquetId)
 {
     TSUNIT_EQUAL(ts::UString(u"T") + ts::LATIN_SMALL_LETTER_U_WITH_DIAERESIS + ts::UString(u"rk Telekom"), ts::names::BouquetId(0x55));
 }
 
-void NamesTest::testDataBroadcastId()
+TSUNIT_DEFINE_TEST(DataBroadcastId)
 {
     TSUNIT_EQUAL(u"OpenTV Data Carousel", ts::names::DataBroadcastId(0x0107));
 }
 
-void NamesTest::testOUI()
+TSUNIT_DEFINE_TEST(OUI)
 {
-    TSUNIT_EQUAL(ts::MICRO_SIGN + ts::UString(u"Tech Tecnologia"), ts::names::OUI(0xF8E7B5));
+    TSUNIT_EQUAL(ts::MICRO_SIGN + ts::UString(u"Tech Tecnologia"), ts::NameFromOUI(0xF8E7B5));
 }
 
-void NamesTest::testOriginalNetworkId()
+TSUNIT_DEFINE_TEST(OriginalNetworkId)
 {
     TSUNIT_EQUAL(u"Skylogic", ts::names::OriginalNetworkId(0x4C));
 }
 
-void NamesTest::testNetworkId()
+TSUNIT_DEFINE_TEST(NetworkId)
 {
     TSUNIT_EQUAL(ts::UString(u"Eutelsat satellite system at 4") + ts::DEGREE_SIGN + ts::UString(u"East"), ts::names::NetworkId(0x4C));
 }
 
-void NamesTest::testContent()
+TSUNIT_DEFINE_TEST(Content)
 {
     ts::DuckContext duck1;
     TSUNIT_EQUAL(u"game show/quiz/contest", ts::names::Content(duck1, 0x31));
@@ -297,7 +246,7 @@ void NamesTest::testContent()
     TSUNIT_EQUAL(u"soap opera", ts::names::Content(duck2, 0x31));
 }
 
-void NamesTest::testDID()
+TSUNIT_DEFINE_TEST(DID)
 {
     TSUNIT_EQUAL(u"CA", ts::names::DID(ts::DID_CA));
     TSUNIT_EQUAL(u"ISO-639 Language", ts::names::DID(ts::DID_LANGUAGE));
@@ -307,175 +256,224 @@ void NamesTest::testDID()
     TSUNIT_EQUAL(u"0x83 (Logical Channel Number)", ts::names::DID(ts::DID_LOGICAL_CHANNEL_NUM, ts::PDS_EACEM, ts::TID_NULL, ts::NamesFlags::FIRST));
 }
 
-void NamesTest::testEDID()
+TSUNIT_DEFINE_TEST(EDID)
 {
     TSUNIT_EQUAL(u"T2 Delivery System", ts::names::EDID(ts::EDID_T2_DELIVERY));
 }
 
-void NamesTest::testStreamType()
+TSUNIT_DEFINE_TEST(StreamType)
 {
     TSUNIT_EQUAL(u"MPEG-4 Video", ts::names::StreamType(ts::ST_MPEG4_VIDEO));
 }
 
-void NamesTest::testStreamId()
+TSUNIT_DEFINE_TEST(StreamId)
 {
-    TSUNIT_EQUAL(u"ISO-13522 Hypermedia", ts::names::StreamId(ts::SID_ISO13522));
-    TSUNIT_EQUAL(u"Audio 24", ts::names::StreamId(0xD8));
-    TSUNIT_EQUAL(u"Video 12", ts::names::StreamId(0xEC));
+    TSUNIT_EQUAL(u"ISO-13522 Hypermedia", ts::NameFromDTV(u"pes.stream_id", ts::SID_ISO13522));
+    TSUNIT_EQUAL(u"Audio 24", ts::NameFromDTV(u"pes.stream_id", 0xD8));
+    TSUNIT_EQUAL(u"Video 12", ts::NameFromDTV(u"pes.stream_id", 0xEC));
 }
 
-void NamesTest::testPESStartCode()
+TSUNIT_DEFINE_TEST(PESStartCode)
 {
-    TSUNIT_EQUAL(u"ISO-13522 Hypermedia", ts::names::PESStartCode(ts::SID_ISO13522));
-    TSUNIT_EQUAL(u"Audio 24", ts::names::PESStartCode(0xD8));
-    TSUNIT_EQUAL(u"Video 12", ts::names::PESStartCode(0xEC));
-    TSUNIT_EQUAL(u"Slice 117", ts::names::PESStartCode(0x75));
-    TSUNIT_EQUAL(u"Sequence header", ts::names::PESStartCode(0xB3));
+    TSUNIT_EQUAL(u"ISO-13522 Hypermedia", ts::NameFromDTV(u"pes.stream_id", ts::SID_ISO13522));
+    TSUNIT_EQUAL(u"Audio 24", ts::NameFromDTV(u"pes.stream_id", 0xD8));
+    TSUNIT_EQUAL(u"Video 12", ts::NameFromDTV(u"pes.stream_id", 0xEC));
+    TSUNIT_EQUAL(u"Slice 117", ts::NameFromDTV(u"pes.stream_id", 0x75));
+    TSUNIT_EQUAL(u"Sequence header", ts::NameFromDTV(u"pes.stream_id", 0xB3));
 }
 
-void NamesTest::testAspectRatio()
+TSUNIT_DEFINE_TEST(AspectRatio)
 {
-    TSUNIT_EQUAL(u"16:9", ts::names::AspectRatio(ts::AR_16_9));
+    TSUNIT_EQUAL(u"16:9", ts::NameFromDTV(u"mpeg2.aspect_ratio", ts::AR_16_9));
 }
 
-void NamesTest::testChromaFormat()
+TSUNIT_DEFINE_TEST(ChromaFormat)
 {
-    TSUNIT_EQUAL(u"4:2:0", ts::names::ChromaFormat(ts::CHROMA_420));
+    TSUNIT_EQUAL(u"4:2:0", ts::NameFromDTV(u"mpeg2.chroma_format", ts::CHROMA_420));
 }
 
-void NamesTest::testAVCUnitType()
+TSUNIT_DEFINE_TEST(AVCUnitType)
 {
-    TSUNIT_EQUAL(u"Picture parameter set", ts::names::AccessUnitType(ts::CodecType::AVC, ts::AVC_AUT_PICPARAMS));
+    TSUNIT_EQUAL(u"Picture parameter set", ts::AccessUnitTypeName(ts::CodecType::AVC, ts::AVC_AUT_PICPARAMS));
 }
 
-void NamesTest::testAVCProfile()
+TSUNIT_DEFINE_TEST(AVCProfile)
 {
-    TSUNIT_EQUAL(u"extended profile", ts::names::AVCProfile(88));
+    TSUNIT_EQUAL(u"extended profile", ts::NameFromDTV(u"avc.profile", 88));
 }
 
-void NamesTest::testServiceType()
+TSUNIT_DEFINE_TEST(ServiceType)
 {
     TSUNIT_EQUAL(u"Data broadcast service", ts::names::ServiceType(0x0C));
     TSUNIT_EQUAL(u"unknown (0x80)", ts::names::ServiceType(128));
 }
 
-void NamesTest::testScramblingControl()
+TSUNIT_DEFINE_TEST(ScramblingControl)
 {
-    TSUNIT_EQUAL(u"even", ts::names::ScramblingControl(2));
+    TSUNIT_EQUAL(u"even", ts::NameFromDTV(u"ts.scrambling_control", 2));
 }
 
-void NamesTest::testDTSExtendedSurroundMode()
+TSUNIT_DEFINE_TEST(DTSExtendedSurroundMode)
 {
-    TSUNIT_EQUAL(u"matrixed", ts::names::DTSExtendedSurroundMode(1));
+    TSUNIT_EQUAL(u"matrixed", ts::NameFromDTV(u"DTS_descriptor.ExtendedSurroundMode", 1));
 }
 
-void NamesTest::testDTSSurroundMode()
+TSUNIT_DEFINE_TEST(DTSSurroundMode)
 {
-    TSUNIT_EQUAL(u"3 / C+L+R", ts::names::DTSSurroundMode(5));
+    TSUNIT_EQUAL(u"3 / C+L+R", ts::NameFromDTV(u"DTS_descriptor.SurroundMode", 5));
 }
 
-void NamesTest::testDTSBitRateCode()
+TSUNIT_DEFINE_TEST(DTSBitRateCode)
 {
-    TSUNIT_EQUAL(u"512 kb/s", ts::names::DTSBitRateCode(12));
+    TSUNIT_EQUAL(u"512 kb/s", ts::NameFromDTV(u"DTS_descriptor.BitRate", 12));
 }
 
-void NamesTest::testDTSSampleRateCode()
+TSUNIT_DEFINE_TEST(DTSSampleRateCode)
 {
-    TSUNIT_EQUAL(u"22.05 kHz", ts::names::DTSSampleRateCode(7));
+    TSUNIT_EQUAL(u"22.05 kHz", ts::NameFromDTV(u"DTS_descriptor.SampleRate", 7));
 }
 
-void NamesTest::testAC3ComponentType()
+TSUNIT_DEFINE_TEST(AC3ComponentType)
 {
-    TSUNIT_EQUAL(u"Enhanced AC-3, combined, visually impaired, 2 channels", ts::names::AC3ComponentType(0x92));
-    TSUNIT_EQUAL(u"0x92 (Enhanced AC-3, combined, visually impaired, 2 channels)", ts::names::AC3ComponentType(0x92, ts::NamesFlags::FIRST));
+    TSUNIT_EQUAL(u"Enhanced AC-3, combined, visually impaired, 2 channels", ts::DVBAC3Descriptor::ComponentTypeName(0x92));
+    TSUNIT_EQUAL(u"0x92 (Enhanced AC-3, combined, visually impaired, 2 channels)", ts::DVBAC3Descriptor::ComponentTypeName(0x92, ts::NamesFlags::FIRST));
 }
 
-void NamesTest::testComponentType()
+TSUNIT_DEFINE_TEST(ComponentType)
 {
     ts::DuckContext duck;
-    TSUNIT_EQUAL(u"MPEG-2 video, 4:3 aspect ratio, 30 Hz", ts::names::ComponentType(duck, 0x0105));
-    TSUNIT_EQUAL(u"DVB subtitles, no aspect ratio", ts::names::ComponentType(duck, 0x0310));
-    TSUNIT_EQUAL(u"Enhanced AC-3, combined, visually impaired, 2 channels", ts::names::ComponentType(duck, 0x0492));
-    TSUNIT_EQUAL(u"MPEG-2 high definition video, > 16:9 aspect ratio, 30 Hz", ts::names::ComponentType(duck, 0x0110));
-    TSUNIT_EQUAL(u"MPEG-2 video", ts::names::ComponentType(duck, 0x01B4));
+    TSUNIT_EQUAL(u"MPEG-2 video, 4:3 aspect ratio, 30 Hz", ts::ComponentDescriptor::ComponentTypeName(duck, 1, 0, 0x05));
+    TSUNIT_EQUAL(u"DVB subtitles, no aspect ratio", ts::ComponentDescriptor::ComponentTypeName(duck, 3, 0, 0x10));
+    TSUNIT_EQUAL(u"Enhanced AC-3, combined, visually impaired, 2 channels", ts::ComponentDescriptor::ComponentTypeName(duck, 4, 0, 0x92));
+    TSUNIT_EQUAL(u"0x0492 (Enhanced AC-3, combined, visually impaired, 2 channels)", ts::ComponentDescriptor::ComponentTypeName(duck, 4, 0, 0x92, ts::NamesFlags::FIRST));
+    TSUNIT_EQUAL(u"MPEG-2 high definition video, > 16:9 aspect ratio, 30 Hz", ts::ComponentDescriptor::ComponentTypeName(duck, 1, 0, 0x10));
+    TSUNIT_EQUAL(u"MPEG-2 video", ts::ComponentDescriptor::ComponentTypeName(duck, 1, 0, 0xB4));
+    TSUNIT_EQUAL(u"0x0341 (Video is standard dynamic range (SDR))", ts::ComponentDescriptor::ComponentTypeName(duck, 3, 0, 0x41, ts::NamesFlags::FIRST));
 
     duck.addStandards(ts::Standards::JAPAN);
-    TSUNIT_EQUAL(u"unknown (0x0110)", ts::names::ComponentType(duck, 0x0110));
-    TSUNIT_EQUAL(u"Video 1080i(1125i), >16:9 aspect ratio", ts::names::ComponentType(duck, 0x01B4));
+    TSUNIT_EQUAL(u"unknown (0x0110)", ts::ComponentDescriptor::ComponentTypeName(duck, 1, 0, 0x10));
+    TSUNIT_EQUAL(u"Video 1080i(1125i), >16:9 aspect ratio", ts::ComponentDescriptor::ComponentTypeName(duck, 1, 0, 0xB4));
 }
 
-void NamesTest::testSubtitlingType()
+TSUNIT_DEFINE_TEST(SubtitlingType)
 {
-    TSUNIT_EQUAL(u"DVB subtitles, high definition", ts::names::SubtitlingType(0x14));
+    ts::DuckContext duck;
+    TSUNIT_EQUAL(u"DVB subtitles, high definition", ts::ComponentDescriptor::ComponentTypeName(duck, 3, 0, 0x14));
 }
 
-void NamesTest::testLinkageType()
+TSUNIT_DEFINE_TEST(LinkageType)
 {
-    TSUNIT_EQUAL(u"data broadcast service", ts::names::LinkageType(0x06));
+    TSUNIT_EQUAL(u"data broadcast service", ts::NameFromDTV(u"linkage_descriptor.linkage_type", 0x06));
 }
 
-void NamesTest::testTeletextType()
+TSUNIT_DEFINE_TEST(TeletextType)
 {
-    TSUNIT_EQUAL(u"Teletext subtitles", ts::names::TeletextType(2));
+    TSUNIT_EQUAL(u"Teletext subtitles", ts::NameFromDTV(u"teletext_descriptor.teletext_type", 2));
 }
 
-void NamesTest::testRunningStatus()
+TSUNIT_DEFINE_TEST(RunningStatus)
 {
     TSUNIT_EQUAL(u"running", ts::names::RunningStatus(4));
 }
 
-void NamesTest::testAudioType()
+TSUNIT_DEFINE_TEST(AudioType)
 {
-    TSUNIT_EQUAL(u"hearing impaired", ts::names::AudioType(2));
+    TSUNIT_EQUAL(u"hearing impaired", ts::NameFromDTV(u"ISO_639_language_descriptor.audio_type", 2));
 }
 
-void NamesTest::testT2MIPacketType()
+TSUNIT_DEFINE_TEST(T2MIPacketType)
 {
-    TSUNIT_EQUAL(u"Individual addressing", ts::names::T2MIPacketType(0x21));
+    TSUNIT_EQUAL(u"Individual addressing", ts::NameFromDTV(u"t2mi.packet_type", 0x21));
 }
 
-void NamesTest::testPlatformId()
+TSUNIT_DEFINE_TEST(PlatformId)
 {
-    TSUNIT_EQUAL(u"Horizonsat", ts::names::PlatformId(10));
-    TSUNIT_EQUAL(u"0x000004 (TV digitale mobile, Telecom Italia)", ts::names::PlatformId(4, ts::NamesFlags::FIRST));
-    TSUNIT_EQUAL(u"VTC Mobile TV (0x704001)", ts::names::PlatformId(0x704001, ts::NamesFlags::VALUE));
+    TSUNIT_EQUAL(u"Horizonsat", ts::NameFromDTV(u"INT.platform_id", 10));
+    TSUNIT_EQUAL(u"0x000004 (TV digitale mobile, Telecom Italia)", ts::NameFromDTV(u"INT.platform_id", 4, ts::NamesFlags::FIRST));
+    TSUNIT_EQUAL(u"VTC Mobile TV (0x704001)", ts::NameFromDTV(u"INT.platform_id", 0x704001, ts::NamesFlags::VALUE));
 }
 
-void NamesTest::testDektec()
+TSUNIT_DEFINE_TEST(Dektec)
 {
     // Just check that the names file is correctly read and valid.
     TSUNIT_EQUAL(0, ts::NamesFile::Instance(ts::NamesFile::Predefined::DEKTEC)->errorCount());
     TSUNIT_ASSERT(!ts::NamesFile::Instance(ts::NamesFile::Predefined::DEKTEC)->nameFromSection(u"DtCaps", 0).empty());
 }
 
-void NamesTest::testHiDes()
+TSUNIT_DEFINE_TEST(HiDes)
 {
     // Just check that the names file is correctly read and valid.
     TSUNIT_EQUAL(0, ts::NamesFile::Instance(ts::NamesFile::Predefined::HIDES)->errorCount());
     TSUNIT_ASSERT(!ts::NamesFile::Instance(ts::NamesFile::Predefined::HIDES)->nameFromSection(u"HiDesErrorLinux", 0).empty());
 }
 
-void NamesTest::testIP()
+TSUNIT_DEFINE_TEST(IP)
 {
     // Just check that the names file is correctly read and valid.
     TSUNIT_EQUAL(0, ts::NamesFile::Instance(ts::NamesFile::Predefined::IP)->errorCount());
     TSUNIT_ASSERT(ts::NamesFile::Instance(ts::NamesFile::Predefined::IP)->nameFromSection(u"IPProtocol", 6).startWith(u"TCP"));
 }
 
-void NamesTest::testExtension()
+TSUNIT_DEFINE_TEST(Extension)
 {
     // Create a temporary names file.
-    const ts::UString file(ts::AbsoluteFilePath(ts::TempFile()));
-    debug() << "NamesTest::testExtension: extension file: " << file << std::endl;
-    TSUNIT_ASSERT(ts::UString::Save(ts::UStringVector({u"[CASystemId]", u"0xF123 = test-cas"}), file));
+    debug() << "NamesTest::testExtension: extension file: " << _tempFileName << std::endl;
+    TSUNIT_ASSERT(ts::UString::Save(ts::UStringVector({u"[CASystemId]", u"0xF123 = test-cas"}), _tempFileName));
 
     ts::DuckContext duck;
     ts::NamesFile::DeleteInstance(ts::NamesFile::Predefined::DTV);
-    ts::NamesFile::RegisterExtensionFile reg(file);
+    ts::NamesFile::RegisterExtensionFile reg(_tempFileName);
     TSUNIT_EQUAL(u"test-cas", ts::names::CASId(duck, 0xF123));
-    ts::NamesFile::UnregisterExtensionFile(file);
+    ts::NamesFile::UnregisterExtensionFile(_tempFileName);
     ts::NamesFile::DeleteInstance(ts::NamesFile::Predefined::DTV);
+}
 
-    // Delete temporary file
-    ts::DeleteFile(file);
+TSUNIT_DEFINE_TEST(Inheritance)
+{
+    // Create a temporary names file.
+    TSUNIT_ASSERT(ts::UString::Save(ts::UStringVector({
+        u"[level1]",
+        u"Bits = 8",
+        u"1 = value1",
+        u"[level2]",
+        u"Bits = 8",
+        u"Inherit = level1",
+        u"2 = value2",
+        u"[level3]",
+        u"Bits = 8",
+        u"Inherit = level2",
+        u"3 = value3",
+    }), _tempFileName));
+
+    ts::NamesFile file(_tempFileName);
+
+    TSUNIT_ASSERT(file.nameExists(u"level3", 3));
+    TSUNIT_ASSERT(file.nameExists(u"level3", 2));
+    TSUNIT_ASSERT(file.nameExists(u"level3", 1));
+    TSUNIT_ASSERT(!file.nameExists(u"level3", 0));
+
+    TSUNIT_ASSERT(!file.nameExists(u"level2", 3));
+    TSUNIT_ASSERT(file.nameExists(u"level2", 2));
+    TSUNIT_ASSERT(file.nameExists(u"level2", 1));
+    TSUNIT_ASSERT(!file.nameExists(u"level2", 0));
+
+    TSUNIT_ASSERT(!file.nameExists(u"level1", 3));
+    TSUNIT_ASSERT(!file.nameExists(u"level1", 2));
+    TSUNIT_ASSERT(file.nameExists(u"level1", 1));
+    TSUNIT_ASSERT(!file.nameExists(u"level1", 0));
+
+    TSUNIT_EQUAL(u"value3", file.nameFromSection(u"level3", 3));
+    TSUNIT_EQUAL(u"value2", file.nameFromSection(u"level3", 2));
+    TSUNIT_EQUAL(u"value1", file.nameFromSection(u"level3", 1));
+    TSUNIT_EQUAL(u"unknown (0x00)", file.nameFromSection(u"level3", 0));
+
+    TSUNIT_EQUAL(u"unknown (0x03)", file.nameFromSection(u"level2", 3));
+    TSUNIT_EQUAL(u"value2", file.nameFromSection(u"level2", 2));
+    TSUNIT_EQUAL(u"value1", file.nameFromSection(u"level2", 1));
+    TSUNIT_EQUAL(u"unknown (0x00)", file.nameFromSection(u"level2", 0));
+
+    TSUNIT_EQUAL(u"unknown (0x03)", file.nameFromSection(u"level1", 3));
+    TSUNIT_EQUAL(u"unknown (0x02)", file.nameFromSection(u"level1", 2));
+    TSUNIT_EQUAL(u"value1", file.nameFromSection(u"level1", 1));
+    TSUNIT_EQUAL(u"unknown (0x00)", file.nameFromSection(u"level1", 0));
 }

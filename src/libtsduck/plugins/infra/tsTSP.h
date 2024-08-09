@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -150,9 +129,9 @@ namespace ts {
         //! If the method returns false, the plugin is aborted.
         //!
         //! @param [in] timeout Maximum number of milliseconds to wait for packets in the buffer.
-        //! The default timeout is infinite.
+        //! Infinite timeout when negative. The default timeout is infinite.
         //!
-        void setPacketTimeout(MilliSecond timeout) { _tsp_timeout = timeout; }
+        void setPacketTimeout(cn::milliseconds timeout) { _tsp_timeout = timeout; }
 
         //!
         //! Check for aborting application.
@@ -212,17 +191,19 @@ namespace ts {
         virtual ~TSP() override;
 
     protected:
-        bool              _use_realtime;            //!< The plugin should use realtime defaults.
-        BitRate           _tsp_bitrate;             //!< TSP input bitrate.
-        BitRateConfidence _tsp_bitrate_confidence;  //!< TSP input bitrate confidence.
-        MilliSecond       _tsp_timeout;             //!< Timeout when waiting for packets (infinite by default).
-        volatile bool     _tsp_aborting;            //!< TSP is currently aborting.
+        bool              _use_realtime = false;     //!< The plugin should use realtime defaults.
+        BitRate           _tsp_bitrate = 0;          //!< TSP input bitrate.
+        BitRateConfidence _tsp_bitrate_confidence = BitRateConfidence::LOW;  //!< TSP input bitrate confidence.
+        cn::milliseconds  _tsp_timeout = cn::milliseconds(-1); //!< Timeout when waiting for packets, infinite if negative.
+        volatile bool     _tsp_aborting = false;     //!< TSP is currently aborting.
 
         //!
         //! Constructor for subclasses.
         //! @param [in] max_severity Initial maximum severity of reported messages.
+        //! @param [in] prefix The prefix to prepend to all messages.
+        //! @param [in] report New report object to which messages are delegated.
         //!
-        TSP(int max_severity);
+        TSP(int max_severity, const UString& prefix = UString(), Report* report = nullptr);
 
         //!
         //! Account for more processed packets in this plugin object.
@@ -243,8 +224,8 @@ namespace ts {
         void restartPluginSession() { _plugin_packets = 0; }
 
     private:
-        PacketCounter _total_packets;   // Total processed packets in the plugin thread.
-        PacketCounter _plugin_packets;  // Total processed packets in the plugin object.
+        PacketCounter _total_packets = 0;   // Total processed packets in the plugin thread.
+        PacketCounter _plugin_packets = 0;  // Total processed packets in the plugin object.
 
         // A dirty hack for the default implementation of ts::ProcessorPlugin::processPacketWindow().
         friend class ProcessorPlugin;

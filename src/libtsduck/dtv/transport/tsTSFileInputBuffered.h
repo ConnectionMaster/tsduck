@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -63,7 +42,7 @@ namespace ts {
         //! Minimum buffer size.
         //! Used to minimize @a buffer_size in constructor and setBufferSize().
         //!
-        static const size_t MIN_BUFFER_SIZE = 16;
+        static constexpr size_t MIN_BUFFER_SIZE = 16;
 
         //!
         //! Set the buffer size.
@@ -106,7 +85,7 @@ namespace ts {
         //! @param [in] format Expected format of the TS file.
         //! @return True on success, false on error.
         //!
-        bool openRead(const UString& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format = TSPacketFormat::AUTODETECT);
+        bool openRead(const fs::path& filename, size_t repeat_count, uint64_t start_offset, Report& report, TSPacketFormat format = TSPacketFormat::AUTODETECT);
 
         //!
         //! Read TS packets.
@@ -179,14 +158,14 @@ namespace ts {
         bool seek(PacketCounter position, Report& report);
 
     private:
-        TSPacketVector         _buffer;         // Seekable packet circular buffer.
-        TSPacketMetadataVector _metadata;       // Seekable packet metadata circular buffer.
-        size_t                 _first_index;    // Index of first packet in buffer.
-        size_t                 _current_offset; // Offset from _first_index of "current" readable packet
-        size_t                 _total_count;    // Total count of valid packets in buffer.
+        TSPacketVector         _buffer;             // Seekable packet circular buffer.
+        TSPacketMetadataVector _metadata;           // Seekable packet metadata circular buffer.
+        size_t                 _first_index = 0;    // Index of first packet in buffer.
+        size_t                 _current_offset = 0; // Offset from _first_index of "current" readable packet
+        size_t                 _total_count = 0;    // Total count of valid packets in buffer.
 
         // Make sure that the generic open() returns an error.
-        virtual bool open(const UString& filename, OpenFlags flags, Report& report, TSPacketFormat format) override;
+        virtual bool open(const fs::path& filename, OpenFlags flags, Report& report, TSPacketFormat format) override;
 
         // Make rewind inaccessible.
         bool rewind(Report&) = delete;

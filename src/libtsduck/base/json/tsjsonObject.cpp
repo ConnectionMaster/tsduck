@@ -1,38 +1,16 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsjsonObject.h"
 #include "tsjsonString.h"
 #include "tsjsonNumber.h"
-#include "tsjsonTrue.h"
-#include "tsjsonFalse.h"
 #include "tsjsonNull.h"
+#include "tsTextFormatter.h"
 
 
 //----------------------------------------------------------------------------
@@ -64,13 +42,13 @@ void ts::json::Object::clear()
 ts::json::ValuePtr ts::json::Object::valuePtr(const UString& name)
 {
     const auto it = _fields.find(name);
-    return it == _fields.end() || it->second.isNull() ? ValuePtr() : it->second;
+    return it == _fields.end() || it->second == nullptr ? ValuePtr() : it->second;
 }
 
 const ts::json::Value& ts::json::Object::value(const UString& name) const
 {
     const auto it = _fields.find(name);
-    if (it == _fields.end() || it->second.isNull()) {
+    if (it == _fields.end() || it->second == nullptr) {
         return NullValue;
     }
     else {
@@ -81,7 +59,7 @@ const ts::json::Value& ts::json::Object::value(const UString& name) const
 ts::json::Value& ts::json::Object::value(const UString& name, bool create, Type type)
 {
     const auto it = _fields.find(name);
-    if (it != _fields.end() && !it->second.isNull()) {
+    if (it != _fields.end() && it->second != nullptr) {
         return *it->second;
     }
     else if (create) {
@@ -110,20 +88,25 @@ ts::json::ValuePtr ts::json::Object::extract(const UString& name)
     return result;
 }
 
-void ts::json::Object::add(const UString& name, const ValuePtr& value)
+void ts::json::Object::addValue(const UString& name, const ValuePtr& value)
 {
     // If the pointer is null, explicitly create a "null" value.
-    _fields[name] = value.isNull() ? ValuePtr(new Null) : value;
+    _fields[name] = value == nullptr ? std::make_shared<Null>() : value;
 }
 
-void ts::json::Object::add(const UString& name, int64_t value)
+void ts::json::Object::addInteger(const UString& name, int64_t value)
 {
-    add(name, ValuePtr(new Number(value)));
+    addValue(name, std::make_shared<Number>(value));
 }
 
-void ts::json::Object::add(const UString& name, const UString& value)
+void ts::json::Object::addFloat(const UString& name, double value)
 {
-    add(name, ValuePtr(new String(value)));
+    addValue(name, std::make_shared<Number>(value));
+}
+
+void ts::json::Object::addString(const UString& name, const UString& value)
+{
+    addValue(name, std::make_shared<String>(value));
 }
 
 void ts::json::Object::getNames(UStringList& names) const
@@ -184,7 +167,10 @@ bool ts::json::Object::splitPath(const UString& path, UString& field, UString& n
         while (end < path.size() && path[end] == u'.') {
             ++end;
         }
-        next = path.substr(end);
+        // The next test is normally useless but serves as a workaround for GCC bug on s390x platforms.
+        if (end < path.size()) {
+            next = path.substr(end);
+        }
         return true;
     }
 }
@@ -207,7 +193,7 @@ const ts::json::Value& ts::json::Object::query(const UString& path) const
     else {
         // Search first field.
         const auto it = _fields.find(field);
-        if (it == _fields.end() || it->second.isNull()) {
+        if (it == _fields.end() || it->second == nullptr) {
             return NullValue; // field does not exist
         }
         else {
@@ -234,7 +220,7 @@ ts::json::Value& ts::json::Object::query(const UString& path, bool create, Type 
     else {
         // Search first field.
         const auto it = _fields.find(field);
-        if (it != _fields.end() && !it->second.isNull()) {
+        if (it != _fields.end() && it->second != nullptr) {
             return it->second->query(next, create, type); // recursive query
         }
         else if (create) {

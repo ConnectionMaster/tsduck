@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -188,9 +167,9 @@ ts::Standards ts::StandardsOf(DeliverySystem system)
 ts::DeliverySystem ts::DeliverySystemSet::preferred() const
 {
     // Inspect delivery systems in decreasing order of preference.
-    for (auto it = _preferred_order.begin(); it != _preferred_order.end(); ++it) {
-        if (contains(*it)) {
-            return *it;
+    for (auto it : _preferred_order) {
+        if (contains(it)) {
+            return it;
         }
     }
     return DS_UNDEFINED;
@@ -199,9 +178,9 @@ ts::DeliverySystem ts::DeliverySystemSet::preferred() const
 ts::DeliverySystemList ts::DeliverySystemSet::toList() const
 {
     DeliverySystemList list;
-    for (auto it = _preferred_order.begin(); it != _preferred_order.end(); ++it) {
-        if (contains(*it)) {
-            list.push_back(*it);
+    for (auto it : _preferred_order) {
+        if (contains(it)) {
+            list.push_back(it);
         }
     }
     return list;
@@ -210,8 +189,8 @@ ts::DeliverySystemList ts::DeliverySystemSet::toList() const
 ts::Standards ts::DeliverySystemSet::standards() const
 {
     Standards st = Standards::NONE;
-    for (auto it = begin(); it != end(); ++it) {
-        st |= StandardsOf(*it);
+    for (auto it : *this) {
+        st |= StandardsOf(it);
     }
     return st;
 }
@@ -220,12 +199,12 @@ ts::UString ts::DeliverySystemSet::toString() const
 {
     UString str;
     // Build list of delivery systems in decreasing order of preference.
-    for (auto it = _preferred_order.begin(); it != _preferred_order.end(); ++it) {
-        if (contains(*it)) {
+    for (auto it : _preferred_order) {
+        if (contains(it)) {
             if (!str.empty()) {
                 str += u", ";
             }
-            str += DeliverySystemEnum.name(int(*it));
+            str += DeliverySystemEnum.name(int(it));
         }
     }
     return str.empty() ? u"none" : str;

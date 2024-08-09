@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -44,35 +23,27 @@ ts::tsp::InputExecutor::InputExecutor(const TSProcessorArgs& options,
                                       const PluginEventHandlerRegistry& handlers,
                                       const PluginOptions& pl_options,
                                       const ThreadAttributes& attributes,
-                                      Mutex& global_mutex,
+                                      std::recursive_mutex& global_mutex,
                                       Report* report) :
 
     PluginExecutor(options, handlers, PluginType::INPUT, pl_options, attributes, global_mutex, report),
     _input(dynamic_cast<InputPlugin*>(PluginThread::plugin())),
-    _in_sync_lost(false),
-    _plugin_completed(false),
     _instuff_start_remain(options.instuff_start),
     _instuff_stop_remain(options.instuff_stop),
-    _instuff_nullpkt_remain(0),
-    _instuff_inpkt_remain(0),
     _pcr_analyzer(MIN_ANALYZE_PID, MIN_ANALYZE_PCR),
-    _dts_analyzer(),
-    _use_dts_analyzer(false),
-    _watchdog(this, options.receive_timeout, 0, *this),
-    _use_watchdog(false),
-    _start_time(true) // initialized with current system time
+    _watchdog(this, options.receive_timeout, 0, *this)
 {
     if (options.log_plugin_index) {
         // Make sure that plugins display their index. Input plugin is always at index 0.
-        setLogName(UString::Format(u"%s[0]", {pluginName()}));
+        setLogName(UString::Format(u"%s[0]", pluginName()));
     }
 
     // Configure PTS/DTS analyze
     _dts_analyzer.resetAndUseDTS(MIN_ANALYZE_PID, MIN_ANALYZE_DTS);
 
     // Propose receive timeout to input plugin.
-    if (options.receive_timeout > 0 && !_input->setReceiveTimeout(options.receive_timeout)) {
-        debug(u"%s input plugin does not support receive timeout, using watchdog and abort", {pluginName()});
+    if (options.receive_timeout.count() > 0 && !_input->setReceiveTimeout(options.receive_timeout)) {
+        debug(u"%s input plugin does not support receive timeout, using watchdog and abort", pluginName());
         _use_watchdog = true;
     }
 }
@@ -101,7 +72,7 @@ bool ts::tsp::InputExecutor::initAllBuffers(PacketBuffer* buffer, PacketMetadata
         return false; // receive error
     }
 
-    debug(u"initial buffer load: %'d packets, %'d bytes", {pkt_read, pkt_read * PKT_SIZE});
+    debug(u"initial buffer load: %'d packets, %'d bytes", pkt_read, pkt_read * PKT_SIZE);
 
     // Try to evaluate the initial input bitrate.
     BitRate init_bitrate = 0;
@@ -112,7 +83,7 @@ bool ts::tsp::InputExecutor::initAllBuffers(PacketBuffer* buffer, PacketMetadata
         verbose(u"unknown initial input bitrate");
     }
     else {
-        verbose(u"initial input bitrate is %'d b/s", {init_bitrate});
+        verbose(u"initial input bitrate is %'d b/s", init_bitrate);
     }
 
     // Indicate that the loaded packets are now available to the next packet processor.
@@ -245,6 +216,7 @@ size_t ts::tsp::InputExecutor::receiveAndValidate(size_t index, size_t max_packe
 {
     // If synchronization lost, report an error
     if (_in_sync_lost) {
+        _plugin_completed = true;
         return 0;
     }
 
@@ -269,9 +241,9 @@ size_t ts::tsp::InputExecutor::receiveAndValidate(size_t index, size_t max_packe
     // Fill input time stamps with monotonic clock if none was provided by the input plugin.
     // Only check the first returned packet. Assume that the input plugin generates time stamps for all or none.
     if (count > 0 && !data[0].hasInputTimeStamp()) {
-        const NanoSecond current = Monotonic(true) - _start_time;
+        const cn::nanoseconds current = monotonic_time::clock::now() - _start_time;
         for (size_t n = 0; n < count; ++n) {
-            data[n].setInputTimeStamp(current, NanoSecPerSec, TimeSource::TSP);
+            data[n].setInputTimeStamp(current, TimeSource::TSP);
         }
     }
 
@@ -287,17 +259,17 @@ size_t ts::tsp::InputExecutor::receiveAndValidate(size_t index, size_t max_packe
         }
         else {
             // Report error
-            error(u"synchronization lost after %'d packets, got 0x%X instead of 0x%X", {pluginPackets(), pkt[n].b[0], SYNC_BYTE});
+            error(u"synchronization lost after %'d packets, got 0x%X instead of 0x%X", pluginPackets(), pkt[n].b[0], SYNC_BYTE);
             // In debug mode, partial dump of input
             // (one packet before lost of sync and 3 packets starting at lost of sync).
             if (maxSeverity() >= 1) {
                 if (n > 0) {
                     debug(u"content of packet before loss of synchronization:\n%s",
-                          {UString::Dump(pkt[n-1].b, PKT_SIZE, UString::HEXA | UString::OFFSET | UString::ASCII | UString::BPL, 4, 16)});
+                          UString::Dump(pkt[n-1].b, PKT_SIZE, UString::HEXA | UString::OFFSET | UString::ASCII | UString::BPL, 4, 16));
                 }
                 const size_t dump_count = std::min<size_t>(3, count - n);
                 debug(u"data at loss of synchronization:\n%s",
-                      {UString::Dump(pkt[n].b, dump_count * PKT_SIZE, UString::HEXA | UString::OFFSET | UString::ASCII | UString::BPL, 4, 16)});
+                      UString::Dump(pkt[n].b, dump_count * PKT_SIZE, UString::HEXA | UString::OFFSET | UString::ASCII | UString::BPL, 4, 16));
             }
             // Ignore subsequent packets
             count = n;
@@ -389,22 +361,24 @@ size_t ts::tsp::InputExecutor::receiveAndStuff(size_t index, size_t max_packets)
 void ts::tsp::InputExecutor::passInputPackets(size_t pkt_count, bool input_end)
 {
     // At end of input with --final-wait, wait before reporting the end of input.
-    if (input_end && _options.final_wait >= 0) {
+    if (input_end && _options.final_wait.count() >= 0) {
         // If there are some packets, report them without end-of-input before waiting.
         if (pkt_count > 0) {
             passPackets(pkt_count, _tsp_bitrate, _tsp_bitrate_confidence, false, false);
             pkt_count = 0;
         }
         // Wait the specified number of milliseconds or forever if zero.
-        if (_options.final_wait > 0) {
-            SleepThread(_options.final_wait);
+        debug(u"final wait after end of input: %s", _options.final_wait);
+        if (_options.final_wait.count() > 0) {
+            std::this_thread::sleep_for(_options.final_wait);
         }
         else {
-            // Repeatedly use long waits (one day) to avoid system limitations.
+            // Wait forever. Repeatedly use long waits (one day) to avoid system limitations.
             for (;;) {
-                SleepThread(MilliSecPerDay);
+                std::this_thread::sleep_for(cn::hours(24));
             }
         }
+        debug(u"end of final wait");
     }
 
     // Do not progate abort to previous processor since the "previous" one is the output one.
@@ -506,7 +480,7 @@ void ts::tsp::InputExecutor::main()
                 // Keep this bitrate
                 _tsp_bitrate = bitrate;
                 _tsp_bitrate_confidence = br_confidence;
-                debug(u"input: got bitrate %'d b/s", {bitrate});
+                debug(u"input: got bitrate %'d b/s", bitrate);
             }
         }
 
@@ -519,5 +493,5 @@ void ts::tsp::InputExecutor::main()
     debug(u"stopping the input plugin");
     _input->stop();
 
-    debug(u"input thread %s after %'d packets", {aborted ? u"aborted" : u"terminated", totalPacketsInThread()});
+    debug(u"input thread %s after %'d packets", aborted ? u"aborted" : u"terminated", totalPacketsInThread());
 }

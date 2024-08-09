@@ -1,34 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsMACAddress.h"
 #include "tsMemory.h"
+#include "tsUString.h"
 
 
 //----------------------------------------------------------------------------
@@ -112,13 +92,13 @@ bool ts::MACAddress::resolve(const UString& name, Report& report)
         }
     }
 
-    uint8_t b1, b2, b3, b4, b5, b6;
-    if (s.scan(u"%x %x %x %x %x %x", {&b1, &b2, &b3, &b4, &b5, &b6})) {
+    uint8_t b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    if (s.scan(u"%x %x %x %x %x %x", &b1, &b2, &b3, &b4, &b5, &b6)) {
         setAddress(b1, b2, b3, b4, b5, b6);
         return true;
     }
     else {
-        report.error(u"invalid MAC address '%s', use format 'xx:xx:xx:xx:xx:xx'", {name});
+        report.error(u"invalid MAC address '%s', use format 'xx:xx:xx:xx:xx:xx'", name);
         _addr = 0;
         return false;
     }
@@ -132,7 +112,8 @@ bool ts::MACAddress::resolve(const UString& name, Report& report)
 ts::UString ts::MACAddress::toString() const
 {
     return UString::Format(u"%02X:%02X:%02X:%02X:%02X:%02X",
-                {(_addr >> 40) & 0xFF, (_addr >> 32) & 0xFF, (_addr >> 24) & 0xFF, (_addr >> 16) & 0xFF, (_addr >> 8) & 0xFF, _addr & 0xFF});
+                           (_addr >> 40) & 0xFF, (_addr >> 32) & 0xFF, (_addr >> 24) & 0xFF,
+                           (_addr >> 16) & 0xFF, (_addr >> 8) & 0xFF, _addr & 0xFF);
 }
 
 

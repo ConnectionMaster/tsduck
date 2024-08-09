@@ -1,35 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsAccessUnitIterator.h"
 #include "tsPESPacket.h"
-#include "tsAVC.h"
 #include "tsHEVC.h"
 #include "tsVVC.h"
 
@@ -42,12 +20,7 @@ ts::AccessUnitIterator::AccessUnitIterator(const uint8_t* data, size_t size, uin
     _data(data),
     _data_size(size),
     _valid(PESPacket::HasCommonVideoHeader(data, size)),
-    _format(_valid ? default_format : CodecType::UNDEFINED),
-    _nalunit(nullptr),
-    _nalunit_size(0),
-    _nalunit_header_size(0),
-    _nalunit_index(0),
-    _nalunit_type(AVC_AUT_INVALID)
+    _format(_valid ? default_format : CodecType::UNDEFINED)
 {
     // If the area is valid, compute the actual format.
     if (_valid) {
@@ -124,9 +97,9 @@ bool ts::AccessUnitIterator::next()
         return false;
     }
 
-    // Memory patterns which are used between access units.
-    static const uint8_t Zero3[] = {0x00, 0x00, 0x00};
-    static const uint8_t StartCodePrefix[] = {0x00, 0x00, 0x01};
+    // A start code prefix is 00 00 01.
+    constexpr size_t StartCodePrefixSize = 3;
+    constexpr uint8_t StartCodePrefixThird = 0x01;
 
     // Remaining size in data area.
     assert(_nalunit >= _data);
@@ -142,7 +115,7 @@ bool ts::AccessUnitIterator::next()
     // Locate next access unit: starts with 00 00 01.
     // The start code prefix 00 00 01 is not part of the NALunit.
     // The NALunit starts at the NALunit type byte (see H.264, 7.3.1).
-    const uint8_t* const p1 = LocatePattern(_nalunit, remain, StartCodePrefix, sizeof(StartCodePrefix));
+    const uint8_t* const p1 = LocateZeroZero(_nalunit, remain, StartCodePrefixThird);
     if (p1 == nullptr) {
         // No next access unit.
         _nalunit = nullptr;
@@ -151,12 +124,12 @@ bool ts::AccessUnitIterator::next()
     }
 
     // Jump to first byte of NALunit.
-    remain -= p1 - _nalunit + sizeof(StartCodePrefix);
-    _nalunit = p1 + sizeof(StartCodePrefix);
+    remain -= p1 - _nalunit + StartCodePrefixSize;
+    _nalunit = p1 + StartCodePrefixSize;
 
     // Locate end of access unit: ends with 00 00 00, 00 00 01 or end of data.
-    const uint8_t* const p2 = LocatePattern(_nalunit, remain, StartCodePrefix, sizeof(StartCodePrefix));
-    const uint8_t* const p3 = LocatePattern(_nalunit, remain, Zero3, sizeof(Zero3));
+    const uint8_t* const p2 = LocateZeroZero(_nalunit, remain, StartCodePrefixThird);
+    const uint8_t* const p3 = LocateZeroZero(_nalunit, remain, 0x00);
     if (p2 == nullptr && p3 == nullptr) {
         // No 00 00 01, no 00 00 00, the NALunit extends up to the end of data.
         _nalunit_size = remain;

@@ -1,63 +1,19 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPcapStream.h"
-
-// Maximum number of out-of-sequence TCP segments after a segment is declared missing.
-#define TS_TCP_MAX_FUTURE 10
 
 
 //----------------------------------------------------------------------------
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::PcapStream::PcapStream() :
-    PcapFilter(),
-    _client(),
-    _server(),
-    _streams()
-{
-}
-
-ts::PcapStream::DataBlock::DataBlock() :
-    data(),
-    index(0),
-    sequence(0),
-    start(false),
-    end(false),
-    timestamp(-1)
-{
-}
-
-ts::PcapStream::DataBlock::DataBlock(const IPv4Packet& pkt, MicroSecond tstamp) :
-    data(),
-    index(0),
+ts::PcapStream::DataBlock::DataBlock(const IPv4Packet& pkt, cn::microseconds tstamp) :
     sequence(pkt.tcpSequenceNumber()),
     start(pkt.tcpSYN()),
     end(pkt.tcpFIN() || pkt.tcpRST()),
@@ -77,7 +33,7 @@ ts::PcapStream::DataBlock::DataBlock(const IPv4Packet& pkt, MicroSecond tstamp) 
 // Open the file, inherited method.
 //----------------------------------------------------------------------------
 
-bool ts::PcapStream::open(const UString& filename, Report& report)
+bool ts::PcapStream::open(const fs::path& filename, Report& report)
 {
     // Invoke superclass.
     const bool ok = PcapFilter::open(filename, report);
@@ -86,6 +42,9 @@ bool ts::PcapStream::open(const UString& filename, Report& report)
         PcapFilter::setProtocolFilterTCP();
         PcapFilter::setWildcardFilter(false);
         setBidirectionalFilter(IPv4SocketAddress(), IPv4SocketAddress());
+
+        // Statistics on the stream.
+        _max_queue_size = 0;
     }
     return ok;
 }
@@ -128,10 +87,33 @@ bool ts::PcapStream::Stream::dataAvailable() const
 // Store the content of an IP packet in a stream.
 //----------------------------------------------------------------------------
 
-void ts::PcapStream::Stream::store(const IPv4Packet& pkt, MicroSecond tstamp)
+void ts::PcapStream::Stream::store(const IPv4Packet& pkt, cn::microseconds tstamp)
 {
     // Allocate a new data block.
     const DataBlockPtr ptr(new DataBlock(pkt, tstamp));
+
+    // Resolve wrap-up of TCP sequence number at 2^32.
+    // Use the 32 upper bits of first queued block to get the order of magnitude.
+    if (!packets.empty()) {
+        // Mask / wrap-up boundary for sequence numbers:
+        constexpr uint64_t max_seq = 0xFFFFFFFF;
+        // If within that range around boundary, there is a wrap-up (say max 10 packets out-of-order):
+        constexpr uint64_t range = 10 * TCP_MAX_PAYLOAD_SIZE;
+        // Original sequence number in first queued block:
+        const uint64_t first_full_seq = packets.front()->sequence;
+        const uint64_t first_seq = first_full_seq & max_seq;
+        uint64_t msb = first_full_seq >> 32;
+        // Adjust captured sequence number.
+        if (ptr->sequence > max_seq - range && first_seq < range) {
+            // Captured block is before first block and wrap-up occured between the two.
+            msb--;
+        }
+        else if (first_seq > max_seq - range && ptr->sequence < range) {
+            // Captured block is after first block and wrap-up occured between the two.
+            msb++;
+        }
+        ptr->sequence |= msb << 32;
+    }
 
     // Find the right location in the queue.
     auto it = packets.begin();
@@ -144,29 +126,29 @@ void ts::PcapStream::Stream::store(const IPv4Packet& pkt, MicroSecond tstamp)
             }
             return;
         }
-        else if (TCPOrderedSequence(ptr->sequence, db.sequence)) {
+        else if (ptr->sequence < db.sequence) {
             // Need to be inserted here, next packet is after.
             // Detect and truncate any overlap.
-            const size_t diff = TCPSequenceDiff(ptr->sequence, db.sequence);
+            const uint64_t diff = db.sequence - ptr->sequence;
             if (ptr->data.size() > diff) {
-                ptr->data.resize(diff);
+                ptr->data.resize(size_t(diff));
             }
             break;
         }
         else {
             // Need to be inserted after this one but check if there is any overlap.
-            const size_t diff = TCPSequenceDiff(db.sequence, ptr->sequence);
+            const uint64_t diff = ptr->sequence - db.sequence;
             if (db.data.size() > diff) {
                 // The packet at **it overlaps on packet to insert.
-                const size_t extra = db.data.size() - diff;
+                const uint64_t extra = db.data.size() - diff;
                 if (ptr->data.size() <= extra) {
                     // Packet to insert is fully overlapped, drop it.
                     return;
                 }
                 else {
                     // Remove overlapping start of the packet to insert.
-                    ptr->data.erase(0, extra);
-                    ptr->sequence += uint32_t(extra);
+                    ptr->data.erase(0, size_t(extra));
+                    ptr->sequence += extra;
                 }
             }
         }
@@ -183,10 +165,10 @@ void ts::PcapStream::Stream::store(const IPv4Packet& pkt, MicroSecond tstamp)
         // If the previous packet is empty and adjacent, it was waiting for the next
         // adjacent packet and we may remove it now.
         if (it != packets.begin()) {
-            const uint32_t seq = (*it)->sequence;
+            const uint64_t seq = (*it)->sequence;
             --it;
             const DataBlock& db(**it);
-            if (db.index >= db.data.size() && db.sequence + uint32_t(db.data.size()) == seq) {
+            if (db.index >= db.data.size() && db.sequence + db.data.size() == seq) {
                 // Propagate start of stream from previous packet to this one.
                 if (db.start && db.data.empty()) {
                     ptr->start = true;
@@ -206,7 +188,7 @@ void ts::PcapStream::Stream::store(const IPv4Packet& pkt, MicroSecond tstamp)
 bool ts::PcapStream::readStreams(size_t& source, Report& report)
 {
     IPv4Packet pkt;
-    MicroSecond timestamp = -1;
+    cn::microseconds timestamp = cn::microseconds(-1);
     size_t pkt_source = NPOS;
 
     // Loop on reading packet, return on error or packet found.
@@ -217,8 +199,14 @@ bool ts::PcapStream::readStreams(size_t& source, Report& report)
             return false;
         }
 
-        // Ignore non-TCP packets. Also ignored fragmented IP packets.
-        if (!pkt.isTCP() || pkt.fragmented()) {
+        // Ignore non-TCP packets.
+        if (!pkt.isTCP()) {
+            continue;
+        }
+
+        // Also ignored fragmented IP packets.
+        if (pkt.fragmented()) {
+            report.debug(u"got fragmented IP packet in TCP stream, sync lost on that TCP stream");
             continue;
         }
 
@@ -233,7 +221,7 @@ bool ts::PcapStream::readStreams(size_t& source, Report& report)
         }
         else {
             // Not a packet from that TCP session. Shouldn't happen since the filter is set in the superclass.
-            report.error(u"internal error in PcapStream::readStreams(), unexpected packet %s -> %s in stream %s <-> %s", {src, dst, sourceFilter(), destinationFilter()});
+            report.error(u"internal error in PcapStream::readStreams(), unexpected packet %s -> %s in stream %s <-> %s", src, dst, sourceFilter(), destinationFilter());
             return false;
         }
 
@@ -253,6 +241,7 @@ bool ts::PcapStream::readStreams(size_t& source, Report& report)
 
         // Store the packet in the stream.
         _streams[pkt_source].store(pkt, timestamp);
+        _max_queue_size = std::max(_max_queue_size, _streams[pkt_source].packets.size());
 
         // Stop when a packet was read from the specified peer.
         if ((source == pkt_source || (source != ISRC && source != IDST)) && !_streams[pkt_source].packets.empty()) {
@@ -267,11 +256,11 @@ bool ts::PcapStream::readStreams(size_t& source, Report& report)
 // Read data from the TCP session, any direction.
 //----------------------------------------------------------------------------
 
-bool ts::PcapStream::readTCP(IPv4SocketAddress& source, ByteBlock& data, size_t& size, MicroSecond& timestamp, Report& report)
+bool ts::PcapStream::readTCP(IPv4SocketAddress& source, ByteBlock& data, size_t& size, cn::microseconds& timestamp, Report& report)
 {
     size_t remain = size;
     size = 0;
-    timestamp = -1;
+    timestamp = cn::microseconds(-1);
 
     // Check the direction of the requested stream.
     size_t peer_number = NPOS;
@@ -315,7 +304,7 @@ bool ts::PcapStream::readTCP(IPv4SocketAddress& source, ByteBlock& data, size_t&
 
         // If no buffered data are available, read more packets.
         while (!stream.dataAvailable()) {
-            if (stream.packets.size() > TS_TCP_MAX_FUTURE) {
+            if (stream.packets.size() > TCP_MAX_FUTURE) {
                 report.error(u"missing TCP segment, too many future out-of-sequence segments");
                 return size > 0;
             }
@@ -402,7 +391,7 @@ bool ts::PcapStream::indexOf(const IPv4SocketAddress& source, bool allow_unspeci
         return true;
     }
     else {
-        report.error(u"invalid source address %s for TCP stream %s <-> %s", {source, sourceFilter(), destinationFilter()});
+        report.error(u"invalid source address %s for TCP stream %s <-> %s", source, sourceFilter(), destinationFilter());
         index = NPOS;
         return false;
     }
@@ -413,12 +402,31 @@ bool ts::PcapStream::indexOf(const IPv4SocketAddress& source, bool allow_unspeci
 // Position of the next data to read.
 //----------------------------------------------------------------------------
 
+bool ts::PcapStream::startOfStream(Report& report)
+{
+    // Each side must be either empty or at start.
+    if (!_streams[ISRC].packets.empty() && !_streams[IDST].packets.empty()) {
+        return _streams[ISRC].packets.front()->start && _streams[IDST].packets.front()->start;
+    }
+    else if (!_streams[ISRC].packets.empty()) {
+        return _streams[ISRC].packets.front()->start;
+    }
+    else if (!_streams[IDST].packets.empty()) {
+        return _streams[IDST].packets.front()->start;
+    }
+    else {
+        // Both sides are empty, need to read until the first packet of the session is found.
+        size_t index = NPOS;
+        return readStreams(index, report) && _streams[index].packets.front()->start;
+    }
+}
+
 bool ts::PcapStream::startOfStream(const IPv4SocketAddress& source, Report& report)
 {
     size_t index = NPOS;
     return indexOf(source, false, index, report) &&
-        (!_streams[index].packets.empty() || readStreams(index, report)) &&
-        _streams[index].packets.front()->start;
+           (!_streams[index].packets.empty() || readStreams(index, report)) &&
+           _streams[index].packets.front()->start;
 }
 
 bool ts::PcapStream::endOfStream(const IPv4SocketAddress& source, Report& report)

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -45,19 +24,19 @@ TS_MAIN(MainCode);
 //----------------------------------------------------------------------------
 
 namespace ts {
-    class EITOptions: public Args
+    class EITMainOptions: public Args
     {
-        TS_NOBUILD_NOCOPY(EITOptions);
+        TS_NOBUILD_NOCOPY(EITMainOptions);
     public:
-        EITOptions(int argc, char *argv[]);
-        virtual ~EITOptions() override;
+        EITMainOptions(int argc, char *argv[]);
+        virtual ~EITMainOptions() override;
 
-        bool          exit_error;
-        UStringVector commands;
-        UStringVector command_files;
-        UString       input_directory;
-        UString       output_directory;
-        CommandLine   cmdline;
+        bool          exit_error = false;
+        UStringVector commands {};
+        UStringVector command_files {};
+        UString       input_directory {};
+        UString       output_directory {};
+        CommandLine   cmdline {*this};
 
         // Inherited methods.
         virtual UString getHelpText(HelpFormat format, size_t line_width = DEFAULT_LINE_WIDTH) const override;
@@ -65,14 +44,8 @@ namespace ts {
 }
 
 // Constructor: get command line options.
-ts::EITOptions::EITOptions(int argc, char *argv[]) :
-    Args(u"Manipulate EIT's through commands", u"[options]"),
-    exit_error(false),
-    commands(),
-    command_files(),
-    input_directory(),
-    output_directory(),
-    cmdline(*this)
+ts::EITMainOptions::EITMainOptions(int argc, char *argv[]) :
+    Args(u"Manipulate EIT's through commands", u"[options]")
  {
     // Command line options.
     option(u"command", 'c', STRING, 0, UNLIMITED_COUNT);
@@ -130,7 +103,7 @@ ts::EITOptions::EITOptions(int argc, char *argv[]) :
     cmd->help(u"bytes", u"Size of the TS file in bytes.");
     cmd->option(u"packets", 'p', POSITIVE);
     cmd->help(u"packets", u"Number of TS packets to generate.");
-    cmd->option(u"seconds", 's', POSITIVE);
+    cmd->option<cn::seconds>(u"seconds", 's');
     cmd->help(u"seconds", u"Duration in seconds of the file to generate.");
     cmd->option(u"until", 'u', STRING);
     cmd->help(u"until", u"year/month/day:hour:minute:second.millisecond", u"Process up to the specified date in the stream.");
@@ -142,7 +115,7 @@ ts::EITOptions::EITOptions(int argc, char *argv[]) :
     cmd->help(u"bytes", u"Size of the TS file in bytes.");
     cmd->option(u"packets", 'p', POSITIVE);
     cmd->help(u"packets", u"Number of TS packets to generate.");
-    cmd->option(u"seconds", 's', POSITIVE);
+    cmd->option<cn::seconds>(u"seconds", 's');
     cmd->help(u"seconds", u"Duration in seconds of the file to generate.");
     cmd->option(u"until", 'u', STRING);
     cmd->help(u"until", u"year/month/day:hour:minute:second.millisecond", u"Process up to the specified date in the stream.");
@@ -172,6 +145,22 @@ ts::EITOptions::EITOptions(int argc, char *argv[]) :
     cmd->help(u"other", u"Enable the generation of EIT other.");
     cmd->option(u"no-other");
     cmd->help(u"no-other", u"Disable the generation of EIT other.");
+    cmd->option(u"actual-pf");
+    cmd->help(u"actual-pf", u"Enable the generation of actual EIT p/f.");
+    cmd->option(u"no-actual-pf");
+    cmd->help(u"no-actual-pf", u"Disable the generation of actual EIT p/f.");
+    cmd->option(u"other-pf");
+    cmd->help(u"other-pf", u"Enable the generation of other EIT p/f.");
+    cmd->option(u"no-other-pf");
+    cmd->help(u"no-other-pf", u"Disable the generation of other EIT p/f.");
+    cmd->option(u"actual-schedule");
+    cmd->help(u"actual-schedule", u"Enable the generation of actual EIT schedule.");
+    cmd->option(u"no-actual-schedule");
+    cmd->help(u"no-actual-schedule", u"Disable the generation of actual EIT schedule.");
+    cmd->option(u"other-schedule");
+    cmd->help(u"other-schedule", u"Enable the generation of other EIT schedule.");
+    cmd->option(u"no-other-schedule");
+    cmd->help(u"no-other-schedule", u"Disable the generation of other EIT schedule.");
     cmd->option(u"ts-id", 0, UINT16);
     cmd->help(u"ts-id", u"Set the actual transport stream id.");
     cmd->option<BitRate>(u"ts-bitrate");
@@ -196,12 +185,12 @@ ts::EITOptions::EITOptions(int argc, char *argv[]) :
 }
 
 // Destructor.
-ts::EITOptions::~EITOptions()
+ts::EITMainOptions::~EITMainOptions()
 {
 }
 
 // Build full help text.
-ts::UString ts::EITOptions::getHelpText(HelpFormat format, size_t line_width) const
+ts::UString ts::EITMainOptions::getHelpText(HelpFormat format, size_t line_width) const
 {
     // Initial text from superclass.
     UString text(Args::getHelpText(format, line_width));
@@ -225,15 +214,15 @@ namespace ts {
     {
         TS_NOBUILD_NOCOPY(EITCommand);
     public:
-        EITCommand(EITOptions& opt);
+        EITCommand(EITMainOptions& opt);
         virtual ~EITCommand() override;
 
     private:
-        EITOptions&  _opt;
-        DuckContext  _duck;
-        BitRate      _ts_bitrate;
-        EITOption    _eit_options;
-        EITGenerator _eit_gen;
+        EITMainOptions& _opt;
+        DuckContext     _duck {&_opt};
+        BitRate         _ts_bitrate = 0;
+        EITOptions      _eit_options = EITOptions::GEN_ALL | EITOptions::LOAD_INPUT;
+        EITGenerator    _eit_gen {_duck, PID_EIT, _eit_options, EITRepetitionProfile::SatelliteCable};
 
         // Get full path of an input or output directory.
         UString fileName(const UString& directory, const UString& name) const;
@@ -244,7 +233,7 @@ namespace ts {
         bool getTimeOptions(Time& time, Args& args, const UChar* name);
 
         // Get processing duration options. Return false on error. Set to zero and Epoch if unspecified.
-        bool getDurationOptions(size_t& packet_count, Time& until, Args& args);
+        bool getDurationOptions(PacketCounter& packet_count, Time& until, Args& args);
 
         // Command handlers.
         CommandStatus load(const UString&, Args&);
@@ -267,12 +256,8 @@ ts::EITCommand::~EITCommand()
 // EIT database manipulation constructor.
 //----------------------------------------------------------------------------
 
-ts::EITCommand::EITCommand(EITOptions& opt) :
-    _opt(opt),
-    _duck(&_opt),
-    _ts_bitrate(0),
-    _eit_options(EITOption::GEN_ALL | EITOption::LOAD_INPUT),
-    _eit_gen(_duck, PID_EIT, _eit_options, EITRepetitionProfile::SatelliteCable)
+ts::EITCommand::EITCommand(EITMainOptions& opt) :
+    _opt(opt)
 {
     // Connect this object as command handler for all commands.
     _opt.cmdline.setCommandLineHandler(this, &EITCommand::load, u"load");
@@ -295,7 +280,7 @@ ts::UString ts::EITCommand::fileName(const UString& directory, const UString& na
         return name;
     }
     else {
-        return directory + PathSeparator + name;
+        return directory + fs::path::preferred_separator + name;
     }
 }
 
@@ -311,7 +296,7 @@ bool ts::EITCommand::getTimeOptions(Time& time, Args& args, const UChar* name)
         return true;
     }
     else {
-        args.error(u"invalid --%s value \"%s\" (use \"year/month/day:hour:minute:sec.ms\")", {name, args.value(name)});
+        args.error(u"invalid --%s value \"%s\" (use \"year/month/day:hour:minute:sec.ms\")", name, args.value(name));
         return false;
     }
 }
@@ -321,9 +306,12 @@ bool ts::EITCommand::getTimeOptions(Time& time, Args& args, const UChar* name)
 // Get processing duration options.
 //----------------------------------------------------------------------------
 
-bool ts::EITCommand::getDurationOptions(size_t& packet_count, Time& until, Args& args)
+bool ts::EITCommand::getDurationOptions(PacketCounter& packet_count, Time& until, Args& args)
 {
     packet_count = 0;
+    until = Time::Epoch;
+    size_t bytes = 0;
+    cn::seconds seconds;
 
     if (_ts_bitrate == 0 && (args.present(u"until") || args.present(u"seconds"))) {
         args.error(u"TS bitrate is unknow, --until or --seconds cannot be used");
@@ -336,15 +324,18 @@ bool ts::EITCommand::getDurationOptions(size_t& packet_count, Time& until, Args&
         args.error(u"specify at most one of --bytes, --packets, --seconds");
         return false;
     }
-    if (args.present(u"bytes")) {
-        packet_count = args.intValue<size_t>(u"bytes") / PKT_SIZE;
+
+    args.getIntValue(packet_count, u"packets");
+    args.getIntValue(bytes, u"bytes");
+    args.getChronoValue(seconds, u"seconds");
+
+    if (bytes > 0) {
+        packet_count = bytes / PKT_SIZE;
     }
-    else if (args.present(u"packets")) {
-        packet_count = args.intValue<size_t>(u"packets");
+    else if (seconds > cn::seconds::zero()) {
+        packet_count = PacketDistance(_ts_bitrate, seconds);
     }
-    else if (args.present(u"seconds")) {
-        packet_count = size_t(PacketDistance(_ts_bitrate, MilliSecPerSec * args.intValue<Second>(u"seconds")));
-    }
+
     return true;
 }
 
@@ -377,7 +368,7 @@ ts::CommandStatus ts::EITCommand::process(const UString& command, Args& args)
     const UString outfile_name(outputFileName(args.value(u"", u"", 1)));
     const uint64_t start_offset = args.intValue<uint64_t>(u"start-offset", 0);
     const size_t repeat_count = args.intValue<size_t>(u"repeat", args.present(u"infinite") ? 0 : 1);
-    size_t packet_count = 0;
+    PacketCounter packet_count = 0;
     Time until;
     TSFile infile;
     TSFile outfile;
@@ -390,7 +381,7 @@ ts::CommandStatus ts::EITCommand::process(const UString& command, Args& args)
         return CommandStatus::ERROR;
     }
 
-    for (size_t count = 0;
+    for (PacketCounter count = 0;
          (packet_count == 0 || count < packet_count) && (until == Time::Epoch || _eit_gen.getCurrentTime() < until) && infile.readPackets(&pkt, nullptr, 1, args);
          ++count)
     {
@@ -404,7 +395,7 @@ ts::CommandStatus ts::EITCommand::process(const UString& command, Args& args)
 
 ts::CommandStatus ts::EITCommand::generate(const UString& command, Args& args)
 {
-    size_t packet_count = 0;
+    PacketCounter packet_count = 0;
     Time until;
 
     if (!getDurationOptions(packet_count, until, args)) {
@@ -447,36 +438,69 @@ ts::CommandStatus ts::EITCommand::dump(const UString& command, Args& args)
 ts::CommandStatus ts::EITCommand::set(const UString& command, Args& args)
 {
     bool set_options = false;
+
     if (args.present(u"pf")) {
-        _eit_options |= EITOption::GEN_PF;
+        _eit_options |= EITOptions::GEN_PF;
         set_options = true;
     }
     if (args.present(u"no-pf")) {
-        _eit_options &= ~EITOption::GEN_PF;
+        _eit_options &= ~EITOptions::GEN_PF;
         set_options = true;
     }
     if (args.present(u"schedule")) {
-        _eit_options |= EITOption::GEN_SCHED;
+        _eit_options |= EITOptions::GEN_SCHED;
         set_options = true;
     }
     if (args.present(u"no-schedule")) {
-        _eit_options &= ~EITOption::GEN_SCHED;
+        _eit_options &= ~EITOptions::GEN_SCHED;
         set_options = true;
     }
     if (args.present(u"actual")) {
-        _eit_options |= EITOption::GEN_ACTUAL;
+        _eit_options |= EITOptions::GEN_ACTUAL;
         set_options = true;
     }
     if (args.present(u"no-actual")) {
-        _eit_options &= ~EITOption::GEN_ACTUAL;
+        _eit_options &= ~EITOptions::GEN_ACTUAL;
         set_options = true;
     }
     if (args.present(u"other")) {
-        _eit_options |= EITOption::GEN_OTHER;
+        _eit_options |= EITOptions::GEN_OTHER;
         set_options = true;
     }
     if (args.present(u"no-other")) {
-        _eit_options &= ~EITOption::GEN_OTHER;
+        _eit_options &= ~EITOptions::GEN_OTHER;
+        set_options = true;
+    }
+    if (args.present(u"actual-pf")) {
+        _eit_options |= EITOptions::GEN_ACTUAL_PF;
+        set_options = true;
+    }
+    if (args.present(u"no-actual-pf")) {
+        _eit_options &= ~EITOptions::GEN_ACTUAL_PF;
+        set_options = true;
+    }
+    if (args.present(u"other-pf")) {
+        _eit_options |= EITOptions::GEN_OTHER_PF;
+        set_options = true;
+    }
+    if (args.present(u"no-other-pf")) {
+        _eit_options &= ~EITOptions::GEN_OTHER_PF;
+        set_options = true;
+    }
+    if (args.present(u"actual-schedule")) {
+        _eit_options |= EITOptions::GEN_ACTUAL_SCHED;
+        set_options = true;
+    }
+    if (args.present(u"no-actual-schedule")) {
+        _eit_options &= ~EITOptions::GEN_ACTUAL_SCHED;
+        set_options = true;
+    }
+    if (args.present(u"other-schedule")) {
+        _eit_options |= EITOptions::GEN_OTHER_SCHED;
+        set_options = true;
+    }
+    if (args.present(u"no-other-schedule")) {
+        _eit_options &= ~EITOptions::GEN_OTHER_SCHED;
         set_options = true;
     }
     if (set_options) {
@@ -523,7 +547,7 @@ int MainCode(int argc, char *argv[])
     ts::EditLine::setDefaultNextPrompt(u">>> ");
 
     // Get command line options.
-    ts::EITOptions opt(argc, argv);
+    ts::EITMainOptions opt(argc, argv);
     ts::EITCommand dbase(opt);
 
     ts::CommandStatus status = ts::CommandStatus::SUCCESS;

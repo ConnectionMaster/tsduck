@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -43,8 +22,7 @@
 ts::CASMapper::CASMapper(DuckContext& duck) :
     TableHandlerInterface(),
     _duck(duck),
-    _demux(_duck, this),
-    _pids()
+    _demux(_duck, this)
 {
     // Specify the PID filters
     _demux.addPID(PID_PAT);
@@ -101,7 +79,7 @@ void ts::CASMapper::handleTable(SectionDemux&, const BinaryTable& table)
             break;
         }
         default: {
-            _duck.report().debug(u"Got unexpected TID %d (0x%X) on PID %d (0x%X)", {table.tableId(), table.tableId(), table.sourcePID(), table.sourcePID()});
+            _duck.report().debug(u"Got unexpected TID %n on PID %n", table.tableId(), table.sourcePID());
             break;
         }
     }
@@ -115,12 +93,12 @@ void ts::CASMapper::analyzeCADescriptors(const DescriptorList& descs, bool is_ec
 {
     for (size_t i = 0; i < descs.count(); ++i) {
         const DescriptorPtr& desc(descs[i]);
-        if (!desc.isNull() && desc->tag() == DID_CA) {
+        if (desc != nullptr && desc->tag() == DID_CA) {
             const CADescriptorPtr cadesc(new CADescriptor(_duck, *desc));
-            if (!cadesc.isNull() && cadesc->isValid()) {
+            if (cadesc != nullptr && cadesc->isValid()) {
                 const std::string cas_name(names::CASId(_duck, cadesc->cas_id).toUTF8());
                 _pids[cadesc->ca_pid] = PIDDescription(cadesc->cas_id, is_ecm, cadesc);
-                _duck.report().debug(u"Found %s PID %d (0x%X) for CAS id 0x%X (%s)", {is_ecm ? u"ECM" : u"EMM", cadesc->ca_pid, cadesc->ca_pid, cadesc->cas_id, cas_name});
+                _duck.report().debug(u"Found %s PID %n for CAS id 0x%X (%s)", is_ecm ? u"ECM" : u"EMM", cadesc->ca_pid, cadesc->cas_id, cas_name);
             }
         }
     }
@@ -154,10 +132,10 @@ bool ts::CASMapper::getCADescriptor(PID pid, CADescriptorPtr& desc) const
 {
     const auto it = _pids.find(pid);
     if (it == _pids.end()) {
-        desc.clear();
+        desc.reset();
     }
     else {
         desc = it->second.ca_desc;
     }
-    return !desc.isNull();
+    return desc != nullptr;
 }

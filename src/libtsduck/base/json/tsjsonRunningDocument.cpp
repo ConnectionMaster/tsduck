@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,14 +14,6 @@
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::json::RunningDocument::RunningDocument(Report& report) :
-    _text(report),
-    _open_array(false),
-    _empty_array(true),
-    _obj_count(0)
-{
-}
-
 ts::json::RunningDocument::~RunningDocument()
 {
     close();
@@ -53,14 +24,14 @@ ts::json::RunningDocument::~RunningDocument()
 // Initialize the document.
 //----------------------------------------------------------------------------
 
-bool ts::json::RunningDocument::open(const ValuePtr& root, const UString& fileName, std::ostream& strm)
+bool ts::json::RunningDocument::open(const ValuePtr& root, const fs::path& fileName, std::ostream& strm)
 {
     // Cleanup previous state.
     close();
 
     // Locate the array that must remain open.
     ValuePtrVector path;
-    if (!root.isNull() && !searchArray(root, path)) {
+    if (root != nullptr && !searchArray(root, path)) {
         _text.report().error(u"internal error, no array in JSON tree, cannot build a dynamic JSON document");
         return false;
     }
@@ -74,7 +45,7 @@ bool ts::json::RunningDocument::open(const ValuePtr& root, const UString& fileNa
     }
 
     // Print all open objects up to the open array.
-    if (root.isNull()) {
+    if (root == nullptr) {
         // Emulate empty array.
         _text << "[" << ts::indent;
         _empty_array = true;
@@ -94,17 +65,17 @@ bool ts::json::RunningDocument::open(const ValuePtr& root, const UString& fileNa
             // Print all fields, except the one containing the array.
             UString last_name;
             size_t count = 0;
-            for (auto it = names.begin(); it != names.end(); ++it) {
-                const ValuePtr subval(value->valuePtr(*it));
+            for (const auto& it : names) {
+                const ValuePtr subval(value->valuePtr(it));
                 if (subval == path[pi+1]) {
                     // Field containing the array will be printed last.
-                    last_name = *it;
+                    last_name = it;
                 }
                 else {
                     if (count++ > 0) {
                         _text << ",";
                     }
-                    _text << ts::endl << ts::margin << '"' << it->toJSON() << "\": ";
+                    _text << ts::endl << ts::margin << '"' << it.toJSON() << "\": ";
                     subval->print(_text);
                 }
             }
@@ -199,9 +170,9 @@ bool ts::json::RunningDocument::searchArray(const ValuePtr& root, ValuePtrVector
         // Lookup all fields in the object.
         UStringList names;
         root->getNames(names);
-        for (auto it = names.begin(); it != names.end(); ++it) {
-            const ValuePtr val(root->valuePtr(*it));
-            if (!val.isNull() && searchArray(val, path)) {
+        for (const auto& it : names) {
+            const ValuePtr val(root->valuePtr(it));
+            if (val != nullptr && searchArray(val, path)) {
                 // Found an array in that branch.
                 return true;
             }

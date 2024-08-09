@@ -1,40 +1,24 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSAnalyzer.h"
 #include "tsT2MIPacket.h"
+#include "tsTVCT.h"
+#include "tsCVCT.h"
+#include "tsServiceDescriptor.h"
+#include "tsNetworkNameDescriptor.h"
 #include "tsAACDescriptor.h"
 #include "tsISO639LanguageDescriptor.h"
 #include "tsSubtitlingDescriptor.h"
 #include "tsTeletextDescriptor.h"
 #include "tsBinaryTable.h"
 #include "tsDuckContext.h"
+#include "tsCASFamily.h"
 #include "tsNames.h"
 #include "tsAlgorithm.h"
 
@@ -48,66 +32,11 @@ const ts::UString ts::TSAnalyzer::UNREFERENCED(u"Unreferenced");
 
 ts::TSAnalyzer::TSAnalyzer(DuckContext& duck, const BitRate& bitrate_hint, BitRateConfidence bitrate_confidence) :
     _duck(duck),
-    _ts_id(0),
-    _ts_id_valid(false),
-    _ts_pkt_cnt(0),
-    _invalid_sync(0),
-    _transport_errors(0),
-    _suspect_ignored(0),
-    _pid_cnt(0),
-    _scrambled_pid_cnt(0),
-    _pcr_pid_cnt(0),
-    _global_pid_cnt(0),
-    _global_scr_pids(0),
-    _global_pkt_cnt(0),
-    _global_bitrate(0),
-    _psisi_pid_cnt(0),
-    _psisi_scr_pids(0),
-    _psisi_pkt_cnt(0),
-    _psisi_bitrate(0),
-    _unref_pid_cnt(0),
-    _unref_scr_pids(0),
-    _unref_pkt_cnt(0),
-    _unref_bitrate(0),
-    _ts_pcr_bitrate_188(0),
-    _ts_pcr_bitrate_204(0),
     _ts_user_bitrate(bitrate_hint),
-    _ts_user_br_confidence(bitrate_confidence),
-    _ts_bitrate(0),
-    _duration(0),
-    _first_utc(Time::Epoch),
-    _last_utc(Time::Epoch),
-    _first_local(Time::Epoch),
-    _last_local(Time::Epoch),
-    _first_tdt(Time::Epoch),
-    _last_tdt(Time::Epoch),
-    _first_tot(Time::Epoch),
-    _last_tot(Time::Epoch),
-    _first_stt(Time::Epoch),
-    _last_stt(Time::Epoch),
-    _country_code(),
-    _scrambled_services_cnt(0),
-    _tid_present(),
-    _pids(),
-    _services(),
-    _modified(false),
-    _ts_bitrate_sum(0),
-    _ts_bitrate_cnt(0),
-    _preceding_errors(0),
-    _preceding_suspects(0),
-    _min_error_before_suspect(1),
-    _max_consecutive_suspects(1),
-    _demux(_duck, this, this),
-    _pes_demux(_duck, this),
-    _t2mi_demux(_duck, this)
+    _ts_user_br_confidence(bitrate_confidence)
 {
     resetSectionDemux();
 }
-
-
-//----------------------------------------------------------------------------
-// Destructor for the TS analyzer
-//----------------------------------------------------------------------------
 
 ts::TSAnalyzer::~TSAnalyzer()
 {
@@ -122,8 +51,7 @@ ts::TSAnalyzer::~TSAnalyzer()
 void ts::TSAnalyzer::reset()
 {
     _modified = false;
-    _ts_id = 0;
-    _ts_id_valid = false;
+    _ts_id.reset();
     _ts_pkt_cnt = 0;
     _invalid_sync = 0;
     _transport_errors = 0;
@@ -148,7 +76,7 @@ void ts::TSAnalyzer::reset()
     _ts_user_bitrate = 0;
     _ts_user_br_confidence = BitRateConfidence::LOW;
     _ts_bitrate = 0;
-    _duration = 0;
+    _duration = cn::milliseconds::zero();
     _first_utc = Time::Epoch;
     _last_utc = Time::Epoch;
     _first_local = Time::Epoch;
@@ -169,6 +97,8 @@ void ts::TSAnalyzer::reset()
     _preceding_errors = 0;
     _preceding_suspects = 0;
     _pes_demux.reset();
+    _t2mi_demux.reset();
+    _lcn.clear();
 
     resetSectionDemux();
 }
@@ -238,57 +168,7 @@ const ts::TSAnalyzer::PIDContext::KnownPIDMap ts::TSAnalyzer::PIDContext::KNOWN_
 
 ts::TSAnalyzer::PIDContext::PIDContext(PID pid_, const UString& description_) :
     pid(pid_),
-    description(description_),
-    comment(),
-    languages(),
-    attributes(),
-    services(),
-    is_pmt_pid(false),
-    is_pcr_pid(false),
-    referenced(false),
-    optional(false),
-    carry_pes(false),
-    carry_section(false),
-    carry_ecm(false),
-    carry_emm(false),
-    carry_audio(false),
-    carry_video(false),
-    carry_t2mi(false),
-    scrambled(false),
-    same_stream_id(false),
-    pes_stream_id(0),
-    stream_type(0),
-    ts_pkt_cnt(0),
-    ts_af_cnt(0),
-    unit_start_cnt(0),
-    pl_start_cnt(0),
-    pmt_cnt(0),
-    crypto_period(0),
-    unexp_discont(0),
-    exp_discont(0),
-    duplicated(0),
-    ts_sc_cnt(0),
-    inv_ts_sc_cnt(0),
-    inv_pes_start(0),
-    t2mi_cnt(0),
-    pcr_cnt(0),
-    ts_pcr_bitrate(0),
-    bitrate(0),
-    cas_id(0),
-    cas_operators(),
-    sections(),
-    ssu_oui(),
-    t2mi_plp_ts(),
-    cur_continuity(0),
-    audio2(),
-    cur_ts_sc(0),
-    cur_ts_sc_pkt(0),
-    cryptop_cnt(0),
-    cryptop_ts_cnt(0),
-    last_pcr(0),
-    last_pcr_pkt(0),
-    ts_bitrate_sum(0),
-    ts_bitrate_cnt(0)
+    description(description_)
 {
     // Guess the initial description, based on the PID
     // Global PID's (PAT, CAT, etc) are marked as "referenced" since they
@@ -302,57 +182,6 @@ ts::TSAnalyzer::PIDContext::PIDContext(PID pid_, const UString& description_) :
         optional = it->second.optional;
         carry_section = it->second.sections;
     }
-}
-
-
-//----------------------------------------------------------------------------
-// Constructor for the ETID context
-//----------------------------------------------------------------------------
-
-ts::TSAnalyzer::ETIDContext::ETIDContext(const ETID& etid_) :
-    etid(etid_),
-    table_count(0),
-    section_count(0),
-    repetition_ts(0),
-    min_repetition_ts(0),
-    max_repetition_ts(0),
-    first_version(0),
-    last_version(0),
-    versions(),
-    first_pkt(0),
-    last_pkt(0)
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Constructor for the Service context
-//----------------------------------------------------------------------------
-
-ts::TSAnalyzer::ServiceContext::ServiceContext(uint16_t serv_id) :
-    service_id(serv_id),
-    orig_netw_id(0),
-    service_type(0),
-    name(),
-    provider(),
-    pmt_pid(0),
-    pcr_pid(0),
-    pid_cnt(0),
-    scrambled_pid_cnt(0),
-    ts_pkt_cnt(0),
-    bitrate(0),
-    carry_ssu(false),
-    carry_t2mi(false)
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Destructor for the Service context
-//----------------------------------------------------------------------------
-
-ts::TSAnalyzer::ServiceContext::~ServiceContext()
-{
 }
 
 
@@ -375,6 +204,27 @@ ts::UString ts::TSAnalyzer::ServiceContext::getName() const
     }
     else {
         return u"(unknown)";
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Update a service context with information from a descriptor list.
+//----------------------------------------------------------------------------
+
+void ts::TSAnalyzer::ServiceContext::update(DuckContext& duck, const DescriptorList& descs)
+{
+    // Look for a service_descriptor and get service characteristics.
+    ServiceDescriptor srv_desc;
+    if (descs.search(duck, DID_SERVICE, srv_desc) < descs.size()) {
+        service_type = srv_desc.service_type;
+        // Replace names only if they are not empty.
+        if (!srv_desc.provider_name.empty()) {
+            provider = srv_desc.provider_name;
+        }
+        if (!srv_desc.service_name.empty()) {
+            name = srv_desc.service_name;
+        }
     }
 }
 
@@ -419,9 +269,9 @@ bool ts::TSAnalyzer::pidExists(PID pid) const
 ts::TSAnalyzer::PIDContextPtr ts::TSAnalyzer::getPID(PID pid, const UString& description)
 {
     const PIDContextPtr p(_pids[pid]);
-    if (p.isNull()) {
+    if (p == nullptr) {
         // The PID was not yet used, map entry just created.
-        return _pids[pid] = new PIDContext(pid, description);
+        return _pids[pid] = std::make_shared<PIDContext>(pid, description);
     }
     else {
         // If the PID was marked as unreferenced, now use actual description.
@@ -440,9 +290,9 @@ ts::TSAnalyzer::PIDContextPtr ts::TSAnalyzer::getPID(PID pid, const UString& des
 ts::TSAnalyzer::ServiceContextPtr ts::TSAnalyzer::getService(uint16_t service_id)
 {
     ServiceContextPtr p(_services[service_id]);
-    if (p.isNull()) {
+    if (p == nullptr) {
         // The service was not yet used, map entry just created.
-        return _services[service_id] = new ServiceContext(service_id);
+        return _services[service_id] = std::make_shared<ServiceContext>(service_id);
     }
     else {
         return p;
@@ -465,6 +315,17 @@ void ts::TSAnalyzer::PIDContext::addService(uint16_t service_id)
         // Service id not found, add it
         services.insert(service_id);
     }
+}
+
+
+//----------------------------------------------------------------------------
+// This hook is invoked when an invalid section is received.
+// Implementation of InvalidSectionHandlerInterface
+//----------------------------------------------------------------------------
+
+void ts::TSAnalyzer::handleInvalidSection(SectionDemux&, const DemuxedData& data)
+{
+    getPID(data.sourcePID())->inv_sections++;
 }
 
 
@@ -563,6 +424,13 @@ void ts::TSAnalyzer::handleTable(SectionDemux&, const BinaryTable& table)
             }
             break;
         }
+        case TID_NIT_ACT: {
+            const NIT nit(_duck, table);
+            if (nit.isValid()) {
+                analyzeNIT(pid, nit);
+            }
+            break;
+        }
         case TID_SDT_ACT: {
             const SDT sdt(_duck, table);
             if (sdt.isValid()) {
@@ -620,7 +488,6 @@ void ts::TSAnalyzer::analyzePAT(const PAT& pat)
 {
     // Get the transport stream id
     _ts_id = pat.ts_id;
-    _ts_id_valid = true;
 
     // Get all PMT PID's for all services
     for (auto& it : pat.pmts) {
@@ -685,16 +552,20 @@ void ts::TSAnalyzer::analyzePMT(PID pid, const PMT& pmt)
     }
 
     // Process "program info" list of descriptors.
-    analyzeDescriptors(pmt.descs, svp.pointer());
+    analyzeDescriptors(pmt.descs, svp.get());
+
+    // Some broadcasters incorrectly place the service_descriptor in the PMT instead of the SDT.
+    svp->update(_duck, pmt.descs);
 
     // Process all "elementary stream info"
     for (auto& it : pmt.streams) {
         const PID es_pid = it.first;
         const PMT::Stream& stream(it.second);
+        const uint32_t regid = pmt.registrationId(es_pid);
         ps = getPID(es_pid);
         ps->addService(pmt.service_id);
         ps->stream_type = stream.stream_type;
-        ps->carry_audio = ps->carry_audio || StreamTypeIsAudio(stream.stream_type);
+        ps->carry_audio = ps->carry_audio || StreamTypeIsAudio(stream.stream_type, regid);
         ps->carry_video = ps->carry_video || StreamTypeIsVideo(stream.stream_type);
         ps->carry_pes = ps->carry_pes || StreamTypeIsPES(stream.stream_type);
         if (!ps->carry_section && !ps->carry_t2mi && StreamTypeIsSection(stream.stream_type)) {
@@ -708,9 +579,34 @@ void ts::TSAnalyzer::analyzePMT(PID pid, const PMT& pmt)
             AppendUnique(ps->attributes, ps->audio2.toString());
         }
 
-        ps->description = names::StreamType(stream.stream_type);
-        analyzeDescriptors(stream.descs, svp.pointer(), ps.pointer());
+        ps->description = names::StreamType(stream.stream_type, NamesFlags::NAME, regid);
+        analyzeDescriptors(stream.descs, svp.get(), ps.get());
     }
+}
+
+
+//----------------------------------------------------------------------------
+// Analyze a NIT
+//----------------------------------------------------------------------------
+
+void ts::TSAnalyzer::analyzeNIT(PID pid, const NIT& nit)
+{
+    PIDContextPtr ps(getPID(pid));
+
+    // Document unreferenced NIT PID's.
+    if (ps->description.empty()) {
+        ps->description = u"NIT";
+    }
+
+    // Search network name. If not present, desc.name is empty.
+    NetworkNameDescriptor desc;
+    nit.descs.search(_duck, DID_NETWORK_NAME, desc);
+
+    // Format network description as attribute of PID.
+    AppendUnique(ps->attributes, UString::Format(u"Network: %n %s", nit.network_id, desc.name).toTrimmed());
+
+    // Collect information from LCN descriptors of different flavors.
+    _lcn.addFromNIT(nit, _ts_id.value_or(0xFFFF));
 }
 
 
@@ -722,22 +618,9 @@ void ts::TSAnalyzer::analyzeSDT(const SDT& sdt)
 {
     // Register characteristics of all services
     for (auto& it : sdt.services) {
-
         ServiceContextPtr svp(getService(it.first)); // it->first = map key = service id
-        const SDT::ServiceEntry& entry(it.second);
-
         svp->orig_netw_id = sdt.onetw_id;
-        svp->service_type = entry.serviceType(_duck);
-
-        // Replace names only if they are not empty.
-        const UString provider(entry.providerName(_duck));
-        const UString name(entry.serviceName(_duck));
-        if (!provider.empty()) {
-            svp->provider = provider;
-        }
-        if (!name.empty()) {
-            svp->name = name;
-        }
+        svp->update(_duck, it.second.descs);
     }
 }
 
@@ -830,8 +713,9 @@ void ts::TSAnalyzer::analyzeVCT(const VCT& vct)
             }
             // Provider is a DVB concept, we replace it with major.minor with ATSC.
             if (svp->provider.empty()) {
-                svp->provider = UString::Format(u"ATSC %d.%d", {chan.major_channel_number, chan.minor_channel_number});
+                svp->provider = UString::Format(u"ATSC %d.%d", chan.major_channel_number, chan.minor_channel_number);
             }
+            svp->hidden = chan.hidden;
         }
     }
 }
@@ -912,7 +796,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                     for (auto& e : desc.entries) {
                         AppendUnique(ps->languages, e.language_code);
                         if (e.audio_type != 0) {
-                            ps->comment = names::AudioType(e.audio_type);
+                            ps->comment = e.audioTypeName();
                         }
                     }
                 }
@@ -954,13 +838,29 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 }
                 break;
             }
+            case DID_VVC_VIDEO: {
+                if (ps != nullptr) {
+                    // The presence of this descriptor indicates a VVC video track.
+                    ps->description = u"VVC Video";
+                    ps->carry_video = true;
+                }
+                break;
+            }
+            case DID_EVC_VIDEO: {
+                if (ps != nullptr) {
+                    // The presence of this descriptor indicates an EVC video track.
+                    ps->description = u"EVC Video";
+                    ps->carry_video = true;
+                }
+                break;
+            }
             case DID_SUBTITLING: {
                 if (ps != nullptr) {
                     ps->description = u"Subtitles";
                     const SubtitlingDescriptor desc(_duck, bindesc);
                     for (auto& e : desc.entries) {
                         AppendUnique(ps->languages, e.language_code);
-                        AppendUnique(ps->attributes, names::SubtitlingType(e.subtitling_type));
+                        AppendUnique(ps->attributes, e.subtitlingTypeName());
                     }
                 }
                 break;
@@ -971,7 +871,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                     const TeletextDescriptor desc(_duck, bindesc);
                     for (auto& e : desc.entries) {
                         AppendUnique(ps->languages, e.language_code);
-                        AppendUnique(ps->attributes, names::TeletextType(e.teletext_type));
+                        AppendUnique(ps->attributes, NameFromDTV(u"teletext_descriptor.teletext_type", e.teletext_type));
                     }
                 }
                 break;
@@ -980,6 +880,23 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 if (ps != nullptr) {
                     // The presence of this descriptor indicates a PID carrying an AIT.
                     ps->comment = u"AIT";
+                }
+                break;
+            }
+            case DID_MPEG_EXTENSION: {
+                // MPEG extension descriptor: need to look at the descriptor_tag_extension.
+                if (size >= 1) {
+                    switch (data[0]) {
+                        case MPEG_EDID_LCEVC_VIDEO: {
+                            // The presence of this descriptor indicates an LCEVC video track.
+                            ps->description = u"LCEVC Video";
+                            ps->carry_video = true;
+                            break;
+                        }
+                        default: {
+                            break;
+                        }
+                    }
                 }
                 break;
             }
@@ -1131,7 +1048,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
             eps->cas_operators.insert(opi);
             eps->carry_section = true;
             _demux.addPID(ca_pid);
-            eps->description.format(u"MediaGuard ECM for OPI %d (0x%X)", {opi, opi});
+            eps->description.format(u"MediaGuard ECM for OPI %n", opi);
             data += 15; size -= 15;
         }
     }
@@ -1148,7 +1065,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         eps->cas_operators.insert(opi);
         eps->carry_section = true;
         _demux.addPID(ca_pid);
-        eps->description.format(u"MediaGuard EMM for OPI %d (0x%X), EMM types: 0x%X", {opi, opi, etypes});
+        eps->description.format(u"MediaGuard EMM for OPI %n, EMM types: 0x%X", opi, etypes);
     }
 
     else if (cas == CAS_MEDIAGUARD && svp == nullptr && size >= 1) {
@@ -1174,7 +1091,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
             eps1->cas_operators.insert(opi);
             eps1->carry_section = true;
             _demux.addPID(ca_pid);
-            eps1->description = UString::Format(u"MediaGuard Group EMM for OPI %d (0x%X)", {opi, opi});
+            eps1->description = UString::Format(u"MediaGuard Group EMM for OPI %n", opi);
             data += 4; size -= 4; nb_opi--;
         }
     }
@@ -1195,10 +1112,10 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
             uint16_t ppid = GetUInt16(data);
             data += 2; size -= 2;
             if (eps->cas_operators.empty()) {
-                eps->description += UString::Format(u" for PPID %d (0x%X)", {ppid, ppid});
+                eps->description += UString::Format(u" for PPID %n", ppid);
             }
             else {
-                eps->description += UString::Format(u", %d (0x%X)", {ppid, ppid});
+                eps->description += UString::Format(u", %n", ppid);
             }
             eps->cas_operators.insert(ppid);
         }
@@ -1235,10 +1152,10 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
             if (tag == 0x14 && len == 3) {
                 const uint32_t soid = GetUInt24(data);
                 if (eps->cas_operators.empty()) {
-                    eps->description += UString::Format(u" for SOID %d (0x%06X)", {soid, soid});
+                    eps->description += UString::Format(u" for SOID %d (0x%06X)", soid, soid);
                 }
                 else {
-                    eps->description += UString::Format(u", %d (0x%06X)", {soid, soid});
+                    eps->description += UString::Format(u", %d (0x%06X)", soid, soid);
                 }
                 eps->cas_operators.insert(soid);
             }
@@ -1288,6 +1205,17 @@ void ts::TSAnalyzer::handleNewMPEG2AudioAttributes(PESDemux&, const PESPacket& p
         // We do not know the stream type yet, the first PES packet came before the PMT.
         pc->audio2 = attr;
     }
+}
+
+
+//----------------------------------------------------------------------------
+// This hook is invoked when an invalid PES packet is received.
+// (Implementation of PESHandlerInterface).
+//----------------------------------------------------------------------------
+
+void ts::TSAnalyzer::handleInvalidPESPacket(PESDemux&, const DemuxedData& data)
+{
+    getPID(data.sourcePID())->inv_pes++;
 }
 
 
@@ -1378,7 +1306,7 @@ void ts::TSAnalyzer::handleT2MIPacket(T2MIDemux& demux, const T2MIPacket& pkt)
         pc->t2mi_plp_ts[pkt.plp()];
 
         // Add the PLP as attributes of this PID.
-        AppendUnique(pc->attributes, UString::Format(u"PLP: 0x%X (%d)", {pkt.plp(), pkt.plp()}));
+        AppendUnique(pc->attributes, UString::Format(u"PLP: %n", pkt.plp()));
     }
 }
 
@@ -1529,20 +1457,23 @@ void ts::TSAnalyzer::feedPacket(const TSPacket& pkt)
         ps->cur_continuity = pkt.getCC();
     }
 
-    // Process PCR
+    // Process clocks.
+    const uint64_t pcr = pkt.getPCR();
+    const uint64_t pts = pkt.getPTS();
+    const uint64_t dts = pkt.getDTS();
     if (broken_rate) {
-        // Suspected packet loss, forget last PCR.
-        ps->last_pcr = 0;
+        // Suspected packet loss, forget the last PCR with use to compute bitrate.
+        ps->br_last_pcr = INVALID_PCR;
     }
-    if (pkt.hasPCR()) {
-        uint64_t pcr(pkt.getPCR());
+    if (pcr != INVALID_PCR) {
         // Count PID's with PCR
-        if (ps->pcr_cnt++ == 0)
+        if (ps->pcr_cnt++ == 0) {
             _pcr_pid_cnt++;
+        }
         // If last PCR valid, compute transport rate between the two
-        if (ps->last_pcr != 0 && ps->last_pcr < pcr) {
+        if (ps->br_last_pcr != INVALID_PCR && ps->br_last_pcr < pcr) {
             // Compute transport rate in b/s since last PCR
-            BitRate ts_bitrate = BitRate((packet_index - ps->last_pcr_pkt) * SYSTEM_CLOCK_FREQ * PKT_SIZE_BITS) / (pcr - ps->last_pcr);
+            BitRate ts_bitrate = BitRate((packet_index - ps->br_last_pcr_pkt) * SYSTEM_CLOCK_FREQ * PKT_SIZE_BITS) / (pcr - ps->br_last_pcr);
             // Per-PID statistics:
             ps->ts_bitrate_sum += ts_bitrate;
             ps->ts_bitrate_cnt++;
@@ -1550,9 +1481,45 @@ void ts::TSAnalyzer::feedPacket(const TSPacket& pkt)
             _ts_bitrate_sum += ts_bitrate;
             _ts_bitrate_cnt++;
         }
+        // Detect PCR leaps.
+        if (ps->last_pcr != INVALID_PCR && (ps->last_pcr > pcr || (pcr - ps->last_pcr) > SYSTEM_CLOCK_FREQ)) {
+            // PCR wrap-up or more than one second diff.
+            ps->pcr_leap_cnt++;
+        }
         // Save PCR for next calculation
+        ps->br_last_pcr = pcr;
+        ps->br_last_pcr_pkt = packet_index;
+        // Save first and last PCR outside of bitrate computation.
+        if (ps->first_pcr == INVALID_PCR) {
+            ps->first_pcr = pcr;
+        }
         ps->last_pcr = pcr;
-        ps->last_pcr_pkt = packet_index;
+    }
+    if (pts != INVALID_PTS) {
+        ps->pts_cnt++;
+        if (ps->last_pts != INVALID_PTS) {
+            // PTS are allowed to be out-of-order.
+            const uint64_t diff = pts > ps->last_pts ? pts - ps->last_pts : ps->last_pts - pts;
+            if (diff > 3 * SYSTEM_CLOCK_SUBFREQ) {
+                // PTS wrap-up or more than 3 seconds diff.
+                ps->pts_leap_cnt++;
+            }
+        }
+        if (ps->first_pts == INVALID_PTS) {
+            ps->first_pts = pts;
+        }
+        ps->last_pts = pts;
+    }
+    if (dts != INVALID_DTS) {
+        ps->dts_cnt++;
+        if (ps->last_dts != INVALID_DTS && (ps->last_dts > dts || (dts - ps->last_dts) > 3 * SYSTEM_CLOCK_SUBFREQ)) {
+            // DTS wrap-up or more than 3 seconds diff.
+            ps->dts_leap_cnt++;
+        }
+        if (ps->first_dts == INVALID_DTS) {
+            ps->first_dts = dts;
+        }
+        ps->last_dts = dts;
     }
 
     // Check PES start code: PES packet headers start with the constant
@@ -1637,7 +1604,7 @@ void ts::TSAnalyzer::recomputeStatistics()
     _ts_bitrate = SelectBitrate(_ts_user_bitrate, _ts_user_br_confidence, _ts_pcr_bitrate_188, BitRateConfidence::PCR_AVERAGE);
 
     // Compute broadcast duration.
-    _duration = _ts_bitrate == 0 ? 0 : ((MilliSecPerSec * PKT_SIZE_BITS * _ts_pkt_cnt) / _ts_bitrate).toInt();
+    _duration = PacketInterval(_ts_bitrate, _ts_pkt_cnt);
 
     // Reinitialize all service information that will be updated PID by PID
     for (auto& srv : _services) {
@@ -1733,19 +1700,28 @@ void ts::TSAnalyzer::recomputeStatistics()
     // Complete all service information
     _scrambled_services_cnt = 0;
 
-    for (auto& sci : _services) {
+    for (auto& sv : _services) {
 
         // Count scrambled services
-        if (sci.second->scrambled_pid_cnt > 0) {
+        if (sv.second->scrambled_pid_cnt > 0) {
             _scrambled_services_cnt++;
         }
 
         // Compute average service bitrate
         if (_ts_pkt_cnt == 0) {
-            sci.second->bitrate = 0;
+            sv.second->bitrate = 0;
         }
         else {
-            sci.second->bitrate = (_ts_bitrate * sci.second->ts_pkt_cnt) / _ts_pkt_cnt;
+            sv.second->bitrate = (_ts_bitrate * sv.second->ts_pkt_cnt) / _ts_pkt_cnt;
+        }
+
+        // Collect info from LCN descriptors.
+        const uint16_t lcn = _lcn.getLCN(sv.first, _ts_id.value_or(0xFFFF), sv.second->orig_netw_id.value_or(0xFFFF));
+        if (lcn != 0xFFFF) {
+            sv.second->lcn = lcn;
+        }
+        if (!sv.second->hidden) {
+            sv.second->hidden = !_lcn.getVisible(sv.first, _ts_id.value_or(0xFFFF), sv.second->orig_netw_id.value_or(0xFFFF));
         }
     }
 

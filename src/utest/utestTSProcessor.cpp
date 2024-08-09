@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,33 +22,10 @@
 
 class TSProcessorTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testProcessing();
-
-    TSUNIT_TEST_BEGIN(TSProcessorTest);
-    TSUNIT_TEST(testProcessing);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Processing);
 };
 
 TSUNIT_REGISTER(TSProcessorTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void TSProcessorTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void TSProcessorTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -125,12 +81,6 @@ namespace {
         ts::PacketCounter _count;
     };
 }
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr uint32_t TestPlugin::EVENT_START;
-constexpr uint32_t TestPlugin::EVENT_STOP;
-constexpr uint32_t TestPlugin::EVENT_PACKET;
-#endif
 
 // Factory method.
 ts::ProcessorPlugin* TestPlugin::CreateInstance(ts::TSP* t)
@@ -239,16 +189,16 @@ void TestEventHandler::handlePluginEvent(const ts::PluginEventContext& ctx)
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void TSProcessorTest::testProcessing()
+TSUNIT_DEFINE_TEST(Processing)
 {
     // Register our custom plugin with the name "test1".
-    ts::PluginRepository::Instance()->registerProcessor(u"test1", TestPlugin::CreateInstance);
+    ts::PluginRepository::Instance().registerProcessor(u"test1", TestPlugin::CreateInstance);
 
     // List of preregistered plugins.
     debug() << "TSProcessorTest: pre-registered plugins: " << std::endl
-            << "  input: " << ts::UString::Join(ts::PluginRepository::Instance()->inputNames()) << std::endl
-            << "  output: " << ts::UString::Join(ts::PluginRepository::Instance()->outputNames()) << std::endl
-            << "  processor names: " << ts::UString::Join(ts::PluginRepository::Instance()->processorNames()) << std::endl;
+            << "  input: " << ts::UString::Join(ts::PluginRepository::Instance().inputNames()) << std::endl
+            << "  output: " << ts::UString::Join(ts::PluginRepository::Instance().outputNames()) << std::endl
+            << "  processor names: " << ts::UString::Join(ts::PluginRepository::Instance().processorNames()) << std::endl;
 
     // Build tsp options.
     ts::TSProcessorArgs opt;

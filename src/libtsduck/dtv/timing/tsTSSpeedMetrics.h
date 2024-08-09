@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 
 #pragma once
 #include "tsTSPacket.h"
-#include "tsMonotonic.h"
 
 namespace ts {
     //!
@@ -76,19 +54,19 @@ namespace ts {
         //! Default minimum packets to accumulate per interval.
         //! See the description of the class.
         //!
-        static const PacketCounter MIN_PACKET_PER_INTERVAL = 100;
+        static constexpr PacketCounter MIN_PACKET_PER_INTERVAL = 100;
 
         //!
         //! Default minimum number of nanoseconds per interval.
         //! See the description of the class.
         //!
-        static const NanoSecond MIN_NANOSEC_PER_INTERVAL = 100 * NanoSecPerMilliSec;
+        static constexpr cn::nanoseconds MIN_NANOSEC_PER_INTERVAL = cn::milliseconds(100);
 
         //!
         //! Default number of intervals in the sliding window of bitrate computation.
         //! See the description of the class.
         //!
-        static const size_t INTERVAL_COUNT = 20;
+        static constexpr size_t INTERVAL_COUNT = 20;
 
         //!
         //! Constructor.
@@ -97,7 +75,7 @@ namespace ts {
         //! @param [in] intervals Max number of sliding time intervals.
         //!
         TSSpeedMetrics(PacketCounter packets = MIN_PACKET_PER_INTERVAL,
-                       NanoSecond nanosecs = MIN_NANOSEC_PER_INTERVAL,
+                       cn::nanoseconds nanosecs = MIN_NANOSEC_PER_INTERVAL,
                        size_t intervals = INTERVAL_COUNT);
 
         //!
@@ -123,33 +101,32 @@ namespace ts {
         //! The value is the most precise when processedPacket() just returned true.
         //! @return The duration of the session, since start(), in nanoseconds.
         //!
-        NanoSecond sessionNanoSeconds() const { return _clock - _session_start; }
+        cn::nanoseconds sessionNanoSeconds() const { return _clock - _session_start; }
 
     private:
         // Results on an interval of time.
         struct Interval
         {
-            Interval();
-            void clear();
+            void clear() { packets = 0; duration = cn::nanoseconds::zero(); }
 
-            PacketCounter packets;   // Number of processed packets.
-            NanoSecond    duration;  // Processing duration.
+            PacketCounter   packets = 0;   // Number of processed packets.
+            cn::nanoseconds duration {0};  // Processing duration.
         };
 
         // Configuration data:
-        PacketCounter _min_packets;        // Minimum packets to accumulate per interval.
-        NanoSecond    _min_nanosecs;       // Minimum number of nanoseconds per interval.
-        size_t        _max_intervals_num;  // Max number of sliding time intervals.
+        PacketCounter   _min_packets = MIN_PACKET_PER_INTERVAL;    // Minimum packets to accumulate per interval.
+        cn::nanoseconds _min_nanosecs = MIN_NANOSEC_PER_INTERVAL;  // Minimum number of nanoseconds per interval.
+        size_t          _max_intervals_num = INTERVAL_COUNT;       // Max number of sliding time intervals.
         // Clocks:
-        Monotonic     _session_start;      // The clock when start() was called.
-        Monotonic     _clock;              // The reference clock.
+        monotonic_time  _session_start {};      // The clock when start() was called.
+        monotonic_time  _clock {};              // The reference clock.
         // Accumulated data since beginning of session:
-        std::vector<Interval> _intervals;  // Accumulate results, circular buffer.
-        size_t        _next_interval;      // Next interval to overwrite.
-        Interval      _total;              // Accumulated values in all _intervals.
+        std::vector<Interval> _intervals {};    // Accumulate results, circular buffer.
+        size_t          _next_interval = 0;     // Next interval to overwrite.
+        Interval        _total {};              // Accumulated values in all _intervals.
         // Description of current interval:
-        NanoSecond    _start_interval;     // Start time of interval, from _start_session.
-        PacketCounter _count_interval;     // Number of processed packets in current interval.
-        PacketCounter _remain_interval;    // Number of packets to process in this interval before checking the clock.
+        cn::nanoseconds _start_interval {0};    // Start time of interval, from _start_session.
+        PacketCounter   _count_interval = 0;    // Number of processed packets in current interval.
+        PacketCounter   _remain_interval = 0;   // Number of packets to process in this interval before checking the clock.
     };
 }

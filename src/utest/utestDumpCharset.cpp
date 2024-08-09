@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -32,7 +11,7 @@
 //----------------------------------------------------------------------------
 
 #include "tsDumpCharset.h"
-#include "tsByteBlock.h"
+#include "tsMemory.h"
 #include "tsunit.h"
 
 
@@ -42,44 +21,19 @@
 
 class DumpCharsetTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testDecode();
-    void testEncode();
-    void testCanEncode();
-
-    TSUNIT_TEST_BEGIN(DumpCharsetTest);
-    TSUNIT_TEST(testDecode);
-    TSUNIT_TEST(testEncode);
-    TSUNIT_TEST(testCanEncode);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Decode);
+    TSUNIT_DECLARE_TEST(Encode);
+    TSUNIT_DECLARE_TEST(CanEncode);
 };
 
 TSUNIT_REGISTER(DumpCharsetTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void DumpCharsetTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void DumpCharsetTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Test cases
 //----------------------------------------------------------------------------
 
-void DumpCharsetTest::testCanEncode()
+TSUNIT_DEFINE_TEST(CanEncode)
 {
     const ts::Charset& cset(ts::DumpCharset::DUMP);
 
@@ -89,7 +43,7 @@ void DumpCharsetTest::testCanEncode()
     TSUNIT_ASSERT(!cset.canEncode(u"01 a"));
 }
 
-void DumpCharsetTest::testDecode()
+TSUNIT_DEFINE_TEST(Decode)
 {
     static const uint8_t data[] = {0x00, 0x01, 0x02, 0x11, 0xEA, 0x07, 0x80, 0x34, 0xB2};
 
@@ -101,14 +55,14 @@ void DumpCharsetTest::testDecode()
     TSUNIT_EQUAL(u"", cset.decoded(nullptr, 3));
 }
 
-void DumpCharsetTest::testEncode()
+TSUNIT_DEFINE_TEST(Encode)
 {
     const ts::Charset& cset(ts::DumpCharset::DUMP);
 
     uint8_t buffer[20];
     uint8_t* data = buffer;
     size_t size = sizeof(buffer);
-    ::memset(buffer, 0, sizeof(buffer));
+    TS_ZERO(buffer);
 
     TSUNIT_EQUAL(0, cset.encode(data, size, u""));
     TSUNIT_EQUAL(buffer, data);
@@ -116,7 +70,7 @@ void DumpCharsetTest::testEncode()
 
     data = buffer;
     size = sizeof(buffer);
-    ::memset(buffer, 0, sizeof(buffer));
+    TS_ZERO(buffer);
 
     TSUNIT_EQUAL(14, cset.encode(data, size, u"  01 0211 e a zz 01"));
     TSUNIT_EQUAL(buffer + 4, data);

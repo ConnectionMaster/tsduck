@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -53,28 +32,27 @@
 namespace ts {
     class SVRenamePlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(SVRenamePlugin);
+        TS_PLUGIN_CONSTRUCTORS(SVRenamePlugin);
     public:
         // Implementation of plugin API
-        SVRenamePlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        bool              _abort;          // Error (service not found, etc)
-        bool              _pat_found;      // PAT was found, ready to pass packets
-        uint16_t          _ts_id;          // Tranport stream id
-        Service           _new_service;    // New service name & id
-        Service           _old_service;    // Old service name & id
-        bool              _ignore_bat;     // Do not modify the BAT
-        bool              _ignore_eit;     // Do not modify the EIT's
-        bool              _ignore_nit;     // Do not modify the NIT
-        SectionDemux      _demux;          // Section demux
-        CyclingPacketizer _pzer_pat;       // Packetizer for modified PAT
-        CyclingPacketizer _pzer_pmt;       // Packetizer for modified PMT
-        CyclingPacketizer _pzer_sdt_bat;   // Packetizer for modified SDT/BAT
-        CyclingPacketizer _pzer_nit;       // Packetizer for modified NIT
-        EITProcessor      _eit_process;    // Modify EIT's
+        bool              _abort = false;      // Error (service not found, etc)
+        bool              _pat_found = false;  // PAT was found, ready to pass packets
+        uint16_t          _ts_id = 0;          // Tranport stream id
+        Service           _new_service {};     // New service name & id
+        Service           _old_service {};     // Old service name & id
+        bool              _ignore_bat = false; // Do not modify the BAT
+        bool              _ignore_eit = false; // Do not modify the EIT's
+        bool              _ignore_nit = false; // Do not modify the NIT
+        SectionDemux      _demux {duck, this};
+        CyclingPacketizer _pzer_pat {duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer _pzer_pmt {duck, PID_NULL, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer _pzer_sdt_bat {duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer _pzer_nit {duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        EITProcessor      _eit_process {duck, PID_EIT};
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -96,21 +74,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"svrename", ts::SVRenamePlugin);
 //----------------------------------------------------------------------------
 
 ts::SVRenamePlugin::SVRenamePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Rename a service, assign a new service name and/or new service id", u"[options] [service]"),
-    _abort(false),
-    _pat_found(false),
-    _ts_id(0),
-    _new_service(),
-    _old_service(),
-    _ignore_bat(false),
-    _ignore_eit(false),
-    _ignore_nit(false),
-    _demux(duck, this),
-    _pzer_pat(duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_pmt(duck, PID_NULL, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_sdt_bat(duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_nit(duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _eit_process(duck, PID_EIT)
+    ProcessorPlugin(tsp_, u"Rename a service, assign a new service name and/or new service id", u"[options] [service]")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -229,11 +193,10 @@ bool ts::SVRenamePlugin::start()
 
 void ts::SVRenamePlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 {
-    if (tsp->debug()) {
-        tsp->debug(u"Got %s v%d, PID %d (0x%X), TIDext %d (0x%X)",
-                   {names::TID(duck, table.tableId()), table.version(),
-                    table.sourcePID(), table.sourcePID(),
-                    table.tableIdExtension(), table.tableIdExtension()});
+    if (debug()) {
+        debug(u"Got %s v%d, PID %n, TIDext %n",
+              names::TID(duck, table.tableId()), table.version(),
+              table.sourcePID(), table.tableIdExtension());
     }
 
     switch (table.tableId()) {
@@ -354,7 +317,7 @@ void ts::SVRenamePlugin::processSDT(SDT& sdt)
         found = Contains(sdt.services, _old_service.getId());
         if (!found) {
             // Informational only
-            tsp->verbose(u"service 0x%X (%d) not found in SDT", {_old_service.getId(), _old_service.getId()});
+            verbose(u"service %n not found in SDT", _old_service.getId());
         }
     }
     else if (_old_service.hasName()) {
@@ -362,13 +325,13 @@ void ts::SVRenamePlugin::processSDT(SDT& sdt)
         found = sdt.findService(duck, _old_service);
         if (!found) {
             // Here, this is an error. If the name is not in the SDT, then we cannot identify the service.
-            tsp->error(u"service \"%s\" not found in SDT", {_old_service.getName()});
+            error(u"service \"%s\" not found in SDT", _old_service.getName());
             _abort = true;
             return;
         }
         // The service id was previously unknown, now wait for the PAT
         _demux.addPID(PID_PAT);
-        tsp->verbose(u"found service \"%s\", service id is 0x%X", {_old_service.getName(), _old_service.getId()});
+        verbose(u"found service \"%s\", service id is 0x%X", _old_service.getName(), _old_service.getId());
     }
 
     // Modify the SDT with new service identification
@@ -420,7 +383,7 @@ void ts::SVRenamePlugin::processPAT(PAT& pat)
         // The service was originally unspecified, use the first service in the PAT.
         assert(!_old_service.hasName());
         if (pat.pmts.empty()) {
-            tsp->error(u"the PAT contains no service");
+            error(u"the PAT contains no service");
             _abort = true;
             return;
         }
@@ -431,12 +394,12 @@ void ts::SVRenamePlugin::processPAT(PAT& pat)
     // If service not found, error
     if (it == pat.pmts.end()) {
         if (_ignore_nit && _ignore_bat && _ignore_eit) {
-            tsp->error(u"service id 0x%X not found in PAT", {_old_service.getId()});
+            error(u"service id 0x%X not found in PAT", _old_service.getId());
             _abort = true;
             return;
         }
         else {
-            tsp->info(u"service id 0x%X not found in PAT, will still update NIT, BAT, EIT's", {_old_service.getId()});
+            info(u"service id 0x%X not found in PAT, will still update NIT, BAT, EIT's", _old_service.getId());
         }
     }
     else {
@@ -446,7 +409,7 @@ void ts::SVRenamePlugin::processPAT(PAT& pat)
         _demux.addPID(it->second);
         _pzer_pmt.setPID(it->second);
 
-        tsp->verbose(u"found service id 0x%X, PMT PID is 0x%X", {_old_service.getId(), _old_service.getPMTPID()});
+        verbose(u"found service id 0x%X, PMT PID is 0x%X", _old_service.getId(), _old_service.getPMTPID());
 
         // Modify the PAT
         if (_new_service.hasId() && !_new_service.hasId(_old_service.getId())) {

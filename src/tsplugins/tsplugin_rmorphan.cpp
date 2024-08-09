@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -50,18 +29,17 @@
 namespace ts {
     class RMOrphanPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(RMOrphanPlugin);
+        TS_PLUGIN_CONSTRUCTORS(RMOrphanPlugin);
     public:
         // Implementation of plugin API
-        RMOrphanPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        Status        _drop_status; // Status for dropped packets
-        PIDSet        _pass_pids;   // List of PIDs to pass
-        SectionDemux  _demux;       // Section filter
+        Status        _drop_status = TSP_DROP;  // Status for dropped packets
+        PIDSet        _pass_pids {};            // List of PIDs to pass
+        SectionDemux  _demux {duck, this};      // Section filter
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -83,10 +61,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"rmorphan", ts::RMOrphanPlugin);
 //----------------------------------------------------------------------------
 
 ts::RMOrphanPlugin::RMOrphanPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Remove orphan (unreferenced) PID's", u"[options]"),
-    _drop_status(TSP_DROP),
-    _pass_pids(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Remove orphan (unreferenced) PID's", u"[options]")
 {
     duck.defineArgsForStandards(*this);
 
@@ -112,7 +87,7 @@ bool ts::RMOrphanPlugin::getOptions()
     if ((duck.standards() & (Standards::ISDB | Standards::ATSC)) == Standards::NONE) {
         duck.addStandards(Standards::DVB);
     }
-    tsp->debug(u"using standards %s", {StandardsNames(duck.standards())});
+    debug(u"using standards %s", StandardsNames(duck.standards()));
 
     return true;
 }
@@ -150,7 +125,7 @@ void ts::RMOrphanPlugin::passPID(PID pid)
 {
     if (!_pass_pids[pid]) {
         _pass_pids.set(pid);
-        tsp->verbose(u"PID %d (0x%X) is referenced", {pid, pid});
+        verbose(u"PID %n is referenced", pid);
     }
 }
 

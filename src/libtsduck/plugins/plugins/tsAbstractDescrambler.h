@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,14 +13,10 @@
 
 #pragma once
 #include "tsProcessorPlugin.h"
-#include "tsSafePtr.h"
 #include "tsSection.h"
 #include "tsServiceDiscovery.h"
 #include "tsTSScrambling.h"
-#include "tsCondition.h"
-#include "tsMutex.h"
 #include "tsThread.h"
-#include "tsMemory.h"
 
 namespace ts {
 
@@ -68,7 +43,7 @@ namespace ts {
         //! Default stack usage allocated to CAS-specific processing of an ECM.
         //! @see decipherECM()
         //!
-        static const size_t DEFAULT_ECM_THREAD_STACK_USAGE = 128 * 1024;
+        static constexpr size_t DEFAULT_ECM_THREAD_STACK_USAGE = 128 * 1024;
 
         //!
         //! Constructor for subclasses.
@@ -133,14 +108,14 @@ namespace ts {
         {
         public:
             uint8_t   scrambling;  //!< Scrambling mode, as defined in scrambling_descriptor.
-            ByteBlock cw;          //!< Control word, typically 8 or 16 bytes.
-            ByteBlock iv;          //!< Initialization vector, typically empty or 16 bytes.
+            ByteBlock cw {};       //!< Control word, typically 8 or 16 bytes.
+            ByteBlock iv {};       //!< Initialization vector, typically empty or 16 bytes.
 
             //!
             //! Constructor.
             //! @param [in] mode Scrambling mode.
             //!
-            CWData(uint8_t mode = SCRAMBLING_DVB_CSA2);
+            CWData(uint8_t mode = SCRAMBLING_DVB_CSA2) : scrambling(mode) {}
         };
 
         //!
@@ -205,7 +180,7 @@ namespace ts {
         };
 
         // Map of scrambled streams in the service, indexed by PID.
-        typedef std::map<PID, ScrambledStream> ScrambledStreamMap;
+        using ScrambledStreamMap = std::map<PID, ScrambledStream>;
 
         // Description of an ECM stream
         class ECMStream
@@ -213,24 +188,24 @@ namespace ts {
             TS_NOBUILD_NOCOPY(ECMStream);
         public:
             // Constructor
-            ECMStream(AbstractDescrambler* parent);
+            ECMStream(AbstractDescrambler* parent) : scrambling(parent->_scrambling) {}
 
-            TID           last_tid;     // Last table id (0x80 or 0x81)
-            TSScrambling  scrambling;   // Descrambling using CW from the ECM's of this stream.
+            TID           last_tid {TID_NULL};  // Last table id (0x80 or 0x81)
+            TSScrambling  scrambling;           // Descrambling using CW from the ECM's of this stream.
             // -- start of write-protected, read-volatile area --
-            volatile bool cw_valid;     // CW's are valid
-            volatile bool new_cw_even;  // New CW available (even)
-            volatile bool new_cw_odd;   // New CW available (odd)
+            volatile bool cw_valid = false;     // CW's are valid
+            volatile bool new_cw_even = false;  // New CW available (even)
+            volatile bool new_cw_odd = false;   // New CW available (odd)
             // -- start of protected area --
-            bool          new_ecm;      // New ECM available
-            Section       ecm;          // Last received ECM
-            CWData        cw_even;      // Last valid CW (even)
-            CWData        cw_odd;       // Last valid CW (odd)
+            bool          new_ecm = false;      // New ECM available
+            Section       ecm {};               // Last received ECM
+            CWData        cw_even {};           // Last valid CW (even)
+            CWData        cw_odd {};            // Last valid CW (odd)
             // -- end of protected area --
         };
 
-        typedef SafePtr<ECMStream, NullMutex> ECMStreamPtr;
-        typedef std::map<PID, ECMStreamPtr> ECMStreamMap;
+        using ECMStreamPtr = std::shared_ptr<ECMStream>;
+        using ECMStreamMap = std::map<PID, ECMStreamPtr>;
 
         // ECM deciphering thread
         class ECMThread : public Thread
@@ -260,23 +235,23 @@ namespace ts {
         void analyzeDescriptors(const DescriptorList& dlist, std::set<PID>& ecm_pids, uint8_t& scrambling);
 
         // Abstract descrambler private data.
-        bool               _use_service;       // Descramble a service (ie. not a specific list of PID's).
-        bool               _need_ecm;          // We need to get control words from ECM's.
-        bool               _abort;             // Error, abort asap.
-        bool               _synchronous;       // Synchronous ECM deciphering.
-        bool               _swap_cw;           // Swap even/odd CW from ECM.
-        TSScrambling       _scrambling;        // Default descrambling (used with fixed control words).
-        PIDSet             _pids;              // Explicit PID's to descramble.
-        ServiceDiscovery   _service;           // Service to descramble (by name, id or none).
-        size_t             _stack_usage;       // Stack usage for ECM deciphering.
-        SectionDemux       _demux;             // Section demux to extract ECM's.
-        ECMStreamMap       _ecm_streams;       // ECM streams, indexed by PID.
-        ScrambledStreamMap _scrambled_streams; // Scrambled streams, indexed by PID.
-        Mutex              _mutex;             // Exclusive access to protected areas
-        Condition          _ecm_to_do;         // Notify thread to process ECM.
-        ECMThread          _ecm_thread;        // Thread which deciphers ECM's.
+        bool                    _use_service = false;         // Descramble a service (ie. not a specific list of PID's).
+        bool                    _need_ecm = false;            // We need to get control words from ECM's.
+        bool                    _abort = false;               // Error, abort asap.
+        bool                    _synchronous = false;         // Synchronous ECM deciphering.
+        bool                    _swap_cw = false;             // Swap even/odd CW from ECM.
+        TSScrambling            _scrambling {*this};          // Default descrambling (used with fixed control words).
+        PIDSet                  _pids {};                     // Explicit PID's to descramble.
+        ServiceDiscovery        _service {duck, this};        // Service to descramble (by name, id or none).
+        size_t                  _stack_usage;                 // Stack usage for ECM deciphering.
+        SectionDemux            _demux {duck, nullptr, this}; // Section demux to extract ECM's.
+        ECMStreamMap            _ecm_streams {};              // ECM streams, indexed by PID.
+        ScrambledStreamMap      _scrambled_streams {};        // Scrambled streams, indexed by PID.
+        std::mutex              _mutex {};                    // Exclusive access to protected areas
+        std::condition_variable _ecm_to_do {};                // Notify thread to process ECM.
+        ECMThread               _ecm_thread {this};           // Thread which deciphers ECM's.
         // -- start of protected area --
-        bool               _stop_thread;       // Terminate ECM processing thread
+        bool                    _stop_thread = false;         // Terminate ECM processing thread
         // -- end of protected area --
     };
 }

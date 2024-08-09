@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,46 +20,21 @@
 
 class URLTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testIsURL();
-    void testParse();
-    void testBase();
-    void testToString();
-    void testToRelative();
-
-    TSUNIT_TEST_BEGIN(URLTest);
-    TSUNIT_TEST(testIsURL);
-    TSUNIT_TEST(testParse);
-    TSUNIT_TEST(testBase);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST(testToRelative);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(IsURL);
+    TSUNIT_DECLARE_TEST(Parse);
+    TSUNIT_DECLARE_TEST(Base);
+    TSUNIT_DECLARE_TEST(ToString);
+    TSUNIT_DECLARE_TEST(ToRelative);
 };
 
 TSUNIT_REGISTER(URLTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-void URLTest::beforeTest()
-{
-}
-
-void URLTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Test cases
 //----------------------------------------------------------------------------
 
-void URLTest::testIsURL()
+TSUNIT_DEFINE_TEST(IsURL)
 {
     TSUNIT_ASSERT(!ts::URL::IsURL(u""));
     TSUNIT_ASSERT(!ts::URL::IsURL(u"foo/bar"));
@@ -92,7 +46,7 @@ void URLTest::testIsURL()
     TSUNIT_ASSERT(ts::URL::IsURL(u"file://C:/foo/bar"));
 }
 
-void URLTest::testParse()
+TSUNIT_DEFINE_TEST(Parse)
 {
     ts::URL url1(u"http://user:pwd@host.name:1234/foo/bar/?query+args#frag");
     TSUNIT_ASSERT(url1.isValid());
@@ -117,7 +71,7 @@ void URLTest::testParse()
     TSUNIT_EQUAL(u"", url2.getFragment());
 }
 
-void URLTest::testBase()
+TSUNIT_DEFINE_TEST(Base)
 {
     TSUNIT_EQUAL(u"http://foo.com/bar/abc/def", ts::URL(u"abc/def", u"http://foo.com/bar/cool").toString());
     TSUNIT_EQUAL(u"http://foo.com/bar/cool/abc/def", ts::URL(u"abc/def", u"http://foo.com/bar/cool/").toString());
@@ -125,7 +79,7 @@ void URLTest::testBase()
     TSUNIT_EQUAL(u"http://foo.com/bar/abc/def", ts::URL(u"../../abc/def", u"http://foo.com/bar/cool/taf/").toString());
 }
 
-void URLTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
     TSUNIT_EQUAL(u"http://foo.bar/", ts::URL(u"http://foo.bar").toString());
     TSUNIT_EQUAL(u"http://foo.bar/a/d/e", ts::URL(u"http://foo.bar/a/b/c/../../d/e").toString());
@@ -143,7 +97,7 @@ void URLTest::testToString()
 #endif
 }
 
-void URLTest::testToRelative()
+TSUNIT_DEFINE_TEST(ToRelative)
 {
     TSUNIT_EQUAL(u"http://foo.bar/abc/def", ts::URL(u"http://foo.bar/abc/def").toRelative(u"http://foo.car/abc/def"));
     TSUNIT_EQUAL(u"/abc/def", ts::URL(u"http://foo.bar/abc/def").toRelative(u"http://foo.bar/xyz/def"));

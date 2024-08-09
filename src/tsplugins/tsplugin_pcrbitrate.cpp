@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -46,19 +25,18 @@
 namespace ts {
     class PCRBitratePlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(PCRBitratePlugin);
+        TS_PLUGIN_CONSTRUCTORS(PCRBitratePlugin);
     public:
         // Implementation of plugin API
-        PCRBitratePlugin(TSP*);
         virtual bool start() override;
         virtual BitRate getBitrate() override;
         virtual BitRateConfidence getBitrateConfidence() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        PCRAnalyzer _pcr_analyzer; // PCR analysis context
-        BitRate     _bitrate;      // Last remembered bitrate (keep it signed)
-        UString     _pcr_name;     // Time stamp type name
+        PCRAnalyzer _pcr_analyzer {}; // PCR analysis context
+        BitRate     _bitrate = 0;     // Last remembered bitrate (keep it signed)
+        UString     _pcr_name {};     // Time stamp type name
 
         // PCR analysis is done permanently. Typically, the analysis of a
         // constant stream will produce different results quite often. But
@@ -80,10 +58,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pcrbitrate", ts::PCRBitratePlugin);
 //----------------------------------------------------------------------------
 
 ts::PCRBitratePlugin::PCRBitratePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Permanently recompute bitrate based on PCR analysis", u"[options]"),
-    _pcr_analyzer(),
-    _bitrate(0),
-    _pcr_name()
+    ProcessorPlugin(tsp_, u"Permanently recompute bitrate based on PCR analysis", u"[options]")
 {
     option(u"dts", 'd');
     help(u"dts",
@@ -163,7 +138,7 @@ ts::ProcessorPlugin::Status ts::PCRBitratePlugin::processPacket(TSPacket& pkt, T
         // If the new bitrate is too close to the previous recorded one, no need to signal it.
         if (new_bitrate != _bitrate && (new_bitrate / (new_bitrate - _bitrate)).abs() < REPORT_THRESHOLD) {
             // New bitrate is significantly different, signal it.
-            tsp->verbose(u"new bitrate from %s analysis: %'d b/s", {_pcr_name, new_bitrate});
+            verbose(u"new bitrate from %s analysis: %'d b/s", _pcr_name, new_bitrate);
             _bitrate = new_bitrate;
             pkt_data.setBitrateChanged(true);
         }

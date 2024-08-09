@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -36,7 +15,6 @@
 #include "tsPluginRepository.h"
 #include "tsServiceDiscovery.h"
 #include "tsAudioLanguageOptions.h"
-#include "tsPAT.h"
 #include "tsPMT.h"
 #include "tsCADescriptor.h"
 #include "tsStreamIdentifierDescriptor.h"
@@ -55,10 +33,9 @@
 namespace ts {
     class PMTPlugin: public AbstractTablePlugin
     {
-        TS_NOBUILD_NOCOPY(PMTPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PMTPlugin);
     public:
         // Implementation of plugin API
-        PMTPlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
@@ -77,27 +54,30 @@ namespace ts {
         };
 
         // Map of new descriptors to add per component.
-        typedef std::map<PID, SafePtr<DescriptorList>> DescriptorListByPID;
+        using DescriptorListPtr = std::shared_ptr<DescriptorList>;
+        using DescriptorListByPID = std::map<PID, DescriptorListPtr>;
 
         // PMTPlugin instance fields
-        ServiceDiscovery     _service;               // Service of PMT to modify
-        std::vector<PID>     _removed_pids;          // Set of PIDs to remove from PMT
-        std::vector<DID>     _removed_desc_tags;     // Set of descriptor tags to remove
-        std::vector<uint8_t> _removed_stream_types;  // Set of stream types to remove
-        std::list<NewPID>    _added_pids;            // List of PID to add
-        std::map<PID,PID>    _moved_pids;            // List of renamed PID's in PMT (key=old, value=new)
-        bool                 _set_servid;            // Set a new service id
-        uint16_t             _new_servid;            // New service id
-        bool                 _set_pcrpid;            // Set a new PCR PID
-        PID                  _new_pcrpid;            // New PCR PID
-        PDS                  _pds;                   // Private data specifier for removed descriptors
-        bool                 _add_stream_id;         // Add stream_identifier_descriptor on all components
-        bool                 _ac3_atsc2dvb;          // Modify AC-3 signaling from ATSC to DVB method
-        bool                 _eac3_atsc2dvb;         // Modify Enhanced-AC-3 signaling from ATSC to DVB method
-        bool                 _cleanup_priv_desc;     // Remove private desc without preceding PDS desc
-        DescriptorList       _add_descs;             // List of descriptors to add at program level
-        DescriptorListByPID  _add_pid_descs;         // Lists of descriptors to add by PID
-        AudioLanguageOptionsVector _languages;       // Audio languages to set
+        ServiceDiscovery     _service {duck, nullptr};   // Service of PMT to modify
+        std::vector<PID>     _removed_pids {};           // Set of PIDs to remove from PMT
+        std::vector<DID>     _removed_desc_tags {};      // Set of descriptor tags to remove
+        std::vector<uint8_t> _removed_stream_types {};   // Set of stream types to remove
+        std::list<NewPID>    _added_pids {};             // List of PID to add
+        std::map<PID,PID>    _moved_pids {};             // List of renamed PID's in PMT (key=old, value=new)
+        bool                 _set_servid = false;        // Set a new service id
+        uint16_t             _new_servid = 0;            // New service id
+        bool                 _set_pcrpid = false;        // Set a new PCR PID
+        PID                  _new_pcrpid = PID_NULL;     // New PCR PID
+        PDS                  _pds = 0;                   // Private data specifier for removed descriptors
+        bool                 _add_stream_id = false;     // Add stream_identifier_descriptor on all components
+        bool                 _ac3_atsc2dvb = false;      // Modify AC-3 signaling from ATSC to DVB method
+        bool                 _eac3_atsc2dvb = false;     // Modify Enhanced-AC-3 signaling from ATSC to DVB method
+        bool                 _cleanup_priv_desc = false; // Remove private desc without preceding PDS desc
+        DescriptorList       _add_descs {nullptr};       // List of descriptors to add at program level
+        DescriptorListByPID  _add_pid_descs {};          // Lists of descriptors to add by PID
+        AudioLanguageOptionsVector _languages {};        // Audio languages to set
+        std::vector<PID>     _sort_pids {};              // Sorting order of PIDs in PMT
+        UStringVector        _sort_languages {};         // Sorting order of audio and subtitles PIDs in PMT
 
         // Implementation of AbstractTablePlugin.
         virtual void createNewTable(BinaryTable& table) override;
@@ -124,25 +104,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pmt", ts::PMTPlugin);
 //----------------------------------------------------------------------------
 
 ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
-    AbstractTablePlugin(tsp_, u"Perform various transformations on the PMT", u"[options]", u"PMT"),
-    _service(duck, nullptr),
-    _removed_pids(),
-    _removed_desc_tags(),
-    _removed_stream_types(),
-    _added_pids(),
-    _moved_pids(),
-    _set_servid(false),
-    _new_servid(0),
-    _set_pcrpid(false),
-    _new_pcrpid(PID_NULL),
-    _pds(0),
-    _add_stream_id(false),
-    _ac3_atsc2dvb(false),
-    _eac3_atsc2dvb(false),
-    _cleanup_priv_desc(false),
-    _add_descs(nullptr),
-    _add_pid_descs(),
-    _languages()
+    AbstractTablePlugin(tsp_, u"Perform various transformations on the PMT", u"[options]", u"PMT")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -271,6 +233,17 @@ ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
          u"In the component with the specified PID, add a stream_identifier_descriptor "
          u"with the specified id. Several --set-stream-identifier options may be "
          u"specified.");
+
+    option(u"sort-languages", 0, STRING);
+    help(u"sort-languages", u"lang1,lang2,...",
+         u"Sort the elementary streams carrying audio and subtitles in the specified order of languages. "
+         u"The languages must be 3-letter ISO-639 codes.");
+
+    option(u"sort-pids", 0, STRING);
+    help(u"sort-pids", u"pid1,pid2,...",
+         u"Sort the elementary streams in the specified order of PID's. "
+         u"Non-existent PID's are ignored. "
+         u"Unlisted PID's, if any, are placed after the others.");
 }
 
 
@@ -281,8 +254,8 @@ ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
 void ts::PMTPlugin::addComponentDescriptor(PID pid, const AbstractDescriptor& desc)
 {
     // Get or create descriptor list for the component.
-    if (_add_pid_descs[pid].isNull()) {
-        _add_pid_descs[pid] = new DescriptorList(nullptr);
+    if (_add_pid_descs[pid] == nullptr) {
+        _add_pid_descs[pid] = std::make_shared<DescriptorList>(nullptr);
     }
 
     // Add the new descriptor.
@@ -333,7 +306,7 @@ bool ts::PMTPlugin::decodeOptionForPID(const UChar* parameter_name, size_t param
 
     // Process errors.
     if (!ok) {
-        error(u"invalid value \"%s\" for --%s", {str, parameter_name});
+        error(u"invalid value \"%s\" for --%s", str, parameter_name);
     }
     return ok;
 }
@@ -374,13 +347,15 @@ bool ts::PMTPlugin::start()
     _moved_pids.clear();
     _add_descs.clear();
     _add_pid_descs.clear();
+    _sort_pids.clear();
+    _sort_languages.clear();
 
     // Get option values
     duck.loadArgs(*this);
     _set_servid = present(u"new-service-id");
-    _new_servid = intValue<uint16_t>(u"new-service-id");
+    getIntValue(_new_servid, u"new-service-id");
     _set_pcrpid = present(u"pcr-pid");
-    _new_pcrpid = intValue<PID>(u"pcr-pid");
+    getIntValue(_new_pcrpid, u"pcr-pid");
     getIntValue(_pds, u"pds");
     _ac3_atsc2dvb = present(u"ac3-atsc2dvb");
     _eac3_atsc2dvb = present(u"eac3-atsc2dvb");
@@ -467,6 +442,23 @@ bool ts::PMTPlugin::start()
         }
     }
 
+    // Get elementary streams sorting criteria.
+    if (!value(u"sort-pids").toIntegers(_sort_pids, u"", u",", 0, u".", 0, PID_MAX - 1)) {
+        error(u"invalid list of PID's in --sort-pids");
+        return false;
+    }
+    value(u"sort-languages").toLower().split(_sort_languages, COMMA, true, true);
+    for (const auto& lang : _sort_languages) {
+        if (lang.length() != 3) {
+            error(u"invalid language '%s' in --sort-languages", lang);
+            return false;
+        }
+    }
+    if (!_sort_pids.empty() && !_sort_languages.empty()) {
+        error(u"--sort-pids and --sort-languages are mutually exclusive");
+        return false;
+    }
+
     // Get PMT PID or service description
     if (present(u"pmt-pid") && present(u"service")) {
         error(u"options --pmt-pid and --service are mutually exclusive");
@@ -517,7 +509,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     // Process the PMT.
     PMT pmt(duck, table);
     if (!pmt.isValid()) {
-        tsp->warning(u"found invalid PMT");
+        warning(u"found invalid PMT");
         reinsert = false;
         return;
     }
@@ -586,7 +578,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
 
         auto comp_it = pmt.streams.find(pid);
         if (comp_it == pmt.streams.end()) {
-            tsp->warning(u"PID 0x%X (%d) not found in PMT", {pid, pid});
+            warning(u"PID %n not found in PMT", pid);
         }
         else {
             comp_it->second.descs.add(dlist);
@@ -659,7 +651,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
         }
     }
 
-    // ---- Finally, do PID remapping
+    // ---- PID remapping
 
     for (const auto& mpid : _moved_pids) {
         // Check if component exists
@@ -667,6 +659,46 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
             pmt.streams[mpid.second] = pmt.streams[mpid.first];
             pmt.streams.erase(mpid.first);
         }
+    }
+
+    // --- Sorting elementary streams
+
+    if (!_sort_pids.empty()) {
+        pmt.streams.setOrder(_sort_pids);
+    }
+    if (!_sort_languages.empty()) {
+        std::vector<PID> input;  // input sort order
+        std::vector<PID> output; // output sort order, video PID's come first
+        std::vector<PID> other;  // other PID's
+        // Classify input PID's. Video PID's are placed first in output PMT.
+        pmt.streams.getOrder(input);
+        for (PID pid : input) {
+            if (pmt.streams[pid].isVideo(duck)) {
+                output.push_back(pid);
+            }
+            else {
+                other.push_back(pid);
+            }
+        }
+        // Sort other PID's by language.
+        for (const auto& lang : _sort_languages) {
+            for (PID& pid : other) {
+                const auto& stream(pmt.streams[pid]);
+                if (stream.descs.searchLanguage(duck, lang) < stream.descs.size()) {
+                    // This audio or subtitles PID has this language.
+                    output.push_back(pid);
+                    pid = PID_NULL;
+                }
+            }
+        }
+        // Append PID's with unspecified language.
+        for (PID pid : other) {
+            if (pid != PID_NULL) {
+                output.push_back(pid);
+            }
+        }
+        // And sort the PID's...
+        pmt.streams.setOrder(output);
     }
 
     // Reserialize modified PMT.

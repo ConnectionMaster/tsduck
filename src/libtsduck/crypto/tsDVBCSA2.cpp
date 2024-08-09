@@ -13,11 +13,9 @@
 
 // Operations on 64-bit areas.
 
-typedef uint64_t* uint64_ptr;
-
-#define clear_8(x)        (*(uint64_ptr(x)) = 0)
-#define memcpy_8(dst,src) (*(uint64_ptr(dst)) = *(uint64_ptr(src)))
-#define xor_8(res,a,b)    (*(uint64_ptr(res)) = *(uint64_ptr(a)) ^ *(uint64_ptr(b)))
+#define clear_8(x)        (*(ts::uint64_ptr(x)) = 0)
+#define memcpy_8(dst,src) (*(ts::uint64_ptr(dst)) = *(ts::const_uint64_ptr(src)))
+#define xor_8(res,a,b)    (*(ts::uint64_ptr(res)) = *(ts::const_uint64_ptr(a)) ^ *(ts::const_uint64_ptr(b)))
 
 TS_LLVM_NOWARNING(cast-align) // Because of casts to uint64_ptr
 
@@ -56,12 +54,13 @@ bool ts::DVBCSA2::IsReducedCW(const uint8_t *cw)
 // Default Constructor.
 //----------------------------------------------------------------------------
 
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES(ts::DVBCSA2, DVBCSA2, (BlockCipherProperties(u"DVB-CSA2", ts::DVBCSA2::BLOCK_SIZE, ts::DVBCSA2::KEY_SIZE), nullptr, true, 0, 0, 0, 0));
+
 ts::DVBCSA2::DVBCSA2(EntropyMode mode) :
-    _init(false),
-    _mode(mode),
-    _block(),
-    _stream()
+    BlockCipher(DVBCSA2::PROPERTIES()),
+    _mode(mode)
 {
+    canProcessInPlace(true);
 }
 
 
@@ -137,7 +136,7 @@ namespace {
 }
 
 
-void ts::DVBCSA2::StreamCipher::init (const uint8_t *key)
+void ts::DVBCSA2::DVBStreamCipher::init (const uint8_t *key)
 {
     // load first 32 bits of key into A[1]..A[8]
     // load last  32 bits of key into B[1]..B[8]
@@ -177,7 +176,7 @@ void ts::DVBCSA2::StreamCipher::init (const uint8_t *key)
 }
 
 
-void ts::DVBCSA2::StreamCipher::cipher(const uint8_t* sb, uint8_t *cb)
+void ts::DVBCSA2::DVBStreamCipher::cipher(const uint8_t* sb, uint8_t *cb)
 {
     const bool init = sb != nullptr;
     int i,j;
@@ -429,7 +428,7 @@ namespace {
 }
 
 
-void ts::DVBCSA2::BlockCipher::init(const uint8_t *key)
+void ts::DVBCSA2::DVBBlockCipher::init(const uint8_t *key)
 {
     int i,j,k;
     int bit[64];
@@ -475,7 +474,7 @@ void ts::DVBCSA2::BlockCipher::init(const uint8_t *key)
 }
 
 
-void ts::DVBCSA2::BlockCipher::decipher(const uint8_t *ib, uint8_t *bd)
+void ts::DVBCSA2::DVBBlockCipher::decipher(const uint8_t *ib, uint8_t *bd)
 {
     int i;
     int sbox_in;
@@ -520,7 +519,7 @@ void ts::DVBCSA2::BlockCipher::decipher(const uint8_t *ib, uint8_t *bd)
 }
 
 
-void ts::DVBCSA2::BlockCipher::encipher (const uint8_t *bd, uint8_t *ib)
+void ts::DVBCSA2::DVBBlockCipher::encipher(const uint8_t *bd, uint8_t *ib)
 {
     int i;
     int sbox_in;
@@ -569,15 +568,15 @@ void ts::DVBCSA2::BlockCipher::encipher (const uint8_t *bd, uint8_t *ib)
 // Set the control word for subsequent encrypt/decrypt operations
 //----------------------------------------------------------------------------
 
-bool ts::DVBCSA2::setKeyImpl(const void* key, size_t key_length, size_t rounds)
+bool ts::DVBCSA2::setKeyImpl()
 {
     // Only one possible key size.
-    if (key == nullptr || key_length != KEY_SIZE) {
+    if (currentKey().size() != KEY_SIZE) {
         return false;
     }
 
     // Preprocess control word
-    memcpy_8(_key, key);
+    memcpy_8(_key, currentKey().data());
     if (_mode == REDUCE_ENTROPY) {
         ReduceCW(_key);
     }
@@ -598,20 +597,30 @@ bool ts::DVBCSA2::setKeyImpl(const void* key, size_t key_length, size_t rounds)
 // Encrypt a data block (typically the payload of a TS or PES packet).
 //----------------------------------------------------------------------------
 
-bool ts::DVBCSA2::encryptInPlaceImpl(void* addr, size_t size, size_t* max_actual_length)
+bool ts::DVBCSA2::encryptImpl(const void* input, size_t input_length, void* output, size_t size, size_t* retsize)
 {
-    uint8_t* data = reinterpret_cast<uint8_t*>(addr);
+    // Output size is the same as input size.
+    if (size < input_length) {
+        return false;
+    }
+    size = input_length;
+    if (retsize != nullptr) {
+        *retsize = size;
+    }
+
+    // The algorithm processes data "in place". If input and output buffers are not at the
+    // same address, first copy input to output and process in "output" buffer.
+    if (input != output) {
+        MemCopy(output, input, size);
+    }
+
+    uint8_t* data = reinterpret_cast<uint8_t*>(output);
     const size_t nblocks = size / 8;   // number of blocks
     const size_t rsize = size % 8;     // residue size
 
     // Filter invalid parameters.
-    if (addr == nullptr || nblocks > MAX_NBLOCKS || !_init) {
+    if (data == nullptr || nblocks > MAX_NBLOCKS || !_init) {
         return false;
-    }
-
-    // Output size is the same as input size.
-    if (max_actual_length != nullptr) {
-        *max_actual_length = size;
     }
 
     // Packets smaller than 8 bytes are left unscrambled
@@ -619,7 +628,7 @@ bool ts::DVBCSA2::encryptInPlaceImpl(void* addr, size_t size, size_t* max_actual
         return true;
     }
 
-    StreamCipher stream_ctx;       // stream cipher context
+    DVBStreamCipher stream_ctx;       // stream cipher context
     uint8_t iblock[8];             // input of block cipher
     uint8_t ib[MAX_NBLOCKS+1][8];  // intermediate blocks
     uint8_t ostream[8];            // output of stream cipher
@@ -662,20 +671,30 @@ bool ts::DVBCSA2::encryptInPlaceImpl(void* addr, size_t size, size_t* max_actual
 // Decrypt a data block (typically the payload of a TS or PES packet).
 //----------------------------------------------------------------------------
 
-bool ts::DVBCSA2::decryptInPlaceImpl(void* addr, size_t size, size_t* max_actual_length)
+bool ts::DVBCSA2::decryptImpl(const void* input, size_t input_length, void* output, size_t size, size_t* retsize)
 {
-    uint8_t* data = reinterpret_cast<uint8_t*>(addr);
+    // Output size is the same as input size.
+    if (size < input_length) {
+        return false;
+    }
+    size = input_length;
+    if (retsize != nullptr) {
+        *retsize = size;
+    }
+
+    // The algorithm processes data "in place". If input and output buffers are not at the
+    // same address, first copy input to output and process in "output" buffer.
+    if (input != output) {
+        MemCopy(output, input, size);
+    }
+
+    uint8_t* data = reinterpret_cast<uint8_t*>(output);
     const size_t nblocks = size / 8;  // number of blocks
     const size_t rsize = size % 8;    // residue size
 
     // Filter invalid parameters.
-    if (addr == nullptr || nblocks > MAX_NBLOCKS || !_init) {
+    if (data == nullptr || nblocks > MAX_NBLOCKS || !_init) {
         return false;
-    }
-
-    // Output size is the same as input size.
-    if (max_actual_length != nullptr) {
-        *max_actual_length = size;
     }
 
     // Packets smaller than 8 bytes are left unscrambled
@@ -683,7 +702,7 @@ bool ts::DVBCSA2::decryptInPlaceImpl(void* addr, size_t size, size_t* max_actual
         return true;
     }
 
-    StreamCipher stream_ctx;          // stream cipher context
+    DVBStreamCipher stream_ctx;          // stream cipher context
     uint8_t ostream[8];               // output of stream cipher
     uint8_t ib[8];                    // intermediate block
     uint8_t oblock[8];                // output of block cipher
@@ -715,94 +734,4 @@ bool ts::DVBCSA2::decryptInPlaceImpl(void* addr, size_t size, size_t* max_actual
     }
 
     return true;
-}
-
-
-//----------------------------------------------------------------------------
-// Wrappers for encrypt and decrypt.
-//----------------------------------------------------------------------------
-
-bool ts::DVBCSA2::encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length)
-{
-    if (plain == nullptr || cipher == nullptr || cipher_maxsize < plain_length) {
-        return false;
-    }
-    else {
-        ::memcpy(cipher, plain, plain_length);
-        return encryptInPlaceImpl(cipher, plain_length, cipher_length);
-    }
-}
-
-bool ts::DVBCSA2::decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length)
-{
-    if (cipher == nullptr || plain == nullptr || plain_maxsize < cipher_length) {
-        return false;
-    }
-    else {
-        ::memcpy(plain, cipher, cipher_length);
-        return decryptInPlaceImpl(plain, cipher_length, plain_length);
-    }
-}
-
-
-//----------------------------------------------------------------------------
-// Implementation of CipherChaining interface:
-//----------------------------------------------------------------------------
-
-bool ts::DVBCSA2::setIV(const void*, size_t)
-{
-    return false;
-}
-size_t ts::DVBCSA2::minIVSize() const
-{
-    return 0;
-}
-size_t ts::DVBCSA2::maxIVSize() const
-{
-    return 0;
-}
-size_t ts::DVBCSA2::minMessageSize() const
-{
-    return 0;
-}
-bool ts::DVBCSA2::residueAllowed() const
-{
-    return true;
-}
-
-//----------------------------------------------------------------------------
-// Implementation of BlockCipher interface:
-//----------------------------------------------------------------------------
-
-ts::UString ts::DVBCSA2::name() const
-{
-    return u"DVB-CSA2";
-}
-size_t ts::DVBCSA2::blockSize() const
-{
-    return 8;
-}
-size_t ts::DVBCSA2::minKeySize() const
-{
-    return KEY_SIZE;
-}
-size_t ts::DVBCSA2::maxKeySize() const
-{
-    return KEY_SIZE;
-}
-bool ts::DVBCSA2::isValidKeySize(size_t size) const
-{
-    return size == KEY_SIZE;
-}
-size_t ts::DVBCSA2::minRounds() const
-{
-    return 8;
-}
-size_t ts::DVBCSA2::maxRounds() const
-{
-    return 8;
-}
-size_t ts::DVBCSA2::defaultRounds() const
-{
-    return 8;
 }

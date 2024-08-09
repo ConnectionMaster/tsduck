@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -42,7 +21,7 @@ namespace ts {
     //!
     //! PID value (13 bits).
     //!
-    typedef uint16_t PID;
+    using PID = uint16_t;
 
     //!
     //! MPEG TS packet size in bytes.
@@ -100,7 +79,7 @@ namespace ts {
     //! be insufficient: at 100 Mb/s, 2^32 188-byte packets will take
     //! only 17 hours to transmit.
     //!
-    typedef uint64_t PacketCounter;
+    using PacketCounter = uint64_t;
 
     //!
     //! A impossible value for PacketCounter, meaning "undefined".
@@ -110,7 +89,7 @@ namespace ts {
     //!
     //! Number of sections.
     //!
-    typedef uint64_t SectionCounter;
+    using SectionCounter = uint64_t;
 
     //!
     //! Value of a sync byte (first byte in a TS packet).
@@ -131,7 +110,7 @@ namespace ts {
     //! A bit mask for PID values.
     //! Useful to implement PID filtering.
     //!
-    typedef std::bitset<PID_MAX> PIDSet;
+    using PIDSet = std::bitset<PID_MAX>;
 
     //!
     //! PIDSet constant with no PID set.
@@ -227,38 +206,92 @@ namespace ts {
     }
 
     //!
-    //! Compute the interval, in milliseconds, between two packets.
+    //! Compute the interval, in duration, between two bytes in the transport stream.
+    //! @tparam DURATION An instance of std::chrono::duration (by default, milliseconds).
+    //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
+    //! @param [in] distance Distance between the two bytes.
+    //! @return Interval in DURATION units between the two bytes.
+    //!
+    template <class DURATION = cn::milliseconds, typename std::enable_if<std::is_integral<typename DURATION::rep>::value, int>::type = 0>
+    inline DURATION ByteInterval(const BitRate& bitrate, std::intmax_t distance)
+    {
+        return DURATION(typename DURATION::rep(bitrate == 0 ? 0 : ((distance * 8 * DURATION::period::den) / (DURATION::period::num * bitrate)).toInt()));
+    }
+
+    //!
+    //! Compute the interval, in duration, between two packets.
+    //! @tparam DURATION An instance of std::chrono::duration (by default, milliseconds).
     //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
     //! @param [in] distance Distance between the two packets: 0 for the same
-    //! packet, 1 for the next packet (the default), etc.
-    //! @return Interval in milliseconds between the first byte of the first packet
+    //! packet, 1 for the next packet, etc.
+    //! @return Interval in DURATION units between the first byte of the first packet
     //! and the first byte of the second packet.
     //!
-    TSDUCKDLL inline MilliSecond PacketInterval(const BitRate& bitrate, PacketCounter distance = 1)
+    template <class DURATION = cn::milliseconds, typename std::enable_if<std::is_integral<typename DURATION::rep>::value, int>::type = 0>
+    inline DURATION PacketInterval(const BitRate& bitrate, PacketCounter distance)
     {
-        return bitrate == 0 ? 0 : ((distance * PKT_SIZE_BITS * MilliSecPerSec) / bitrate).toInt();
+        return ByteInterval<DURATION>(bitrate, distance * PKT_SIZE);
     }
 
     //!
-    //! Compute the number of packets transmitted during a given duration in milliseconds.
+    //! Compute the number of "data structures" (bytes, packets, etc) transmitted during a given duration.
+    //! @param [in] bits Number of bits in the data structure.
     //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
-    //! @param [in] duration Number of milliseconds.
-    //! @return Number of packets during @a duration milliseconds.
+    //! @param [in] duration A duration in any std::chrono::duration units.
+    //! @return Number of data structures of size @a bits bits during @a duration.
     //!
-    TSDUCKDLL inline PacketCounter PacketDistance(const BitRate& bitrate, MilliSecond duration)
+    template <class Rep, class Period>
+    inline int64_t BitDistance(size_t bits, const BitRate& bitrate, const cn::duration<Rep, Period>& duration)
     {
-        return PacketCounter(((bitrate * (duration >= 0 ? duration : -duration)) / (MilliSecPerSec * PKT_SIZE_BITS)).toInt());
+        return int64_t(((bitrate * Period::num * (duration.count() >= 0 ? duration.count() : -duration.count())) / (Period::den * bits)).toInt());
     }
 
     //!
-    //! Compute the bitrate from a number of packets transmitted during a given duration in milliseconds.
-    //! @param [in] packets Number of packets during @a duration milliseconds.
-    //! @param [in] duration Number of milliseconds.
+    //! Compute the number of bytes transmitted during a given duration.
+    //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
+    //! @param [in] duration A duration in any std::chrono::duration units.
+    //! @return Number of bytes during @a duration.
+    //!
+    template <class Rep, class Period>
+    inline int64_t ByteDistance(const BitRate& bitrate, const cn::duration<Rep, Period>& duration)
+    {
+        return BitDistance(8, bitrate, duration);
+    }
+
+    //!
+    //! Compute the number of packets transmitted during a given duration.
+    //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
+    //! @param [in] duration A duration in any std::chrono::duration units.
+    //! @return Number of packets during @a duration.
+    //!
+    template <class Rep, class Period>
+    inline PacketCounter PacketDistance(const BitRate& bitrate, const cn::duration<Rep, Period>& duration)
+    {
+        return PacketCounter(BitDistance(PKT_SIZE_BITS, bitrate, duration));
+    }
+
+    //!
+    //! Compute the bitrate from a number of bytes transmitted during a given duration.
+    //! @param [in] bytes Number of bytes during @a duration.
+    //! @param [in] duration A duration in any std::chrono::duration units.
     //! @return TS bitrate in bits/second, based on 188-byte packets.
     //!
-    TSDUCKDLL inline BitRate PacketBitRate(PacketCounter packets, MilliSecond duration)
+    template <class Rep, class Period>
+    inline BitRate BytesBitRate(uint64_t bytes, const cn::duration<Rep, Period>& duration)
     {
-        return duration == 0 ? 0 : BitRate(packets * MilliSecPerSec * PKT_SIZE_BITS) / BitRate(duration);
+        return duration.count() == 0 ? 0 : BitRate(bytes * 8 * Period::den) / (Period::num * BitRate(duration.count()));
+    }
+
+    //!
+    //! Compute the bitrate from a number of packets transmitted during a given duration.
+    //! @param [in] packets Number of packets during @a duration.
+    //! @param [in] duration A duration in any std::chrono::duration units.
+    //! @return TS bitrate in bits/second, based on 188-byte packets.
+    //!
+    template <class Rep, class Period>
+    inline BitRate PacketBitRate(PacketCounter packets, const cn::duration<Rep, Period>& duration)
+    {
+        return BytesBitRate(packets * PKT_SIZE, duration);
     }
 
     //!
@@ -299,6 +332,7 @@ namespace ts {
         PID_TOT        = 0x0014, //!< PID for Time Offset Table
         PID_NETSYNC    = 0x0015, //!< PID for Network synchronization
         PID_RNT        = 0x0016, //!< PID for Resolution Notification Table (TV-Anytime)
+        PID_SAT        = 0x001B, //!< PID for Satellite Access Table
         PID_INBSIGN    = 0x001C, //!< PID for Inband Signalling
         PID_MEASURE    = 0x001D, //!< PID for Measurement
         PID_DIT        = 0x001E, //!< PID for Discontinuity Information Table
@@ -380,6 +414,23 @@ namespace ts {
     constexpr uint32_t SYSTEM_CLOCK_SUBFREQ = SYSTEM_CLOCK_FREQ / SYSTEM_CLOCK_SUBFACTOR;
 
     //!
+    //! Definition of a number of PCR units as a std::chrono::duration type.
+    //!
+    using PCR = cn::duration<std::intmax_t, std::ratio<1, SYSTEM_CLOCK_FREQ>>;
+
+    //!
+    //! Definition of a number of PTS units as a std::chrono::duration type.
+    //! Same as DTS.
+    //!
+    using PTS = cn::duration<std::intmax_t, std::ratio<1, SYSTEM_CLOCK_SUBFREQ>>;
+
+    //!
+    //! Definition of a number of DTS units as a std::chrono::duration type.
+    //! Same as PTS.
+    //!
+    using DTS = cn::duration<std::intmax_t, std::ratio<1, SYSTEM_CLOCK_SUBFREQ>>;
+
+    //!
     //! Size in bits of a PCR (Program Clock Reference).
     //! Warning: A PCR value is not a linear value mod 2^42.
     //! It is split into PCR_base and PCR_ext (see ISO 13818-1, 2.4.2.2).
@@ -395,7 +446,7 @@ namespace ts {
     //!
     //! Scale factor for PTS and DTS values (wrap up at 2^33).
     //!
-    constexpr uint64_t PTS_DTS_SCALE = TS_UCONST64(1) << PTS_DTS_BIT_SIZE;
+    constexpr uint64_t PTS_DTS_SCALE = 1LL << PTS_DTS_BIT_SIZE;
 
     //!
     //! Mask for PTS and DTS values (wrap up at 2^33).
@@ -424,17 +475,17 @@ namespace ts {
     //!
     //! An invalid PCR (Program Clock Reference) value, can be used as a marker.
     //!
-    constexpr uint64_t INVALID_PCR = TS_UCONST64(0xFFFFFFFFFFFFFFFF);
+    constexpr uint64_t INVALID_PCR = 0xFFFFFFFFFFFFFFFF;
 
     //!
     //! An invalid PTS value, can be used as a marker.
     //!
-    constexpr uint64_t INVALID_PTS = TS_UCONST64(0xFFFFFFFFFFFFFFFF);
+    constexpr uint64_t INVALID_PTS = 0xFFFFFFFFFFFFFFFF;
 
     //!
     //! An invalid DTS value, can be used as a marker.
     //!
-    constexpr uint64_t INVALID_DTS = TS_UCONST64(0xFFFFFFFFFFFFFFFF);
+    constexpr uint64_t INVALID_DTS = 0xFFFFFFFFFFFFFFFF;
 
     //!
     //! Check if PCR2 follows PCR1 after wrap up.
@@ -460,6 +511,14 @@ namespace ts {
     TSDUCKDLL uint64_t NextPCR(uint64_t last_pcr, PacketCounter distance, const BitRate& bitrate);
 
     //!
+    //! Add a signed offset to a PCR.
+    //! @param [in] pcr Initial PCR value.
+    //! @param [in] offset Signed offset.
+    //! @return The adjusted PCR value or INVALID_PCR if a parameter is incorrect.
+    //!
+    TSDUCKDLL uint64_t AddPCR(uint64_t pcr, int64_t offset);
+
+    //!
     //! Compute the difference between PCR2 and PCR1.
     //! @param [in] pcr1 First PCR.
     //! @param [in] pcr2 Second PCR.
@@ -476,17 +535,6 @@ namespace ts {
     TSDUCKDLL uint64_t AbsDiffPCR(uint64_t pcr1, uint64_t pcr2);
 
     //!
-    //! Compute the number of packets transmitted during a given duration in PCR units.
-    //! @param [in] bitrate TS bitrate in bits/second, based on 188-byte packets.
-    //! @param [in] pcr Number of PCR units.
-    //! @return Number of packets during @a pcr time.
-    //!
-    TSDUCKDLL inline PacketCounter PacketDistanceFromPCR(BitRate bitrate, uint64_t pcr)
-    {
-        return PacketCounter(((bitrate * pcr) / (SYSTEM_CLOCK_FREQ * PKT_SIZE_BITS)).toInt());
-    }
-
-    //!
     //! Check if PTS2 follows PTS1 after wrap up.
     //! @param [in] pts1 First PTS.
     //! @param [in] pts2 Second PTS.
@@ -494,7 +542,7 @@ namespace ts {
     //!
     TSDUCKDLL inline bool WrapUpPTS(uint64_t pts1, uint64_t pts2)
     {
-        return pts2 < pts1 && (pts1 - pts2) > TS_UCONST64(0x00000001F0000000);
+        return pts2 < pts1 && (pts1 - pts2) > 0x00000001F0000000LL;
     }
 
     //!
@@ -542,17 +590,21 @@ namespace ts {
     //!
     TSDUCKDLL UString PTSToString(uint64_t pts, bool hexa = true, bool decimal = true, bool ms = true);
 
-    //!
-    //! Convert a PCR value to milliseconds.
-    //! @param [in] pcr The PCR value.
-    //! @return The corresponding number of milliseconds or -1 on invalid value.
-    //!
-    TSDUCKDLL MilliSecond PCRToMilliSecond(uint64_t pcr);
+    //---------------------------------------------------------------------
+    //! Adaptation field descriptor tags.
+    //! @see ISO 13818-1 / ITU-T Rec. H.262.0, section U.3
+    //---------------------------------------------------------------------
 
-    //!
-    //! Convert a PTS or DTS value to milliseconds.
-    //! @param [in] pts The PTS or DTS value.
-    //! @return The corresponding number of milliseconds or -1 on invalid value.
-    //!
-    TSDUCKDLL MilliSecond PTSToMilliSecond(uint64_t pts);
+    enum : uint8_t {
+        AFDID_TIMELINE        = 0x04,  //!< Timeline descriptor
+        AFDID_LOCATION        = 0x05,  //!< Location descriptor
+        AFDID_BASEURL         = 0x06,  //!< BaseURL descriptor
+        AFDID_CETS_BRANGE     = 0x07,  //!< Cets_byte_range_descriptor
+        AFDID_3DA_EXTSTREAM   = 0x08,  //!< AF_MPEG-H_3dAudio_extStreamID_descriptor
+        AFDID_3DA_MULTISTREAM = 0x09,  //!< AF_MPEG-H_3dAudio_multi-stream_descriptor
+        AFDID_3DA_COMMAND     = 0x0A,  //!< AF_MPEG-H_3dAudio_command_descriptor
+        AFDID_BOUNDARY        = 0x0B,  //!< Boundary Descriptor
+        AFDID_LABELING        = 0x0C,  //!< Labeling Descriptor
+        AFDID_HEVC_TILE       = 0x0D,  //!< HEVC_tile_substream_af_descriptor
+    };
 }

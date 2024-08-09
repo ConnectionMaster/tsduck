@@ -1,109 +1,22 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsHEVCSequenceParameterSet.h"
 #include "tsHEVC.h"
-#include "tsMPEG2.h"
 
 
 //----------------------------------------------------------------------------
 // Constructor
 //----------------------------------------------------------------------------
 
-ts::HEVCSequenceParameterSet::HEVCSequenceParameterSet(const uint8_t* data, size_t size) :
-    SuperClass(),
-    sps_video_parameter_set_id(0),
-    sps_max_sub_layers_minus1(0),
-    sps_temporal_id_nesting_flag(0),
-    profile_tier_level(),
-    sps_seq_parameter_set_id(0),
-    chroma_format_idc(0),
-    separate_colour_plane_flag(0),
-    pic_width_in_luma_samples(0),
-    pic_height_in_luma_samples(0),
-    conformance_window_flag(0),
-    conf_win_left_offset(0),
-    conf_win_right_offset(0),
-    conf_win_top_offset(0),
-    conf_win_bottom_offset(0),
-    bit_depth_luma_minus8(0),
-    bit_depth_chroma_minus8(0),
-    log2_max_pic_order_cnt_lsb_minus4(0),
-    sps_sub_layer_ordering_info_present_flag(0),
-    sps_max(),
-    log2_min_luma_coding_block_size_minus3(0),
-    log2_diff_max_min_luma_coding_block_size(0),
-    log2_min_luma_transform_block_size_minus2(0),
-    log2_diff_max_min_luma_transform_block_size(0),
-    max_transform_hierarchy_depth_inter(0),
-    max_transform_hierarchy_depth_intra(0),
-    scaling_list_enabled_flag(0),
-    sps_scaling_list_data_present_flag(0),
-    scaling_list_data(),
-    amp_enabled_flag(0),
-    sample_adaptive_offset_enabled_flag(0),
-    pcm_enabled_flag(0),
-    pcm_sample_bit_depth_luma_minus1(0),
-    pcm_sample_bit_depth_chroma_minus1(0),
-    log2_min_pcm_luma_coding_block_size_minus3(0),
-    log2_diff_max_min_pcm_luma_coding_block_size(0),
-    pcm_loop_filter_disabled_flag(0),
-    num_short_term_ref_pic_sets(0),
-    st_ref_pic_set(),
-    long_term_ref_pics_present_flag(0),
-    num_long_term_ref_pics_sps(0),
-    lt_ref(),
-    sps_temporal_mvp_enabled_flag(0),
-    strong_intra_smoothing_enabled_flag(0),
-    vui_parameters_present_flag(0),
-    vui(),
-    sps_extension_present_flag(0),
-    sps_range_extension_flag(0),
-    sps_multilayer_extension_flag(0),
-    sps_3d_extension_flag(0),
-    sps_scc_extension_flag(0),
-    sps_extension_4bits(0)
+ts::HEVCSequenceParameterSet::HEVCSequenceParameterSet(const uint8_t* data, size_t size)
 {
-    parse(data, size);
-}
-
-ts::HEVCSequenceParameterSet::SPSMax::SPSMax() :
-    sps_max_dec_pic_buffering_minus1(0),
-    sps_max_num_reorder_pics(0),
-    sps_max_latency_increase_plus1(0)
-{
-}
-
-ts::HEVCSequenceParameterSet::LongTermRef::LongTermRef() :
-    lt_ref_pic_poc_lsb_sps(0),
-    used_by_curr_pic_lt_sps_flag(0)
-{
+    HEVCSequenceParameterSet::parse(data, size);
 }
 
 
@@ -202,6 +115,7 @@ bool ts::HEVCSequenceParameterSet::parseBody(AVCParser& parser, std::initializer
             profile_tier_level.parse(parser, {1, sps_max_sub_layers_minus1}) &&
             parser.ue(sps_seq_parameter_set_id) &&
             parser.ue(chroma_format_idc);
+    HEVC_TRACE(u"===== start of HEVCSequenceParameterSet::parseBody(), valid=%d", valid);
 
     if (valid && chroma_format_idc == 3) {
         valid = parser.u(separate_colour_plane_flag, 1);
@@ -262,11 +176,11 @@ bool ts::HEVCSequenceParameterSet::parseBody(AVCParser& parser, std::initializer
                 parser.u(pcm_loop_filter_disabled_flag, 1);
     }
 
-    valid = valid && parser.ue(num_short_term_ref_pic_sets);
-    st_ref_pic_set.reset(num_short_term_ref_pic_sets);
+    valid = valid && parser.ue(num_short_term_ref_pic_sets) && st_ref_pic_set.reset(num_short_term_ref_pic_sets);
     for (uint32_t i = 0; valid && i < num_short_term_ref_pic_sets; i++) {
         valid = st_ref_pic_set.parse(parser, {i});
     }
+    HEVC_TRACE(u"----- st_ref_pic_set.list.size()=%d, valid=%d", st_ref_pic_set.list.size(), valid);
 
     valid = valid && parser.u(long_term_ref_pics_present_flag, 1);
     if (valid && long_term_ref_pics_present_flag) {
@@ -284,9 +198,11 @@ bool ts::HEVCSequenceParameterSet::parseBody(AVCParser& parser, std::initializer
             parser.u(strong_intra_smoothing_enabled_flag, 1) &&
             parser.u(vui_parameters_present_flag, 1);
 
+    HEVC_TRACE(u"----- before vui.parse(), valid=%d, vui_parameters_present_flag=%d", valid, vui_parameters_present_flag);
     if (valid && vui_parameters_present_flag) {
         valid = vui.parse(parser, {sps_max_sub_layers_minus1});
     }
+    HEVC_TRACE(u"----- after vui.parse(), valid=%d", valid);
 
     valid = valid && parser.u(sps_extension_present_flag, 1);
     if (valid && sps_extension_present_flag) {
@@ -297,6 +213,7 @@ bool ts::HEVCSequenceParameterSet::parseBody(AVCParser& parser, std::initializer
                 parser.u(sps_extension_4bits, 4);
     }
 
+    HEVC_TRACE(u"===== end of HEVCSequenceParameterSet::parseBody(), valid=%d", valid);
     return valid;
 }
 
@@ -343,7 +260,7 @@ std::ostream& ts::HEVCSequenceParameterSet::display(std::ostream& out, const USt
         DISP(log2_max_pic_order_cnt_lsb_minus4);
         DISP(sps_sub_layer_ordering_info_present_flag);
 
-        for (size_t i = (sps_sub_layer_ordering_info_present_flag ? 0 : sps_max_sub_layers_minus1); valid && i <= sps_max_sub_layers_minus1; i++) {
+        for (size_t i = (sps_sub_layer_ordering_info_present_flag ? 0 : sps_max_sub_layers_minus1); i <= sps_max_sub_layers_minus1 && i < sps_max.size(); i++) {
 #define DISPsub(i,n) out << margin << #n << "[" << i << "] = " << int64_t(sps_max[i].n) << std::endl
             DISPsub(i, sps_max_dec_pic_buffering_minus1);
             DISPsub(i, sps_max_num_reorder_pics);
@@ -384,7 +301,7 @@ std::ostream& ts::HEVCSequenceParameterSet::display(std::ostream& out, const USt
         DISP(long_term_ref_pics_present_flag);
         if (long_term_ref_pics_present_flag) {
             DISP(num_long_term_ref_pics_sps);
-            for (uint32_t i = 0; i < num_long_term_ref_pics_sps; i++) {
+            for (uint32_t i = 0; i < num_long_term_ref_pics_sps && i < lt_ref.size(); i++) {
 #define DISPsub(i,n) out << margin << #n << "[" << i << "] = " << int64_t(lt_ref[i].n) << std::endl
                 DISPsub(i, lt_ref_pic_poc_lsb_sps);
                 DISPsub(i, used_by_curr_pic_lt_sps_flag);

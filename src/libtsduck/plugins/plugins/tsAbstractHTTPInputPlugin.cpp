@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -38,12 +17,7 @@
 
 ts::AbstractHTTPInputPlugin::AbstractHTTPInputPlugin(TSP* tsp_, const UString& description, const UString& syntax) :
     InputPlugin(tsp_, description, syntax),
-    webArgs(),
-    _request(*tsp),
-    _partial(),
-    _partialSize(0),
-    _autoSaveDir(),
-    _outSave()
+    _request(*this)
 {
     webArgs.defineArgs(*this);
 }
@@ -63,9 +37,9 @@ bool ts::AbstractHTTPInputPlugin::getOptions()
 // Set receive timeout from tsp.
 //----------------------------------------------------------------------------
 
-bool ts::AbstractHTTPInputPlugin::setReceiveTimeout(MilliSecond timeout)
+bool ts::AbstractHTTPInputPlugin::setReceiveTimeout(cn::milliseconds timeout)
 {
-    if (timeout > 0) {
+    if (timeout > cn::milliseconds::zero()) {
         webArgs.receiveTimeout = webArgs.connectionTimeout = timeout;
     }
     return true;
@@ -153,19 +127,19 @@ bool ts::AbstractHTTPInputPlugin::startTransfer()
     const size_t size = _request.announdedContentSize();
 
     // Print a message.
-    tsp->verbose(u"downloading from %s", {_request.finalURL()});
-    tsp->verbose(u"MIME type: %s, expected size: %s", {mime.empty() ? u"unknown" : mime, size == 0 ? u"unknown" : UString::Format(u"%d bytes", {size})});
+    verbose(u"downloading from %s", _request.finalURL());
+    verbose(u"MIME type: %s, expected size: %s", mime.empty() ? u"unknown" : mime, size == 0 ? u"unknown" : UString::Format(u"%d bytes", size));
     if (!mime.empty() && !mime.similar(u"video/mp2t")) {
-        tsp->warning(u"MIME type is %s, maybe not a valid transport stream", {mime});
+        warning(u"MIME type is %s, maybe not a valid transport stream", mime);
     }
 
     // Create the auto-save file when necessary.
     UString name(BaseName(URL(_request.finalURL()).getPath()));
     if (!_autoSaveDir.empty() && !name.empty()) {
-        name = _autoSaveDir + PathSeparator + name;
-        tsp->verbose(u"saving input TS to %s", {name});
+        name = _autoSaveDir + fs::path::preferred_separator + name;
+        verbose(u"saving input TS to %s", name);
         // Display errors but do not fail, this is just auto save.
-        _outSave.open(name, TSFile::WRITE | TSFile::SHARED, *tsp);
+        _outSave.open(name, TSFile::WRITE | TSFile::SHARED, *this);
     }
 
     // Reinitialize partial packet if some bytes were left from a previous iteration.
@@ -184,7 +158,7 @@ bool ts::AbstractHTTPInputPlugin::stopTransfer()
 
     // Close auto save file if one was open.
     if (_outSave.isOpen()) {
-        _outSave.close(*tsp);
+        _outSave.close(*this);
     }
 
     // Terminate any pending transfer.
@@ -241,15 +215,15 @@ size_t ts::AbstractHTTPInputPlugin::receiveTransfer(TSPacket* buffer, size_t max
 
         // Save residue in partial packet.
         if (_partialSize > 0) {
-            ::memcpy(_partial.b, buffer[packetCount].b, _partialSize);
+            MemCopy(_partial.b, buffer[packetCount].b, _partialSize);
         }
 
     } while (packetCount == 0 && receiveSize != 0);
 
     // If an intermediate save file was specified, save the packets.
     // Display errors but do not fail, this is just auto save.
-    if (_outSave.isOpen() && !_outSave.writePackets(buffer, nullptr, packetCount, *tsp)) {
-        _outSave.close(*tsp);
+    if (_outSave.isOpen() && !_outSave.writePackets(buffer, nullptr, packetCount, *this)) {
+        _outSave.close(*this);
     }
     return packetCount;
 }

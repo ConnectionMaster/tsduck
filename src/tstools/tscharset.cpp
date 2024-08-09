@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -55,15 +34,15 @@ namespace ts {
     {
         TS_NOBUILD_NOCOPY(CharsetOptions);
     public:
-        DuckContext duck;          // TSDuck execution context.
-        bool        list;          // List all character sets names.
-        bool        generate_b24;  // Generate encoding tables for ARIB STD-B24.
-        bool        c_style;       // Output binary data in C/C++ syntax.
-        bool        to_utf8;       // Output decoded string as UTF-8.
-        bool        to_utf16;      // Output decoded string as UTF-16.
-        UString     outfile;       // Output file.
-        UString     encode;        // String to encode.
-        ByteBlock   decode;        // Hexadecimal content to decode.
+        DuckContext duck {this};           // TSDuck execution context.
+        bool        list = false;          // List all character sets names.
+        bool        generate_b24 = false;  // Generate encoding tables for ARIB STD-B24.
+        bool        c_style = false;       // Output binary data in C/C++ syntax.
+        bool        to_utf8 = false;       // Output decoded string as UTF-8.
+        bool        to_utf16 = false;      // Output decoded string as UTF-16.
+        fs::path    outfile {};            // Output file.
+        UString     encode {};             // String to encode.
+        ByteBlock   decode {};             // Hexadecimal content to decode.
 
         // Print string and binary data according to formatting options.
         void printBinary(const UString& title, const ByteBlock& bin) const;
@@ -87,16 +66,7 @@ namespace ts {
 //----------------------------------------------------------------------------
 
 ts::CharsetOptions::CharsetOptions(int argc, char *argv[]) :
-    Args(u"Test tool for DVB and ARIB character sets", u"[options]"),
-    duck(this),
-    list(false),
-    generate_b24(false),
-    c_style(false),
-    to_utf8(false),
-    to_utf16(false),
-    outfile(),
-    encode(),
-    decode()
+    Args(u"Test tool for DVB and ARIB character sets", u"[options]")
 {
     duck.defineArgsForCharset(*this);
 
@@ -150,7 +120,7 @@ ts::CharsetOptions::CharsetOptions(int argc, char *argv[]) :
 
     // Get parameter values.
     duck.loadArgs(*this);
-    getValue(outfile, u"output");
+    getPathValue(outfile, u"output");
     getValue(encode, u"encode");
     const UString decodeHex(value(u"decode"));
     list = present(u"list-charsets");
@@ -261,7 +231,7 @@ void ts::CharsetOptions::printUTF16(const UString& str) const
         }
         else {
             // At start of a line, with byte offset.
-            std::cout << UString::Format(u"  %04X:  ", {2 * i});
+            std::cout << UString::Format(u"  %04X:  ", 2 * i);
         }
         std::cout << UString::Hexa(str[i], 4, UString(), c_style);
         if (c_style) {
@@ -314,8 +284,8 @@ namespace ts {
         ARIBCharsetCodeGenerator(std::ostream& out);
 
     private:
-        typedef ARIBCharset::CharMap CharMap;
-        typedef ARIBCharset::CharRows CharRows;
+        using CharMap = ARIBCharset::CharMap;
+        using CharRows = ARIBCharset::CharRows;
 
         // A slice of contiguous Unicode points.
         struct Slice
@@ -328,7 +298,7 @@ namespace ts {
         };
 
         // Map of character slices index per Unicode point base.
-        typedef std::map<char32_t,Slice> SliceMap;
+        using SliceMap = std::map<char32_t,Slice>;
 
         // Add one slice into the slice map;
         void buildSlice(const CharMap& cmap,   // character set
@@ -514,28 +484,28 @@ void ts::ARIBCharsetCodeGenerator::generateFile(std::ostream& out)
     uint32_t single_slices = 0;   // Number of single-character slices.
 
     // Generate all slices in increasing order of base code point.
-    for (auto it = _slices.begin(); it != _slices.end(); ++it) {
+    for (const auto& it : _slices) {
 
         // The 32-bit encoded entry is made of 5 fields.
         const uint32_t entry =
-            (it->second.byte2 ? 0x80000000 : 0x00000000) |
-            (uint32_t(it->second.selector) << 24) |
-            (uint32_t(it->second.row) << 16) |
-            (uint32_t(it->second.index) << 8) |
-            uint32_t(it->second.count);
+            (it.second.byte2 ? 0x80000000 : 0x00000000) |
+            (uint32_t(it.second.selector) << 24) |
+            (uint32_t(it.second.row) << 16) |
+            (uint32_t(it.second.index) << 8) |
+            uint32_t(it.second.count);
 
         if (count++ % entries_per_line == 0) {
             out << "   ";
         }
-        out << UString::Format(u" {0x%X, 0x%X},", {it->first, entry});
+        out << UString::Format(u" {0x%X, 0x%X},", it.first, entry);
         if (count % entries_per_line == 0) {
             out << std::endl;
         }
 
         // Keep statistics on slice sizes.
-        char_total += it->second.count;
-        max_slice_size = std::max<uint32_t>(max_slice_size, it->second.count);
-        if (it->second.count == 1) {
+        char_total += it.second.count;
+        max_slice_size = std::max<uint32_t>(max_slice_size, it.second.count);
+        if (it.second.count == 1) {
             single_slices++;
         }
     }
@@ -565,8 +535,8 @@ int MainCode(int argc, char *argv[])
     // List of character sets names.
     if (opt.list) {
         const ts::UStringList names(ts::Charset::GetAllNames());
-        for (auto it = names.begin(); it != names.end(); ++it) {
-            std::cout << *it << std::endl;
+        for (const auto& it : names) {
+            std::cout << it << std::endl;
         }
     }
 

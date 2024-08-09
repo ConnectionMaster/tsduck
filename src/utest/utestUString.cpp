@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -34,7 +13,10 @@
 #include "tsUString.h"
 #include "tsByteBlock.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
+#include "tsCerrReport.h"
 #include "tsIPv4SocketAddress.h"
+#include "tsTS.h"
 #include "tsunit.h"
 
 //----------------------------------------------------------------------------
@@ -43,124 +25,74 @@
 
 class UStringTest: public tsunit::Test
 {
-public:
-    UStringTest();
+    TSUNIT_DECLARE_TEST(IsSpace);
+    TSUNIT_DECLARE_TEST(UTF);
+    TSUNIT_DECLARE_TEST(Diacritical);
+    TSUNIT_DECLARE_TEST(Surrogate);
+    TSUNIT_DECLARE_TEST(FromWChar);
+    TSUNIT_DECLARE_TEST(Width);
+    TSUNIT_DECLARE_TEST(DisplayPosition);
+    TSUNIT_DECLARE_TEST(Trim);
+    TSUNIT_DECLARE_TEST(LetterCase);
+    TSUNIT_DECLARE_TEST(Accent);
+    TSUNIT_DECLARE_TEST(ToHTML);
+    TSUNIT_DECLARE_TEST(FromHTML);
+    TSUNIT_DECLARE_TEST(ToJSON);
+    TSUNIT_DECLARE_TEST(FromJSON);
+    TSUNIT_DECLARE_TEST(Remove);
+    TSUNIT_DECLARE_TEST(Substitute);
+    TSUNIT_DECLARE_TEST(Split);
+    TSUNIT_DECLARE_TEST(SplitShellStyle);
+    TSUNIT_DECLARE_TEST(Join);
+    TSUNIT_DECLARE_TEST(BreakLines);
+    TSUNIT_DECLARE_TEST(RemovePrefix);
+    TSUNIT_DECLARE_TEST(RemoveSuffix);
+    TSUNIT_DECLARE_TEST(Start);
+    TSUNIT_DECLARE_TEST(End);
+    TSUNIT_DECLARE_TEST(JustifyLeft);
+    TSUNIT_DECLARE_TEST(JustifyRight);
+    TSUNIT_DECLARE_TEST(JustifyCentered);
+    TSUNIT_DECLARE_TEST(Justify);
+    TSUNIT_DECLARE_TEST(YesNo);
+    TSUNIT_DECLARE_TEST(TrueFalse);
+    TSUNIT_DECLARE_TEST(OnOff);
+    TSUNIT_DECLARE_TEST(SimilarStrings);
+    TSUNIT_DECLARE_TEST(LoadSave);
+    TSUNIT_DECLARE_TEST(ToDigit);
+    TSUNIT_DECLARE_TEST(ToInteger);
+    TSUNIT_DECLARE_TEST(ToTristate);
+    TSUNIT_DECLARE_TEST(HexaDecode);
+    TSUNIT_DECLARE_TEST(AppendContainer);
+    TSUNIT_DECLARE_TEST(AssignContainer);
+    TSUNIT_DECLARE_TEST(Decimal);
+    TSUNIT_DECLARE_TEST(DecimalList);
+    TSUNIT_DECLARE_TEST(Hexa);
+    TSUNIT_DECLARE_TEST(HexaDump);
+    TSUNIT_DECLARE_TEST(ArgMixIn);
+    TSUNIT_DECLARE_TEST(ArgMixOut);
+    TSUNIT_DECLARE_TEST(ArgMixOutFloat);
+    TSUNIT_DECLARE_TEST(Format);
+    TSUNIT_DECLARE_TEST(Scan);
+    TSUNIT_DECLARE_TEST(CommonPrefix);
+    TSUNIT_DECLARE_TEST(CommonSuffix);
+    TSUNIT_DECLARE_TEST(Precombined);
+    TSUNIT_DECLARE_TEST(Quoted);
+    TSUNIT_DECLARE_TEST(ToQuotedLine);
+    TSUNIT_DECLARE_TEST(FromQuotedLine);
+    TSUNIT_DECLARE_TEST(Indent);
+    TSUNIT_DECLARE_TEST(ToFloat);
+    TSUNIT_DECLARE_TEST(SuperCompare);
+    TSUNIT_DECLARE_TEST(ChronoUnit);
+    TSUNIT_DECLARE_TEST(Chrono);
+    TSUNIT_DECLARE_TEST(Percentage);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testIsSpace();
-    void testUTF();
-    void testDiacritical();
-    void testSurrogate();
-    void testFromWChar();
-    void testWidth();
-    void testDisplayPosition();
-    void testTrim();
-    void testLetterCase();
-    void testAccent();
-    void testToHTML();
-    void testFromHTML();
-    void testToJSON();
-    void testFromJSON();
-    void testRemove();
-    void testSubstitute();
-    void testSplit();
-    void testSplitShellStyle();
-    void testJoin();
-    void testBreakLines();
-    void testRemovePrefix();
-    void testRemoveSuffix();
-    void testStart();
-    void testEnd();
-    void testJustifyLeft();
-    void testJustifyRight();
-    void testJustifyCentered();
-    void testJustify();
-    void testYesNo();
-    void testTrueFalse();
-    void testOnOff();
-    void testSimilarStrings();
-    void testLoadSave();
-    void testToDigit();
-    void testToInteger();
-    void testToTristate();
-    void testHexaDecode();
-    void testAppendContainer();
-    void testAssignContainer();
-    void testDecimal();
-    void testHexa();
-    void testHexaDump();
-    void testArgMixIn();
-    void testArgMixOut();
-    void testFormat();
-    void testScan();
-    void testCommonPrefix();
-    void testCommonSuffix();
-    void testPrecombined();
-    void testQuoted();
-    void testToQuotedLine();
-    void testFromQuotedLine();
-    void testIndent();
-
-    TSUNIT_TEST_BEGIN(UStringTest);
-    TSUNIT_TEST(testIsSpace);
-    TSUNIT_TEST(testUTF);
-    TSUNIT_TEST(testDiacritical);
-    TSUNIT_TEST(testSurrogate);
-    TSUNIT_TEST(testFromWChar);
-    TSUNIT_TEST(testWidth);
-    TSUNIT_TEST(testDisplayPosition);
-    TSUNIT_TEST(testTrim);
-    TSUNIT_TEST(testLetterCase);
-    TSUNIT_TEST(testAccent);
-    TSUNIT_TEST(testToHTML);
-    TSUNIT_TEST(testFromHTML);
-    TSUNIT_TEST(testToJSON);
-    TSUNIT_TEST(testFromJSON);
-    TSUNIT_TEST(testRemove);
-    TSUNIT_TEST(testSubstitute);
-    TSUNIT_TEST(testSplit);
-    TSUNIT_TEST(testSplitShellStyle);
-    TSUNIT_TEST(testJoin);
-    TSUNIT_TEST(testBreakLines);
-    TSUNIT_TEST(testRemovePrefix);
-    TSUNIT_TEST(testRemoveSuffix);
-    TSUNIT_TEST(testStart);
-    TSUNIT_TEST(testEnd);
-    TSUNIT_TEST(testJustifyLeft);
-    TSUNIT_TEST(testJustifyRight);
-    TSUNIT_TEST(testJustifyCentered);
-    TSUNIT_TEST(testJustify);
-    TSUNIT_TEST(testYesNo);
-    TSUNIT_TEST(testTrueFalse);
-    TSUNIT_TEST(testOnOff);
-    TSUNIT_TEST(testSimilarStrings);
-    TSUNIT_TEST(testLoadSave);
-    TSUNIT_TEST(testToInteger);
-    TSUNIT_TEST(testToTristate);
-    TSUNIT_TEST(testHexaDecode);
-    TSUNIT_TEST(testAppendContainer);
-    TSUNIT_TEST(testAssignContainer);
-    TSUNIT_TEST(testDecimal);
-    TSUNIT_TEST(testHexa);
-    TSUNIT_TEST(testHexaDump);
-    TSUNIT_TEST(testArgMixIn);
-    TSUNIT_TEST(testArgMixOut);
-    TSUNIT_TEST(testFormat);
-    TSUNIT_TEST(testScan);
-    TSUNIT_TEST(testCommonPrefix);
-    TSUNIT_TEST(testCommonSuffix);
-    TSUNIT_TEST(testPrecombined);
-    TSUNIT_TEST(testQuoted);
-    TSUNIT_TEST(testToQuotedLine);
-    TSUNIT_TEST(testFromQuotedLine);
-    TSUNIT_TEST(testIndent);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFilePrefix;
-    int _nextFileIndex;
+    fs::path _tempFilePrefix {};
+    int _nextFileIndex = 0;
     ts::UString temporaryFileName(int) const;
     ts::UString newTemporaryFileName();
 
@@ -171,10 +103,10 @@ private:
     // Two sample Unicode characters from the supplementary planes:
     //   U+1D538: MATHEMATICAL DOUBLE-STRUCK CAPITAL A
     //   U+1D539: MATHEMATICAL DOUBLE-STRUCK CAPITAL B
-    static const ts::UChar MATH_A1 = ts::UChar(0xD800 | (0x1D538 >> 10));
-    static const ts::UChar MATH_A2 = ts::UChar(0xDC00 | (0x1D538 & 0x03FF));
-    static const ts::UChar MATH_B1 = ts::UChar(0xD800 | (0x1D539 >> 10));
-    static const ts::UChar MATH_B2 = ts::UChar(0xDC00 | (0x1D539 & 0x03FF));
+    static constexpr ts::UChar MATH_A1 = ts::UChar(0xD800 | (0x1D538 >> 10));
+    static constexpr ts::UChar MATH_A2 = ts::UChar(0xDC00 | (0x1D538 & 0x03FF));
+    static constexpr ts::UChar MATH_B1 = ts::UChar(0xD800 | (0x1D539 >> 10));
+    static constexpr ts::UChar MATH_B2 = ts::UChar(0xDC00 | (0x1D539 & 0x03FF));
 };
 
 TSUNIT_REGISTER(UStringTest);
@@ -183,13 +115,6 @@ TSUNIT_REGISTER(UStringTest);
 //----------------------------------------------------------------------------
 // Initialization.
 //----------------------------------------------------------------------------
-
-// Constructor.
-UStringTest::UStringTest() :
-    _tempFilePrefix(),
-    _nextFileIndex(0)
-{
-}
 
 // Test suite initialization method.
 void UStringTest::beforeTest()
@@ -209,7 +134,7 @@ void UStringTest::afterTest()
     ts::ExpandWildcard(tempFiles, _tempFilePrefix + u"*");
     for (const auto& file : tempFiles) {
         debug() << "UStringTest: deleting temporary file \"" << file << "\"" << std::endl;
-        ts::DeleteFile(file);
+        fs::remove(file, &ts::ErrCodeReport(CERR, u"error deleting", file));
     }
     _nextFileIndex = 0;
 }
@@ -217,7 +142,7 @@ void UStringTest::afterTest()
 // Get the name of a temporary file from an index
 ts::UString UStringTest::temporaryFileName (int index) const
 {
-    return _tempFilePrefix + ts::UString::Format(u"%03d", {index});
+    return _tempFilePrefix + ts::UString::Format(u"%03d", index);
 }
 
 // Get the name of the next temporary file
@@ -231,7 +156,7 @@ ts::UString UStringTest::newTemporaryFileName()
 // Test cases
 //----------------------------------------------------------------------------
 
-void UStringTest::testIsSpace()
+TSUNIT_DEFINE_TEST(IsSpace)
 {
     TSUNIT_ASSERT(ts::IsSpace(ts::SPACE));
     TSUNIT_ASSERT(ts::IsSpace(ts::LINE_FEED));
@@ -244,7 +169,7 @@ void UStringTest::testIsSpace()
     TSUNIT_ASSERT(!ts::IsSpace(ts::CHAR_NULL));
 }
 
-void UStringTest::testUTF()
+TSUNIT_DEFINE_TEST(UTF)
 {
     // Reference UTF-8 text.
     // Was entered manually in Notepad++ and separately saved in UTF-8 and UTF-16.
@@ -320,7 +245,7 @@ void UStringTest::testUTF()
     TSUNIT_EQUAL(s1, s4);
 }
 
-void UStringTest::testDiacritical()
+TSUNIT_DEFINE_TEST(Diacritical)
 {
     TSUNIT_ASSERT(!ts::IsCombiningDiacritical(ts::UChar('a')));
     TSUNIT_ASSERT(ts::IsCombiningDiacritical(ts::ACUTE_ACCENT));
@@ -328,7 +253,7 @@ void UStringTest::testDiacritical()
     TSUNIT_ASSERT(ts::IsCombiningDiacritical(ts::RIGHT_TO_LEFT_MARK));
 }
 
-void UStringTest::testSurrogate()
+TSUNIT_DEFINE_TEST(Surrogate)
 {
     const ts::UString ab({MATH_A1, MATH_A2, MATH_B1, MATH_B2});
     // Displayed string may be screwed up, depending of the terminal...
@@ -347,14 +272,14 @@ void UStringTest::testSurrogate()
     TSUNIT_ASSERT(ts::IsTrailingSurrogate(MATH_B2));
 }
 
-void UStringTest::testFromWChar()
+TSUNIT_DEFINE_TEST(FromWChar)
 {
     TSUNIT_EQUAL(u"", ts::UString::FromWChar(nullptr));
     TSUNIT_EQUAL(u"", ts::UString::FromWChar(L""));
     TSUNIT_EQUAL(u"abcdef", ts::UString::FromWChar(L"abcdef"));
 }
 
-void UStringTest::testWidth()
+TSUNIT_DEFINE_TEST(Width)
 {
     TSUNIT_EQUAL(0, ts::UString().width());
     TSUNIT_EQUAL(3, ts::UString(u"ABC").width());
@@ -362,7 +287,7 @@ void UStringTest::testWidth()
     TSUNIT_EQUAL(2, ts::UString({MATH_A1, MATH_A2, MATH_B1, MATH_B2}).width());
 }
 
-void UStringTest::testDisplayPosition()
+TSUNIT_DEFINE_TEST(DisplayPosition)
 {
     TSUNIT_EQUAL(0, ts::UString().displayPosition(0));
     TSUNIT_EQUAL(0, ts::UString().displayPosition(5));
@@ -392,7 +317,7 @@ void UStringTest::testDisplayPosition()
     TSUNIT_EQUAL(0, s.displayPosition(8, s.length(), ts::RIGHT_TO_LEFT));
 }
 
-void UStringTest::testTrim()
+TSUNIT_DEFINE_TEST(Trim)
 {
     ts::UString s;
 
@@ -446,7 +371,7 @@ void UStringTest::testTrim()
     TSUNIT_EQUAL(u"a b", s.toTrimmed(true, true, true));
 }
 
-void UStringTest::testLetterCase()
+TSUNIT_DEFINE_TEST(LetterCase)
 {
     TSUNIT_ASSERT(!ts::IsLower(ts::COMMA));
     TSUNIT_ASSERT(!ts::IsUpper(ts::COMMA));
@@ -479,7 +404,7 @@ void UStringTest::testLetterCase()
         {ts::CYRILLIC_CAPITAL_LETTER_SHORT_U, ts::CYRILLIC_SMALL_LETTER_SHORT_U},
         {ts::CYRILLIC_CAPITAL_LETTER_DZHE, ts::CYRILLIC_SMALL_LETTER_DZHE},
     };
-    static const size_t tabSize = sizeof(tab) / sizeof(tab[0]);
+    static constexpr size_t tabSize = sizeof(tab) / sizeof(tab[0]);
 
     for (size_t i = 0; i < tabSize; ++i) {
         TSUNIT_ASSERT(ts::IsUpper(tab[i].upper));
@@ -507,7 +432,7 @@ void UStringTest::testLetterCase()
     TSUNIT_EQUAL(u"ABCDEF,%*=UIT", s1);
 }
 
-void UStringTest::testAccent()
+TSUNIT_DEFINE_TEST(Accent)
 {
     TSUNIT_ASSERT(!ts::IsAccented('A'));
     TSUNIT_ASSERT(!ts::IsAccented(':'));
@@ -531,7 +456,7 @@ void UStringTest::testAccent()
     TSUNIT_EQUAL(u"oe", ts::RemoveAccent(ts::LATIN_SMALL_LIGATURE_OE));
 }
 
-void UStringTest::testToHTML()
+TSUNIT_DEFINE_TEST(ToHTML)
 {
     TSUNIT_EQUAL(u"A", ts::ToHTML('A'));
     TSUNIT_EQUAL(u":", ts::ToHTML(':'));
@@ -548,7 +473,7 @@ void UStringTest::testToHTML()
     TSUNIT_EQUAL(u"&lt;abcd&gt; = &quot;&amp;", ts::UString(u"<abcd> = \"&").toHTML());
 }
 
-void UStringTest::testFromHTML()
+TSUNIT_DEFINE_TEST(FromHTML)
 {
     TSUNIT_EQUAL(ts::CHAR_NULL, ts::FromHTML(u"A"));
     TSUNIT_EQUAL(ts::QUOTATION_MARK, ts::FromHTML(u"quot"));
@@ -564,21 +489,21 @@ void UStringTest::testFromHTML()
     TSUNIT_EQUAL(u"<abcd> = \"&", ts::UString(u"&lt;abcd&gt; = &quot;&amp;").fromHTML());
 }
 
-void UStringTest::testToJSON()
+TSUNIT_DEFINE_TEST(ToJSON)
 {
     TSUNIT_EQUAL(u"", ts::UString().toJSON());
     TSUNIT_EQUAL(u"abc", ts::UString(u"abc").toJSON());
     TSUNIT_EQUAL(u"ab\\nfoo\\t\\\"", ts::UString(u"ab\nfoo\t\"").toJSON());
 }
 
-void UStringTest::testFromJSON()
+TSUNIT_DEFINE_TEST(FromJSON)
 {
     TSUNIT_EQUAL(u"", ts::UString().fromJSON());
     TSUNIT_EQUAL(u"abc", ts::UString(u"abc").fromJSON());
     TSUNIT_EQUAL(u"ab\n\"a", ts::UString(u"ab\\n\\\"\\u0061").fromJSON());
 }
 
-void UStringTest::testRemove()
+TSUNIT_DEFINE_TEST(Remove)
 {
     ts::UString s;
 
@@ -638,7 +563,7 @@ void UStringTest::testRemove()
     TSUNIT_EQUAL(u"fAZf==fBARf", s.toRemoved(ts::UChar('o')));
 }
 
-void UStringTest::testSubstitute()
+TSUNIT_DEFINE_TEST(Substitute)
 {
     TSUNIT_EQUAL(u"", ts::UString(u"").toSubstituted(u"", u""));
     TSUNIT_EQUAL(u"xyzcdefxyzcdef", ts::UString(u"abcdefabcdef").toSubstituted(u"ab", u"xyz"));
@@ -651,7 +576,7 @@ void UStringTest::testSubstitute()
     TSUNIT_EQUAL(u"aqcrtyadfr", ts::UString(u"aqcrtyadfr").toSubstituted(u'a', u'a'));
 }
 
-void UStringTest::testSplit()
+TSUNIT_DEFINE_TEST(Split)
 {
     ts::UStringVector v1;
     ts::UString(u"az, ,  fr,  ze ,t").split(v1);
@@ -702,7 +627,7 @@ void UStringTest::testSplit()
     TSUNIT_EQUAL(u"ghi", v5[2]);
 }
 
-void UStringTest::testSplitShellStyle()
+TSUNIT_DEFINE_TEST(SplitShellStyle)
 {
     ts::UStringVector v;
     ts::UString(u" qfdjh qf f'az ef ' df\"nn'\\\"ju\" ").splitShellStyle(v);
@@ -713,7 +638,7 @@ void UStringTest::testSplitShellStyle()
     TSUNIT_EQUAL(u"dfnn'\"ju", v[3]);
 }
 
-void UStringTest::testJoin()
+TSUNIT_DEFINE_TEST(Join)
 {
     ts::UStringVector v;
     v.push_back(u"az");
@@ -723,7 +648,7 @@ void UStringTest::testJoin()
     TSUNIT_EQUAL(u"sd, tg", ts::UString::Join(++v.begin(), v.end()));
 }
 
-void UStringTest::testBreakLines()
+TSUNIT_DEFINE_TEST(BreakLines)
 {
     ts::UStringVector v1;
     ts::UString(u"aze arf erf r+oih zf").splitLines(v1, 8);
@@ -780,7 +705,7 @@ void UStringTest::testBreakLines()
     TSUNIT_EQUAL(u"tom", v7[5]);
 }
 
-void UStringTest::testRemovePrefix()
+TSUNIT_DEFINE_TEST(RemovePrefix)
 {
     ts::UString s;
 
@@ -810,7 +735,7 @@ void UStringTest::testRemovePrefix()
     TSUNIT_EQUAL(u"cdef", ts::UString(u"abcdef").toRemovedPrefix(u"AB", ts::CASE_INSENSITIVE));
 }
 
-void UStringTest::testRemoveSuffix()
+TSUNIT_DEFINE_TEST(RemoveSuffix)
 {
     ts::UString s;
 
@@ -840,7 +765,7 @@ void UStringTest::testRemoveSuffix()
     TSUNIT_EQUAL(u"abcd", ts::UString(u"abcdef").toRemovedSuffix(u"EF", ts::CASE_INSENSITIVE));
 }
 
-void UStringTest::testStart()
+TSUNIT_DEFINE_TEST(Start)
 {
     TSUNIT_ASSERT(ts::UString(u"azertyuiop").startWith(u"azer"));
     TSUNIT_ASSERT(!ts::UString(u"azertyuiop").startWith(u"aZer"));
@@ -867,7 +792,7 @@ void UStringTest::testStart()
     TSUNIT_ASSERT(ts::UString(u"  azertyuiop").startWith(u"az", ts::CASE_SENSITIVE, true));
 }
 
-void UStringTest::testEnd()
+TSUNIT_DEFINE_TEST(End)
 {
     TSUNIT_ASSERT(ts::UString(u"azertyuiop").endWith(u"uiop"));
     TSUNIT_ASSERT(!ts::UString(u"azertyuiop").endWith(u"uiOp"));
@@ -894,7 +819,7 @@ void UStringTest::testEnd()
     TSUNIT_ASSERT(ts::UString(u"azertyuiop  ").endWith(u"uiop", ts::CASE_SENSITIVE, true));
 }
 
-void UStringTest::testJustifyLeft()
+TSUNIT_DEFINE_TEST(JustifyLeft)
 {
     TSUNIT_EQUAL(u"abc     ", ts::UString(u"abc").toJustifiedLeft(8));
     TSUNIT_EQUAL(u"abc.....", ts::UString(u"abc").toJustifiedLeft(8, '.'));
@@ -902,7 +827,7 @@ void UStringTest::testJustifyLeft()
     TSUNIT_EQUAL(u"abcdefgh", ts::UString(u"abcdefghij").toJustifiedLeft(8, ' ', true));
 }
 
-void UStringTest::testJustifyRight()
+TSUNIT_DEFINE_TEST(JustifyRight)
 {
     TSUNIT_EQUAL(u"     abc", ts::UString(u"abc").toJustifiedRight(8));
     TSUNIT_EQUAL(u".....abc", ts::UString(u"abc").toJustifiedRight(8, '.'));
@@ -910,7 +835,7 @@ void UStringTest::testJustifyRight()
     TSUNIT_EQUAL(u"cdefghij", ts::UString(u"abcdefghij").toJustifiedRight(8, ' ', true));
 }
 
-void UStringTest::testJustifyCentered()
+TSUNIT_DEFINE_TEST(JustifyCentered)
 {
     TSUNIT_EQUAL(u"  abc   ", ts::UString(u"abc").toJustifiedCentered(8));
     TSUNIT_EQUAL(u"..abc...", ts::UString(u"abc").toJustifiedCentered(8, '.'));
@@ -918,7 +843,7 @@ void UStringTest::testJustifyCentered()
     TSUNIT_EQUAL(u"abcdefgh", ts::UString(u"abcdefghij").toJustifiedCentered(8, ' ', true));
 }
 
-void UStringTest::testJustify()
+TSUNIT_DEFINE_TEST(Justify)
 {
     TSUNIT_EQUAL(u"abc  def", ts::UString(u"abc").toJustified(u"def", 8));
     TSUNIT_EQUAL(u"abc..def", ts::UString(u"abc").toJustified(u"def", 8, '.'));
@@ -926,25 +851,25 @@ void UStringTest::testJustify()
     TSUNIT_EQUAL(u"abcdefghij", ts::UString(u"abcde").toJustified(u"fghij", 8));
 }
 
-void UStringTest::testYesNo()
+TSUNIT_DEFINE_TEST(YesNo)
 {
     TSUNIT_EQUAL(u"yes", ts::UString::YesNo(true));
     TSUNIT_EQUAL(u"no", ts::UString::YesNo(false));
 }
 
-void UStringTest::testTrueFalse()
+TSUNIT_DEFINE_TEST(TrueFalse)
 {
     TSUNIT_EQUAL(u"true", ts::UString::TrueFalse(true));
     TSUNIT_EQUAL(u"false", ts::UString::TrueFalse(false));
 }
 
-void UStringTest::testOnOff()
+TSUNIT_DEFINE_TEST(OnOff)
 {
     TSUNIT_EQUAL(u"on", ts::UString::OnOff(true));
     TSUNIT_EQUAL(u"off", ts::UString::OnOff(false));
 }
 
-void UStringTest::testSimilarStrings()
+TSUNIT_DEFINE_TEST(SimilarStrings)
 {
     TSUNIT_ASSERT(ts::UString(u"").similar(u""));
     TSUNIT_ASSERT(ts::UString(u"aZer tY").similar(u"  AZE R T Y    "));
@@ -953,13 +878,13 @@ void UStringTest::testSimilarStrings()
     TSUNIT_ASSERT(!ts::UString(u"az").similar(u""));
 }
 
-void UStringTest::testLoadSave()
+TSUNIT_DEFINE_TEST(LoadSave)
 {
     ts::UStringList ref;
 
     ts::UChar c = ts::LATIN_CAPITAL_LETTER_A_WITH_MACRON;
     for (int i = 1; i <= 20; ++i) {
-        ref.push_back(ts::UString::Format(u"%s, line %d", {ts::UString(2, c++), i}));
+        ref.push_back(ts::UString::Format(u"%s, line %d", ts::UString(2, c++), i));
     }
     TSUNIT_ASSERT(ref.size() == 20);
 
@@ -997,7 +922,7 @@ void UStringTest::testLoadSave()
     TSUNIT_ASSERT(load3 == ref3);
 }
 
-void UStringTest::testToDigit()
+TSUNIT_DEFINE_TEST(ToDigit)
 {
     TSUNIT_EQUAL(0,  ts::ToDigit(ts::UChar('0')));
     TSUNIT_EQUAL(9,  ts::ToDigit(ts::UChar('9')));
@@ -1020,7 +945,7 @@ void UStringTest::testToDigit()
     TSUNIT_EQUAL(-2, ts::ToDigit(ts::UChar('?'), 10, -2));
 }
 
-void UStringTest::testToInteger()
+TSUNIT_DEFINE_TEST(ToInteger)
 {
     int      i;
     uint32_t ui32;
@@ -1047,19 +972,19 @@ void UStringTest::testToInteger()
     TSUNIT_EQUAL(0, ui32);
 
     TSUNIT_ASSERT(ts::UString(u"0").toInteger(ui64));
-    TSUNIT_EQUAL(TS_UCONST64(0), ui64);
+    TSUNIT_EQUAL(0, ui64);
 
     TSUNIT_ASSERT(ts::UString(u"0xffffffffFFFFFFFF").toInteger(ui64));
-    TSUNIT_EQUAL(TS_UCONST64(0XFFFFFFFFFFFFFFFF), ui64);
+    TSUNIT_EQUAL(0XFFFFFFFFFFFFFFFF, ui64);
 
     TSUNIT_ASSERT(ts::UString(u"0x7fffffffFFFFFFFF").toInteger(ui64));
-    TSUNIT_EQUAL(TS_UCONST64(0X7FFFFFFFFFFFFFFF), ui64);
+    TSUNIT_EQUAL(0X7FFFFFFFFFFFFFFF, ui64);
 
     TSUNIT_ASSERT(ts::UString(u"0").toInteger(i64));
-    TSUNIT_EQUAL(TS_CONST64(0), i64);
+    TSUNIT_EQUAL(0, i64);
 
     TSUNIT_ASSERT(ts::UString(u"0x7fffffffFFFFFFFF").toInteger(i64));
-    TSUNIT_EQUAL(TS_CONST64(0X7FFFFFFFFFFFFFFF), i64);
+    TSUNIT_EQUAL(0X7FFFFFFFFFFFFFFF, i64);
 
     TSUNIT_ASSERT(ts::UString(u" 12,345").toInteger(i, u",."));
     TSUNIT_EQUAL(12345, i);
@@ -1085,8 +1010,14 @@ void UStringTest::testToInteger()
     TSUNIT_ASSERT(ts::UString(u"2.345678").toInteger(i, u",", 3));
     TSUNIT_EQUAL(2345, i);
 
+    TSUNIT_ASSERT(!ts::UString(u"2.345678").toInteger(i));
+    TSUNIT_EQUAL(2, i);
+
     TSUNIT_ASSERT(ts::UString(u" -2.345678").toInteger(i, u",", 4));
     TSUNIT_EQUAL(-23456, i);
+
+    TSUNIT_ASSERT(!ts::UString(u" -2.345678").toInteger(i));
+    TSUNIT_EQUAL(-2, i);
 
     TSUNIT_ASSERT(ts::UString(u"-32768").toInteger(i));
     TSUNIT_EQUAL(-32768, i);
@@ -1113,7 +1044,7 @@ void UStringTest::testToInteger()
     TSUNIT_ASSERT(i32Ref == i32List);
 }
 
-void UStringTest::testToTristate()
+TSUNIT_DEFINE_TEST(ToTristate)
 {
     ts::Tristate t;
 
@@ -1175,7 +1106,7 @@ void UStringTest::testToTristate()
     TSUNIT_ASSERT(!ts::UString(u" ").toTristate(t));
 }
 
-void UStringTest::testHexaDecode()
+TSUNIT_DEFINE_TEST(HexaDecode)
 {
     ts::ByteBlock bytes;
 
@@ -1198,7 +1129,7 @@ void UStringTest::testHexaDecode()
     TSUNIT_ASSERT(bytes == ts::ByteBlock({0x01, 0x23, 0x45, 0x67}));
 }
 
-void UStringTest::testAppendContainer()
+TSUNIT_DEFINE_TEST(AppendContainer)
 {
     const char* arr1[] = {"ab", "cde", "", "fghi"};
     ts::UStringList var;
@@ -1221,7 +1152,7 @@ void UStringTest::testAppendContainer()
     TSUNIT_ASSERT(ts::UString::Append(var, 4, arr2) == ref);
 }
 
-void UStringTest::testAssignContainer()
+TSUNIT_DEFINE_TEST(AssignContainer)
 {
     const char* arr1[] = {"ab", "cde", "", "fghi"};
     ts::UStringList var;
@@ -1243,12 +1174,12 @@ void UStringTest::testAssignContainer()
     TSUNIT_ASSERT(ts::UString::Assign(var, 4, arr2) == ref);
 }
 
-void UStringTest::testDecimal()
+TSUNIT_DEFINE_TEST(Decimal)
 {
     TSUNIT_EQUAL(u"0", ts::UString::Decimal(0));
     TSUNIT_EQUAL(u"0", ts::UString::Decimal(0L));
     TSUNIT_EQUAL(u"0", ts::UString::Decimal(-0));
-    TSUNIT_EQUAL(u"0", ts::UString::Decimal(TS_CONST64(0)));
+    TSUNIT_EQUAL(u"0", ts::UString::Decimal(0));
     TSUNIT_EQUAL(u"1,234", ts::UString::Decimal(1234));
     TSUNIT_EQUAL(u"     1,234", ts::UString::Decimal(1234, 10));
     TSUNIT_EQUAL(u"     1,234", ts::UString::Decimal(1234, 10, true));
@@ -1258,7 +1189,7 @@ void UStringTest::testDecimal()
     TSUNIT_EQUAL(u"    +1,234", ts::UString::Decimal(1234, 10, true, ts::UString::DEFAULT_THOUSANDS_SEPARATOR, true));
     TSUNIT_EQUAL(u"    -1,234", ts::UString::Decimal(-1234, 10, true, ts::UString::DEFAULT_THOUSANDS_SEPARATOR, true));
     TSUNIT_EQUAL(u"    -1,234", ts::UString::Decimal(-1234, 10, true, ts::UString::DEFAULT_THOUSANDS_SEPARATOR, false));
-    TSUNIT_EQUAL(u"-1,234,567,890,123,456", ts::UString::Decimal(TS_CONST64(-1234567890123456)));
+    TSUNIT_EQUAL(u"-1,234,567,890,123,456", ts::UString::Decimal(-1234567890123456));
     TSUNIT_EQUAL(u"-32,768", ts::UString::Decimal(-32768));
     TSUNIT_EQUAL(u"-32,768", ts::UString::Decimal(int16_t(-32768)));
     TSUNIT_EQUAL(u"-9223372036854775808", ts::UString::Decimal(std::numeric_limits<int64_t>::min(), 0, true, u""));
@@ -1266,13 +1197,26 @@ void UStringTest::testDecimal()
     TSUNIT_EQUAL(u"9,223,372,036,854,775,807", ts::UString::Decimal(std::numeric_limits<int64_t>::max()));
 }
 
-void UStringTest::testHexa()
+TSUNIT_DEFINE_TEST(DecimalList)
+{
+    TSUNIT_EQUAL(u"", ts::UString::Decimal(std::vector<int>{}));
+    TSUNIT_EQUAL(u"56", ts::UString::Decimal(std::vector<int>{56}));
+    TSUNIT_EQUAL(u"1, -2, 3, -1234", ts::UString::Decimal(std::vector<int>{1, -2, 3, -1234}));
+    TSUNIT_EQUAL(u"1/-2/3/-1234", ts::UString::Decimal(std::vector<int>{1, -2, 3, -1234}, u"/"));
+    TSUNIT_EQUAL(u"+1/-2/+3/-1234", ts::UString::Decimal(std::vector<int>{1, -2, 3, -1234}, u"/", true));
+
+    TSUNIT_EQUAL(u"", ts::UString::Decimal(std::list<int>{}));
+    TSUNIT_EQUAL(u"56", ts::UString::Decimal(std::list<int>{56}));
+    TSUNIT_EQUAL(u"1, -2, 3, -1234", ts::UString::Decimal(std::list<int>{1, -2, 3, -1234}));
+}
+
+TSUNIT_DEFINE_TEST(Hexa)
 {
     TSUNIT_EQUAL(u"0x00", ts::UString::Hexa<uint8_t>(0));
     TSUNIT_EQUAL(u"0x00000123", ts::UString::Hexa<uint32_t>(0x123));
-    TSUNIT_EQUAL(u"0x0000000000000123", ts::UString::Hexa(TS_UCONST64(0x123)));
-    TSUNIT_EQUAL(u"0xFFFFFFFFFFFFFFFD", ts::UString::Hexa(TS_CONST64(-3)));
-    TSUNIT_EQUAL(u"0xfffffffffffffffd", ts::UString::Hexa(TS_CONST64(-3), 0, ts::UString(), true, false));
+    TSUNIT_EQUAL(u"0x0000000000000123", ts::UString::Hexa(0x123LL));
+    TSUNIT_EQUAL(u"0xFFFFFFFFFFFFFFFD", ts::UString::Hexa(-3LL));
+    TSUNIT_EQUAL(u"0xfffffffffffffffd", ts::UString::Hexa(-3LL, 0, ts::UString(), true, false));
     TSUNIT_EQUAL(u"0x002", ts::UString::Hexa<uint16_t>(0x02, 3));
     TSUNIT_EQUAL(u"0x000002", ts::UString::Hexa<uint16_t>(0x02, 6));
     TSUNIT_EQUAL(u"0x0000<>0123", ts::UString::Hexa<uint32_t>(0x123, 0, u"<>"));
@@ -1291,7 +1235,7 @@ void UStringTest::testHexa()
     TSUNIT_EQUAL(u"0x0,0123", ts::UString::HexaMin<uint32_t>(0x123, 8, ts::UString::DEFAULT_THOUSANDS_SEPARATOR, true));
 }
 
-void UStringTest::testHexaDump()
+TSUNIT_DEFINE_TEST(HexaDump)
 {
     // Reference byte array: 256 bytes, index == value
     static const uint8_t refBytes[] = {
@@ -1375,7 +1319,7 @@ void UStringTest::testHexaDump()
     TSUNIT_EQUAL(ref8, hex8);
 }
 
-void UStringTest::testArgMixIn()
+TSUNIT_DEFINE_TEST(ArgMixIn)
 {
     testArgMixInCalled1({});
 
@@ -1389,7 +1333,7 @@ void UStringTest::testArgMixIn()
     enum : int8_t {EC = 4, ED = 8};
     const ts::IPv4SocketAddress sock(ts::IPv4Address(10, 20, 30, 40), 12345);
 
-    testArgMixInCalled2({12, u8, i16, TS_CONST64(-99), "foo", ok, u"bar", us, ok + " 2", us + u" 2", sz, EB, EC, sock});
+    testArgMixInCalled2({12, u8, i16, -99ll, "foo", ok, u"bar", us, ok + " 2", us + u" 2", sz, EB, EC, sock, fs::path(ts::UString(u"foo.bar")), cn::milliseconds(-27), cn::days(12)});
 }
 
 void UStringTest::testArgMixInCalled1(std::initializer_list<ts::ArgMixIn> list)
@@ -1399,7 +1343,7 @@ void UStringTest::testArgMixInCalled1(std::initializer_list<ts::ArgMixIn> list)
 
 void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
 {
-    TSUNIT_EQUAL(14, list.size());
+    TSUNIT_EQUAL(17, list.size());
 
     auto it = list.begin();
 
@@ -1415,6 +1359,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(4, it->size());
     TSUNIT_EQUAL(12, it->toInt32());
     TSUNIT_EQUAL(12, it->toUInt32());
@@ -1424,6 +1369,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // u8 = 23
@@ -1438,6 +1385,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(1, it->size());
     TSUNIT_EQUAL(23, it->toInt32());
     TSUNIT_EQUAL(23, it->toUInt32());
@@ -1447,6 +1395,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // i16 = -432
@@ -1461,6 +1411,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(2, it->size());
     TSUNIT_EQUAL(-432, it->toInt32());
     TSUNIT_EQUAL(-432, it->toInt64());
@@ -1468,9 +1419,11 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
-    // TS_CONST64(-99)
+    // -99ll
     TSUNIT_ASSERT(!it->isOutputInteger());
     TSUNIT_ASSERT(it->isInteger());
     TSUNIT_ASSERT(it->isSigned());
@@ -1482,6 +1435,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(8, it->size());
     TSUNIT_EQUAL(-99, it->toInt32());
     TSUNIT_EQUAL(-99, it->toInt64());
@@ -1489,6 +1443,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // "foo"
@@ -1503,6 +1459,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1512,6 +1469,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"foo", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"foo", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // ok = "ok"
@@ -1526,6 +1485,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1535,6 +1495,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"ok", it->toUCharPtr());
     TSUNIT_EQUAL("ok", it->toString());
     TSUNIT_EQUAL(u"ok", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // u"bar"
@@ -1549,6 +1511,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1558,6 +1521,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"bar", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"bar", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // us = u"an UString"
@@ -1572,6 +1537,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1581,6 +1547,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"an UString", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"an UString", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // ok + " 2"
@@ -1595,6 +1563,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1604,6 +1573,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"ok 2", it->toUCharPtr());
     TSUNIT_EQUAL("ok 2", it->toString());
     TSUNIT_EQUAL(u"ok 2", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // us + u" 2"
@@ -1618,6 +1589,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1627,6 +1599,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"an UString 2", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"an UString 2", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // sz = 8 (size_t)
@@ -1641,6 +1615,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(TS_ADDRESS_BITS / 8, it->size());
     TSUNIT_EQUAL(8, it->toInt32());
     TSUNIT_EQUAL(8, it->toUInt32());
@@ -1650,6 +1625,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // EB (48, uint16_t)
@@ -1664,6 +1641,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(2, it->size());
     TSUNIT_EQUAL(48, it->toInt32());
     TSUNIT_EQUAL(48, it->toUInt32());
@@ -1673,6 +1651,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // EC (4, int8_t)
@@ -1687,6 +1667,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(1, it->size());
     TSUNIT_EQUAL(4, it->toInt32());
     TSUNIT_EQUAL(4, it->toUInt32());
@@ -1696,6 +1677,8 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
     ++it;
 
     // IPv4SocketAddress (ts::IPv4Address(10, 20, 30, 40), 12345);
@@ -1710,6 +1693,7 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_ASSERT(!it->isString());
     TSUNIT_ASSERT(!it->isUCharPtr());
     TSUNIT_ASSERT(it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
     TSUNIT_EQUAL(0, it->size());
     TSUNIT_EQUAL(0, it->toInt32());
     TSUNIT_EQUAL(0, it->toUInt32());
@@ -1719,120 +1703,228 @@ void UStringTest::testArgMixInCalled2(std::initializer_list<ts::ArgMixIn> list)
     TSUNIT_EQUAL(u"10.20.30.40:12345", it->toUCharPtr());
     TSUNIT_EQUAL("", it->toString());
     TSUNIT_EQUAL(u"10.20.30.40:12345", it->toUString());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
+    ++it;
+
+    // fs::path(u"foo.bar")
+    TSUNIT_ASSERT(!it->isOutputInteger());
+    TSUNIT_ASSERT(!it->isInteger());
+    TSUNIT_ASSERT(!it->isSigned());
+    TSUNIT_ASSERT(!it->isUnsigned());
+    TSUNIT_ASSERT(it->isAnyString());
+#if defined(TS_WINDOWS)
+    TSUNIT_ASSERT(!it->isAnyString8());
+    TSUNIT_ASSERT(it->isAnyString16());
+    TSUNIT_ASSERT(!it->isString());
+    TSUNIT_ASSERT(it->isUString());
+    TSUNIT_EQUAL("", it->toCharPtr());
+#else
+    TSUNIT_ASSERT(it->isAnyString8());
+    TSUNIT_ASSERT(!it->isAnyString16());
+    TSUNIT_ASSERT(it->isString());
+    TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(!it->isChrono());
+    TSUNIT_EQUAL("foo.bar", it->toCharPtr());
+#endif
+    TSUNIT_EQUAL(u"foo.bar", it->toUCharPtr());
+    TSUNIT_EQUAL("", it->toString());
+    TSUNIT_EQUAL(u"foo.bar", it->toUString());
+    TSUNIT_ASSERT(!it->isCharPtr());
+    TSUNIT_ASSERT(!it->isUCharPtr());
+    TSUNIT_EQUAL(0, it->size());
+    TSUNIT_EQUAL(0, it->toInt32());
+    TSUNIT_EQUAL(0, it->toUInt32());
+    TSUNIT_EQUAL(0, it->toInt64());
+    TSUNIT_EQUAL(0, it->toUInt64());
+    TSUNIT_EQUAL(0, it->num());
+    TSUNIT_EQUAL(0, it->den());
+    ++it;
+
+    // cn::milliseconds(-27)
+    TSUNIT_ASSERT(!it->isOutputInteger());
+    TSUNIT_ASSERT(it->isInteger());
+    TSUNIT_ASSERT(it->isSigned());
+    TSUNIT_ASSERT(!it->isUnsigned());
+    TSUNIT_ASSERT(!it->isAnyString());
+    TSUNIT_ASSERT(!it->isAnyString8());
+    TSUNIT_ASSERT(!it->isAnyString16());
+    TSUNIT_ASSERT(!it->isCharPtr());
+    TSUNIT_ASSERT(!it->isString());
+    TSUNIT_ASSERT(!it->isUCharPtr());
+    TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(it->isChrono());
+    TSUNIT_EQUAL(8, it->size());
+    TSUNIT_EQUAL(-27, it->toInt32());
+    TSUNIT_EQUAL(-27, it->toInt64());
+    TSUNIT_EQUAL("", it->toCharPtr());
+    TSUNIT_EQUAL(u"", it->toUCharPtr());
+    TSUNIT_EQUAL("", it->toString());
+    TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(cn::milliseconds::period::num, it->num());
+    TSUNIT_EQUAL(cn::milliseconds::period::den, it->den());
+    ++it;
+
+    // cn::days(12)
+    TSUNIT_ASSERT(!it->isOutputInteger());
+    TSUNIT_ASSERT(it->isInteger());
+    TSUNIT_ASSERT(it->isSigned());
+    TSUNIT_ASSERT(!it->isUnsigned());
+    TSUNIT_ASSERT(!it->isAnyString());
+    TSUNIT_ASSERT(!it->isAnyString8());
+    TSUNIT_ASSERT(!it->isAnyString16());
+    TSUNIT_ASSERT(!it->isCharPtr());
+    TSUNIT_ASSERT(!it->isString());
+    TSUNIT_ASSERT(!it->isUCharPtr());
+    TSUNIT_ASSERT(!it->isUString());
+    TSUNIT_ASSERT(it->isChrono());
+    TSUNIT_EQUAL(8, it->size());
+    TSUNIT_EQUAL(12, it->toInt32());
+    TSUNIT_EQUAL(12, it->toInt64());
+    TSUNIT_EQUAL("", it->toCharPtr());
+    TSUNIT_EQUAL(u"", it->toUCharPtr());
+    TSUNIT_EQUAL("", it->toString());
+    TSUNIT_EQUAL(u"", it->toUString());
+    TSUNIT_EQUAL(cn::days::period::num, it->num());
+    TSUNIT_EQUAL(cn::days::period::den, it->den());
     ++it;
 
     TSUNIT_ASSERT(it == list.end());
 }
 
-void UStringTest::testFormat()
+TSUNIT_DEFINE_TEST(Format)
 {
-    TSUNIT_EQUAL(u"", ts::UString::Format(u"", {}));
-    TSUNIT_EQUAL(u"abc", ts::UString::Format(u"abc", {}));
+    TSUNIT_EQUAL(u"", ts::UString::Format(u""));
+    TSUNIT_EQUAL(u"abc", ts::UString::Format(u"abc"));
 
-    TSUNIT_EQUAL(u"abc1", ts::UString::Format(u"abc%d", {1}));
-    TSUNIT_EQUAL(u"abc1de%f", ts::UString::Format(u"abc%dde%%f", {1}));
+    TSUNIT_EQUAL(u"abc1", ts::UString::Format(u"abc%d", 1));
+    TSUNIT_EQUAL(u"abc1de%f", ts::UString::Format(u"abc%dde%%f", 1));
 
     // Invalid formats / arguments. Define environment variable TSDUCK_FORMAT_DEBUG to get error messages.
-    TSUNIT_EQUAL(u"a) 1 2",     ts::UString::Format(u"a) %d %d", {1, 2, 3, 4}));
-    TSUNIT_EQUAL(u"b) 1 ",      ts::UString::Format(u"b) %d %d", {1}));
-    TSUNIT_EQUAL(u"c) 1 abc",   ts::UString::Format(u"c) %d %d", {1, u"abc"}));
-    TSUNIT_EQUAL(u"d) 1 2",     ts::UString::Format(u"d) %d %s", {1, 2}));
-    TSUNIT_EQUAL(u"e) abXcdef", ts::UString::Format(u"e) ab%scd%sef", {u"X"}));
-    TSUNIT_EQUAL(u"f) 1 ",      ts::UString::Format(u"f) %d %01", {1, 2, 3}));
+    TSUNIT_EQUAL(u"a) 1 2",     ts::UString::Format(u"a) %d %d", 1, 2, 3, 4));
+    TSUNIT_EQUAL(u"b) 1 ",      ts::UString::Format(u"b) %d %d", 1));
+    TSUNIT_EQUAL(u"c) 1 abc",   ts::UString::Format(u"c) %d %d", 1, u"abc"));
+    TSUNIT_EQUAL(u"d) 1 2",     ts::UString::Format(u"d) %d %s", 1, 2));
+    TSUNIT_EQUAL(u"e) abXcdef", ts::UString::Format(u"e) ab%scd%sef", u"X"));
+    TSUNIT_EQUAL(u"f) 1 ",      ts::UString::Format(u"f) %d %01", 1, 2, 3));
 
     int i = -1234;
     uint16_t u16 = 128;
     const ts::UString us(u"abc");
     const std::string s("def");
-    TSUNIT_EQUAL(u"i = -1,234, u16 = 0x0080, 27 abc def ghi jkl", ts::UString::Format(u"i = %'d, u16 = 0x%X, %d %s %s %s %s", {i, u16, 27, us, s, u"ghi", "jkl"}));
+    TSUNIT_EQUAL(u"i = -1,234, u16 = 0x0080, 27 abc def ghi jkl", ts::UString::Format(u"i = %'d, u16 = 0x%X, %d %s %s %s %s", i, u16, 27, us, s, u"ghi", "jkl"));
 
     // Character.
     const ts::UString ref1({u'A', ts::GREEK_CAPITAL_LETTER_ALPHA_WITH_TONOS, u'B'});
-    TSUNIT_EQUAL(ref1, ts::UString::Format(u"A%cB", {int(ts::GREEK_CAPITAL_LETTER_ALPHA_WITH_TONOS)}));
-    TSUNIT_EQUAL(ref1, ts::UString::Format(u"A%cB", {ts::GREEK_CAPITAL_LETTER_ALPHA_WITH_TONOS}));
-    TSUNIT_EQUAL(u"AxyB", ts::UString::Format(u"A%c%cB", {'x', u'y'}));
+    TSUNIT_EQUAL(ref1, ts::UString::Format(u"A%cB", int(ts::GREEK_CAPITAL_LETTER_ALPHA_WITH_TONOS)));
+    TSUNIT_EQUAL(ref1, ts::UString::Format(u"A%cB", ts::GREEK_CAPITAL_LETTER_ALPHA_WITH_TONOS));
+    TSUNIT_EQUAL(u"AxyB", ts::UString::Format(u"A%c%cB", 'x', u'y'));
 
     // Decimal integer.
-    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%d", {1234567}));
-    TSUNIT_EQUAL(u"+1234567", ts::UString::Format(u"%+d", {1234567}));
-    TSUNIT_EQUAL(u"1,234,567", ts::UString::Format(u"%'d", {1234567}));
-    TSUNIT_EQUAL(u"+1,234,567", ts::UString::Format(u"%+'d", {1234567}));
-    TSUNIT_EQUAL(u"1,234,567", ts::UString::Format(u"%-'d", {1234567}));
-    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%0d", {1234567}));
-    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%05d", {1234567}));
-    TSUNIT_EQUAL(u"0001234567", ts::UString::Format(u"%010d", {1234567}));
-    TSUNIT_EQUAL(u"   1234567", ts::UString::Format(u"%10d", {1234567}));
-    TSUNIT_EQUAL(u"1234567   ", ts::UString::Format(u"%-10d", {1234567}));
-    TSUNIT_EQUAL(u"     1234567", ts::UString::Format(u"%*d", {12, 1234567}));
-    TSUNIT_EQUAL(u"1234567     ", ts::UString::Format(u"%-*d", {12, 1234567}));
-    TSUNIT_EQUAL(u"1,234,567   ", ts::UString::Format(u"%-*'d", {12, 1234567}));
+    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%d", 1234567));
+    TSUNIT_EQUAL(u"+1234567", ts::UString::Format(u"%+d", 1234567));
+    TSUNIT_EQUAL(u"1,234,567", ts::UString::Format(u"%'d", 1234567));
+    TSUNIT_EQUAL(u"+1,234,567", ts::UString::Format(u"%+'d", 1234567));
+    TSUNIT_EQUAL(u"1,234,567", ts::UString::Format(u"%-'d", 1234567));
+    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%0d", 1234567));
+    TSUNIT_EQUAL(u"1234567", ts::UString::Format(u"%05d", 1234567));
+    TSUNIT_EQUAL(u"0001234567", ts::UString::Format(u"%010d", 1234567));
+    TSUNIT_EQUAL(u"   1234567", ts::UString::Format(u"%10d", 1234567));
+    TSUNIT_EQUAL(u"1234567   ", ts::UString::Format(u"%-10d", 1234567));
+    TSUNIT_EQUAL(u"     1234567", ts::UString::Format(u"%*d", 12, 1234567));
+    TSUNIT_EQUAL(u"1234567     ", ts::UString::Format(u"%-*d", 12, 1234567));
+    TSUNIT_EQUAL(u"1,234,567   ", ts::UString::Format(u"%-*'d", 12, 1234567));
 
     // Hexadecimal integer.
-    TSUNIT_EQUAL(u"AB", ts::UString::Format(u"%X", {uint8_t(171)}));
-    TSUNIT_EQUAL(u"00AB", ts::UString::Format(u"%X", {int16_t(171)}));
-    TSUNIT_EQUAL(u"000000AB", ts::UString::Format(u"%X", {uint32_t(171)}));
-    TSUNIT_EQUAL(u"00000000000000AB", ts::UString::Format(u"%X", {TS_CONST64(171)}));
-    TSUNIT_EQUAL(u"000000000000000000AB", ts::UString::Format(u"%20X", {TS_CONST64(171)}));
-    TSUNIT_EQUAL(u"00AB", ts::UString::Format(u"%*X", {4, TS_CONST64(171)}));
-    TSUNIT_EQUAL(u"AB", ts::UString::Format(u"%*X", {1, TS_CONST64(171)}));
-    TSUNIT_EQUAL(u"0123,4567", ts::UString::Format(u"%'X", {uint32_t(0x1234567)}));
+    TSUNIT_EQUAL(u"AB", ts::UString::Format(u"%X", uint8_t(171)));
+    TSUNIT_EQUAL(u"00AB", ts::UString::Format(u"%X", int16_t(171)));
+    TSUNIT_EQUAL(u"000000AB", ts::UString::Format(u"%X", uint32_t(171)));
+    TSUNIT_EQUAL(u"00000000000000AB", ts::UString::Format(u"%X", 171LL));
+    TSUNIT_EQUAL(u"000000000000000000AB", ts::UString::Format(u"%20X", 171LL));
+    TSUNIT_EQUAL(u"00AB", ts::UString::Format(u"%*X", 4, 171LL));
+    TSUNIT_EQUAL(u"AB", ts::UString::Format(u"%*X", 1, 171LL));
+    TSUNIT_EQUAL(u"0123,4567", ts::UString::Format(u"%'X", uint32_t(0x1234567)));
 
     // Enumerations
     enum E1 : uint8_t {E10 = 10, E11 = 11};
     enum E2 : int16_t {E20 = 20, E21 = 21};
     E1 e1 = E11;
-    TSUNIT_EQUAL(u"11 10", ts::UString::Format(u"%d %d", {e1, E10}));
-    TSUNIT_EQUAL(u"0B", ts::UString::Format(u"%X", {e1}));
-    TSUNIT_EQUAL(u"0B", ts::UString::Format(u"%X", {E11}));
-    TSUNIT_EQUAL(u"0014", ts::UString::Format(u"%X", {E20}));
+    TSUNIT_EQUAL(u"11 10", ts::UString::Format(u"%d %d", e1, E10));
+    TSUNIT_EQUAL(u"0B", ts::UString::Format(u"%X", e1));
+    TSUNIT_EQUAL(u"0B", ts::UString::Format(u"%X", E11));
+    TSUNIT_EQUAL(u"0014", ts::UString::Format(u"%X", E20));
 
     // String.
-    TSUNIT_EQUAL(u"||", ts::UString::Format(u"|%s|", {}));
-    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", {"abc"}));
-    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", {u"abc"}));
-    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", {std::string("abc")}));
-    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", {ts::UString(u"abc")}));
-    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%2s|", {u"abc"}));
-    TSUNIT_EQUAL(u"| abc|", ts::UString::Format(u"|%4s|", {u"abc"}));
-    TSUNIT_EQUAL(u"|abc |", ts::UString::Format(u"|%-4s|", {u"abc"}));
-    TSUNIT_EQUAL(u"|000abc|", ts::UString::Format(u"|%06s|", {u"abc"}));
-    TSUNIT_EQUAL(u"|abc000|", ts::UString::Format(u"|%-06s|", {u"abc"}));
-    TSUNIT_EQUAL(u"|abc     |", ts::UString::Format(u"|%-*s|", {8, u"abc"}));
-    TSUNIT_EQUAL(u"|abc     |", ts::UString::Format(u"|%-*.*s|", {8, 12, u"abc"}));
-    TSUNIT_EQUAL(u"|abcdefgh|", ts::UString::Format(u"|%-*.*s|", {8, 12, u"abcdefgh"}));
-    TSUNIT_EQUAL(u"|abcdefghijkl|", ts::UString::Format(u"|%-*.*s|", {8, 12, u"abcdefghijklmnop"}));
-    TSUNIT_EQUAL(u"|abcdefghijklmnop|", ts::UString::Format(u"|%-*s|", {8, u"abcdefghijklmnop"}));
+    TSUNIT_EQUAL(u"||", ts::UString::Format(u"|%s|"));
+    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", "abc"));
+    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", u"abc"));
+    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", std::string("abc")));
+    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%s|", ts::UString(u"abc")));
+    TSUNIT_EQUAL(u"|abc|", ts::UString::Format(u"|%2s|", u"abc"));
+    TSUNIT_EQUAL(u"| abc|", ts::UString::Format(u"|%4s|", u"abc"));
+    TSUNIT_EQUAL(u"|abc |", ts::UString::Format(u"|%-4s|", u"abc"));
+    TSUNIT_EQUAL(u"|000abc|", ts::UString::Format(u"|%06s|", u"abc"));
+    TSUNIT_EQUAL(u"|abc000|", ts::UString::Format(u"|%-06s|", u"abc"));
+    TSUNIT_EQUAL(u"|abc     |", ts::UString::Format(u"|%-*s|", 8, u"abc"));
+    TSUNIT_EQUAL(u"|abc     |", ts::UString::Format(u"|%-*.*s|", 8, 12, u"abc"));
+    TSUNIT_EQUAL(u"|abcdefgh|", ts::UString::Format(u"|%-*.*s|", 8, 12, u"abcdefgh"));
+    TSUNIT_EQUAL(u"|abcdefghijkl|", ts::UString::Format(u"|%-*.*s|", 8, 12, u"abcdefghijklmnop"));
+    TSUNIT_EQUAL(u"|abcdefghijklmnop|", ts::UString::Format(u"|%-*s|", 8, u"abcdefghijklmnop"));
 
     // Stringifiable.
-    TSUNIT_EQUAL(u"|1.2.3.4|", ts::UString::Format(u"|%s|", {ts::IPv4Address(1, 2, 3, 4)}));
-    TSUNIT_EQUAL(u"|11.22.33.44:678|", ts::UString::Format(u"|%s|", {ts::IPv4SocketAddress(ts::IPv4Address(11, 22, 33, 44), 678)}));
+    TSUNIT_EQUAL(u"|1.2.3.4|", ts::UString::Format(u"|%s|", ts::IPv4Address(1, 2, 3, 4)));
+    TSUNIT_EQUAL(u"|11.22.33.44:678|", ts::UString::Format(u"|%s|", ts::IPv4SocketAddress(ts::IPv4Address(11, 22, 33, 44), 678)));
 
     // Boolean.
     bool b = false;
-    TSUNIT_EQUAL(u"|false|", ts::UString::Format(u"|%s|", {b}));
-    TSUNIT_EQUAL(u"|true|", ts::UString::Format(u"|%s|", {b = true}));
-    TSUNIT_EQUAL(u"|true|", ts::UString::Format(u"|%s|", {true}));
-    TSUNIT_EQUAL(u"|false|", ts::UString::Format(u"|%s|", {false}));
-    TSUNIT_EQUAL(u"|    true|", ts::UString::Format(u"|%8s|", {true}));
-    TSUNIT_EQUAL(u"|false   |", ts::UString::Format(u"|%-8s|", {false}));
+    TSUNIT_EQUAL(u"|false|", ts::UString::Format(u"|%s|", b));
+    TSUNIT_EQUAL(u"|true|", ts::UString::Format(u"|%s|", b = true));
+    TSUNIT_EQUAL(u"|true|", ts::UString::Format(u"|%s|", true));
+    TSUNIT_EQUAL(u"|false|", ts::UString::Format(u"|%s|", false));
+    TSUNIT_EQUAL(u"|    true|", ts::UString::Format(u"|%8s|", true));
+    TSUNIT_EQUAL(u"|false   |", ts::UString::Format(u"|%-8s|", false));
 
     // Floats.
-    TSUNIT_EQUAL(u"0.666667", ts::UString::Format(u"%f", {2.0 / 3.0}));
-    TSUNIT_EQUAL(u"-0.666667", ts::UString::Format(u"%f", {2.0 / -3.0}));
-    TSUNIT_EQUAL(u"+0.666667", ts::UString::Format(u"%+f", {2.0 / 3.0}));
-    TSUNIT_EQUAL(u"-0.666667", ts::UString::Format(u"%+f", {2.0 / -3.0}));
-    TSUNIT_EQUAL(u"2.000000", ts::UString::Format(u"%f", {2.0}));
-    TSUNIT_EQUAL(u"2.000000", ts::UString::Format(u"%f", {2}));
-    TSUNIT_EQUAL(u"-2.000000", ts::UString::Format(u"%f", {-2}));
-    TSUNIT_EQUAL(u" 0.667", ts::UString::Format(u"%6.3f", {2.0 / 3.0}));
+    TSUNIT_EQUAL(u"0.666667", ts::UString::Format(u"%f", 2.0 / 3.0));
+    TSUNIT_EQUAL(u"-0.666667", ts::UString::Format(u"%f", 2.0 / -3.0));
+    TSUNIT_EQUAL(u"+0.666667", ts::UString::Format(u"%+f", 2.0 / 3.0));
+    TSUNIT_EQUAL(u"-0.666667", ts::UString::Format(u"%+f", 2.0 / -3.0));
+    TSUNIT_EQUAL(u"2.000000", ts::UString::Format(u"%f", 2.0));
+    TSUNIT_EQUAL(u"2.000000", ts::UString::Format(u"%f", 2));
+    TSUNIT_EQUAL(u"-2.000000", ts::UString::Format(u"%f", -2));
+    TSUNIT_EQUAL(u" 0.667", ts::UString::Format(u"%6.3f", 2.0 / 3.0));
 
     // Repeat previous argument.
-    TSUNIT_EQUAL(u"1 1 2", ts::UString::Format(u"%d %<d %d", {1, 2}));
-    TSUNIT_EQUAL(u" 1 2", ts::UString::Format(u"%<d %d %d", {1, 2}));
-    TSUNIT_EQUAL(u"   1   1 2", ts::UString::Format(u"%*d %<*d %d", {4, 1, 3, 2}));
+    TSUNIT_EQUAL(u"1 1 2", ts::UString::Format(u"%d %<d %d", 1, 2));
+    TSUNIT_EQUAL(u" 1 2", ts::UString::Format(u"%<d %d %d", 1, 2));
+    TSUNIT_EQUAL(u"   1   1 2", ts::UString::Format(u"%*d %<*d %d", 4, 1, 3, 2));
+
+    // std::chrono::duration values.
+    TSUNIT_EQUAL(u"-1234 milliseconds", ts::UString::Format(u"%s", cn::milliseconds(-1234)));
+    TSUNIT_EQUAL(u"1,234 ms", ts::UString::Format(u"%'!s", cn::milliseconds(1234)));
+    TSUNIT_EQUAL(u"-1 millisecond", ts::UString::Format(u"%s", cn::milliseconds(-1)));
+    TSUNIT_EQUAL(u"|    1,234 ms|", ts::UString::Format(u"|%12'!s|", cn::milliseconds(1234)));
+    TSUNIT_EQUAL(u"|1,234 ms|", ts::UString::Format(u"|%6'!s|", cn::milliseconds(1234)));
+    TSUNIT_EQUAL(u"1 PCR", ts::UString::Format(u"%s", ts::PCR(1)));
+    TSUNIT_EQUAL(u"12345 PCR", ts::UString::Format(u"%!s", ts::PCR(12345)));
+    TSUNIT_EQUAL(u"+12,345 microseconds", ts::UString::Format(u"%+'s", cn::microseconds(12345)));
+
+    // Normalized hexadecimal + decimal.
+    TSUNIT_EQUAL(u"0xAB (171)", ts::UString::Format(u"%n", uint8_t(171)));
+    TSUNIT_EQUAL(u"0x00AB (171)", ts::UString::Format(u"%n", int16_t(171)));
+    TSUNIT_EQUAL(u"0x00AB (+171)", ts::UString::Format(u"%+n", int16_t(171)));
+    TSUNIT_EQUAL(u"0xFF55 (-171)", ts::UString::Format(u"%n", int16_t(-171)));
+    TSUNIT_EQUAL(u"0x000000AB (171)", ts::UString::Format(u"%n", uint32_t(171)));
+    TSUNIT_EQUAL(u"0x00000000000000AB (171)", ts::UString::Format(u"%n", 171LL));
+    TSUNIT_EQUAL(u"0x1234,5678 (305,419,896)", ts::UString::Format(u"%'n", 305419896));
+    TSUNIT_EQUAL(u"0x000000AB (171)    ", ts::UString::Format(u"%-20n", uint32_t(171)));
+    TSUNIT_EQUAL(u"    0x000000AB (171)", ts::UString::Format(u"%20n", uint32_t(171)));
+    TSUNIT_EQUAL(u"00AB (171)", ts::UString::Format(u"%.10n", uint32_t(171)));
+    TSUNIT_EQUAL(u"0x000000AB", ts::UString::Format(u"%-.10n", uint32_t(171)));
+    TSUNIT_EQUAL(u"  0x000000AB (171)", ts::UString::Format(u"%*n", 18, uint32_t(171)));
 }
 
-void UStringTest::testArgMixOut()
+TSUNIT_DEFINE_TEST(ArgMixOut)
 {
     enum E1 : uint16_t {E10 = 5, E11, E12, E13};
     enum E2 : int8_t   {E20 = -10, E21, E22, E23};
@@ -1843,8 +1935,8 @@ void UStringTest::testArgMixOut()
     uint16_t u16 = 439;
     int32_t  i32 = -123456;
     uint32_t u32 = 987654;
-    int64_t  i64 = TS_CONST64(-1234567890123);
-    uint64_t u64 = TS_UCONST64(9876543210657);
+    int64_t  i64 = -1234567890123;
+    uint64_t u64 = 9876543210657;
     size_t   sz  = 8;
     E1       e1  = E11;
     E2       e2  = E20;
@@ -1857,11 +1949,23 @@ void UStringTest::testArgMixOut()
     TSUNIT_EQUAL(440, u16);
     TSUNIT_EQUAL(-123455, i32);
     TSUNIT_EQUAL(987655, u32);
-    TSUNIT_EQUAL(TS_CONST64(-1234567890122), i64);
-    TSUNIT_EQUAL(TS_UCONST64(9876543210658), u64);
+    TSUNIT_EQUAL(-1234567890122, i64);
+    TSUNIT_EQUAL(9876543210658, u64);
     TSUNIT_EQUAL(9, sz);
     TSUNIT_EQUAL(E12, e1);
     TSUNIT_EQUAL(E21, e2);
+}
+
+TSUNIT_DEFINE_TEST(ArgMixOutFloat)
+{
+    double d = 0.0;
+    ts::ArgMixOut a(&d);
+
+    a.storeFloat(4.5);
+    TSUNIT_EQUAL(4.5, d);
+
+    a.storeFloat(-3.25);
+    TSUNIT_EQUAL(-3.25, d);
 }
 
 void UStringTest::testArgMixOutCalled(std::initializer_list<ts::ArgMixOut> list)
@@ -1937,19 +2041,19 @@ void UStringTest::testArgMixOutCalled(std::initializer_list<ts::ArgMixOut> list)
     TSUNIT_ASSERT(it->storeInteger(++u32));
     ++it;
 
-    // int64_t  i64 = TS_CONST64(-1234567890123);
+    // int64_t  i64 = -1234567890123;
     TSUNIT_ASSERT(it->isSigned());
     TSUNIT_ASSERT(!it->isUnsigned());
     TSUNIT_EQUAL(8, it->size());
-    TSUNIT_EQUAL(TS_CONST64(-1234567890123), i64 = it->toInt64());
+    TSUNIT_EQUAL(-1234567890123, i64 = it->toInt64());
     TSUNIT_ASSERT(it->storeInteger(++i64));
     ++it;
 
-    // uint64_t u64 = TS_UCONST64(9876543210657);
+    // uint64_t u64 = 9876543210657;
     TSUNIT_ASSERT(!it->isSigned());
     TSUNIT_ASSERT(it->isUnsigned());
     TSUNIT_EQUAL(8, it->size());
-    TSUNIT_EQUAL(TS_UCONST64(9876543210657), u64 = it->toUInt64());
+    TSUNIT_EQUAL(9876543210657, u64 = it->toUInt64());
     TSUNIT_ASSERT(it->storeInteger(++u64));
     ++it;
 
@@ -1980,7 +2084,7 @@ void UStringTest::testArgMixOutCalled(std::initializer_list<ts::ArgMixOut> list)
     TSUNIT_ASSERT(it == list.end());
 }
 
-void UStringTest::testScan()
+TSUNIT_DEFINE_TEST(Scan)
 {
     size_t count = 0;
     size_t index = 0;
@@ -1989,42 +2093,43 @@ void UStringTest::testScan()
     int16_t i16 = 0;
     uint32_t u32 = 0;
     int64_t i64 = 0;
+    double d = 0.0;
     ts::UChar uc = ts::CHAR_NULL;
 
-    TSUNIT_ASSERT(ts::UString(u"").scan(count, index, u"", {}));
+    TSUNIT_ASSERT(ts::UString(u"").scan(count, index, u""));
     TSUNIT_EQUAL(0, count);
     TSUNIT_EQUAL(0, index);
 
-    TSUNIT_ASSERT(ts::UString(u"  ").scan(count, index, u" ", {}));
+    TSUNIT_ASSERT(ts::UString(u"  ").scan(count, index, u" "));
     TSUNIT_EQUAL(0, count);
     TSUNIT_EQUAL(2, index);
 
-    TSUNIT_ASSERT(ts::UString(u" ").scan(count, index, u"   ", {}));
+    TSUNIT_ASSERT(ts::UString(u" ").scan(count, index, u"   "));
     TSUNIT_EQUAL(0, count);
     TSUNIT_EQUAL(1, index);
 
-    TSUNIT_ASSERT(ts::UString(u"-133").scan(count, index, u"%d", {&i}));
+    TSUNIT_ASSERT(ts::UString(u"-133").scan(count, index, u"%d", &i));
     TSUNIT_EQUAL(1, count);
     TSUNIT_EQUAL(4, index);
     TSUNIT_EQUAL(-133, i);
 
-    TSUNIT_ASSERT(ts::UString(u"  6893  ").scan(count, index, u"%d", {&i}));
+    TSUNIT_ASSERT(ts::UString(u"  6893  ").scan(count, index, u"%d", &i));
     TSUNIT_EQUAL(1, count);
     TSUNIT_EQUAL(8, index);
     TSUNIT_EQUAL(6893, i);
 
-    TSUNIT_ASSERT(ts::UString(u" -654 / 0x54/0x0123456789ABCDEF x 54:5  ").scan(count, index, u" %d/%d/%d%c%d:%d", {&i, &u8, &i64, &uc, &i16, &u32}));
+    TSUNIT_ASSERT(ts::UString(u" -654 / 0x54/0x0123456789ABCDEF x 54:5  ").scan(count, index, u" %d/%d/%d%c%d:%d", &i, &u8, &i64, &uc, &i16, &u32));
     TSUNIT_EQUAL(6, count);
     TSUNIT_EQUAL(40, index);
     TSUNIT_EQUAL(-654, i);
     TSUNIT_EQUAL(0x54, u8);
-    TSUNIT_EQUAL(TS_CONST64(0x0123456789ABCDEF), i64);
+    TSUNIT_EQUAL(0x0123456789ABCDEF, i64);
     TSUNIT_EQUAL(u'x', uc);
     TSUNIT_EQUAL(54, i16);
     TSUNIT_EQUAL(5, u32);
 
     u32 = 27;
-    TSUNIT_ASSERT(!ts::UString(u" 45 / 79").scan(count, index, u" %d/%d/%d", {&u8, &i16, &u32}));
+    TSUNIT_ASSERT(!ts::UString(u" 45 / 79").scan(count, index, u" %d/%d/%d", &u8, &i16, &u32));
     TSUNIT_EQUAL(2, count);
     TSUNIT_EQUAL(8, index);
     TSUNIT_EQUAL(45, u8);
@@ -2032,7 +2137,7 @@ void UStringTest::testScan()
     TSUNIT_EQUAL(27, u32);
 
     i = 87;
-    TSUNIT_ASSERT(!ts::UString(u" 67 / 657 / 46 / 78").scan(count, index, u" %d/%d/%d", {&u8, &i16, &u32, &i}));
+    TSUNIT_ASSERT(!ts::UString(u" 67 / 657 / 46 / 78").scan(count, index, u" %d/%d/%d", &u8, &i16, &u32, &i));
     TSUNIT_EQUAL(3, count);
     TSUNIT_EQUAL(15, index);
     TSUNIT_EQUAL(67, u8);
@@ -2040,32 +2145,50 @@ void UStringTest::testScan()
     TSUNIT_EQUAL(46, u32);
     TSUNIT_EQUAL(87, i);
 
-    TSUNIT_ASSERT(!ts::UString(u" 98 / -7889 / 89 / 2 ").scan(count, index, u" %d/%d/%d", {&u8, &i16}));
+    TSUNIT_ASSERT(!ts::UString(u" 98 / -7889 / 89 / 2 ").scan(count, index, u" %d/%d/%d", &u8, &i16));
     TSUNIT_EQUAL(2, count);
     TSUNIT_EQUAL(14, index);
     TSUNIT_EQUAL(98, u8);
     TSUNIT_EQUAL(-7889, i16);
 
-    TSUNIT_ASSERT(ts::UString(u"8/9/").scan(count, index, u" %i/%i/", {&u8, &i16}));
+    TSUNIT_ASSERT(ts::UString(u"8/9/").scan(count, index, u" %i/%i/", &u8, &i16));
     TSUNIT_EQUAL(2, count);
     TSUNIT_EQUAL(4, index);
     TSUNIT_EQUAL(8, u8);
     TSUNIT_EQUAL(9, i16);
 
-    TSUNIT_ASSERT(ts::UString(u"73/-3457").scan(u" %i/%i", {&u8, &i16}));
+    TSUNIT_ASSERT(ts::UString(u"73/-3457").scan(u" %i/%i", &u8, &i16));
     TSUNIT_EQUAL(73, u8);
     TSUNIT_EQUAL(-3457, i16);
 
-    TSUNIT_ASSERT(ts::UString(u"12345").scan(u"%d", {&i}));
+    TSUNIT_ASSERT(ts::UString(u"12345").scan(u"%d", &i));
     TSUNIT_EQUAL(12345, i);
 
-    TSUNIT_ASSERT(!ts::UString(u"62,852").scan(u"%d", {&i}));
+    TSUNIT_ASSERT(!ts::UString(u"62,852").scan(u"%d", &i));
 
-    TSUNIT_ASSERT(ts::UString(u"67,654").scan(u"%'d", {&i}));
+    TSUNIT_ASSERT(ts::UString(u"67,654").scan(u"%'d", &i));
     TSUNIT_EQUAL(67654, i);
+
+    TSUNIT_ASSERT(ts::UString(u"1.5").scan(u"%f", &d));
+    TSUNIT_EQUAL(1.5, d);
+
+    TSUNIT_ASSERT(ts::UString(u"  1,234.5").scan(u"%'f", &d));
+    TSUNIT_EQUAL(1234.5, d);
+
+    u32 = 97;
+    TSUNIT_ASSERT(!ts::UString(u" 1,234.5  ").scan(count, index, u" %f", &d, &u32));
+    TSUNIT_EQUAL(1, count);
+    TSUNIT_EQUAL(2, index);
+    TSUNIT_EQUAL(1.0, d);
+
+    TSUNIT_ASSERT(ts::UString(u"-3.5e+4").scan(u"%f", &d));
+    TSUNIT_EQUAL(-35000.0, d);
+
+    TSUNIT_ASSERT(ts::UString(u"3.5e-3").scan(u"%f", &d));
+    TSUNIT_EQUAL(0.0035, d);
 }
 
-void UStringTest::testCommonPrefix()
+TSUNIT_DEFINE_TEST(CommonPrefix)
 {
     TSUNIT_EQUAL(0, ts::UString(u"").commonPrefixSize(u""));
     TSUNIT_EQUAL(0, ts::UString(u"abc").commonPrefixSize(u"def"));
@@ -2075,7 +2198,7 @@ void UStringTest::testCommonPrefix()
     TSUNIT_EQUAL(3, ts::UString(u"abcd").commonPrefixSize(u"abCXYZ", ts::CASE_INSENSITIVE));
 }
 
-void UStringTest::testCommonSuffix()
+TSUNIT_DEFINE_TEST(CommonSuffix)
 {
     TSUNIT_EQUAL(0, ts::UString(u"").commonSuffixSize(u""));
     TSUNIT_EQUAL(0, ts::UString(u"abc").commonSuffixSize(u"def"));
@@ -2085,7 +2208,7 @@ void UStringTest::testCommonSuffix()
     TSUNIT_EQUAL(3, ts::UString(u"abcd").commonSuffixSize(u"QSZBcd", ts::CASE_INSENSITIVE));
 }
 
-void UStringTest::testPrecombined()
+TSUNIT_DEFINE_TEST(Precombined)
 {
     TSUNIT_EQUAL(ts::LATIN_SMALL_LETTER_I_WITH_GRAVE, ts::Precombined(ts::LATIN_SMALL_LETTER_I, ts::COMBINING_GRAVE_ACCENT));
     TSUNIT_EQUAL(ts::LATIN_CAPITAL_LETTER_K_WITH_CEDILLA, ts::Precombined(ts::LATIN_CAPITAL_LETTER_K, ts::COMBINING_CEDILLA));
@@ -2121,7 +2244,7 @@ void UStringTest::testPrecombined()
     TSUNIT_EQUAL(str2, ref2.toDecomposedDiacritical());
 }
 
-void UStringTest::testQuoted()
+TSUNIT_DEFINE_TEST(Quoted)
 {
     TSUNIT_EQUAL(u"''", ts::UString().toQuoted());
     TSUNIT_EQUAL(u"||", ts::UString().toQuoted(u'|'));
@@ -2133,7 +2256,7 @@ void UStringTest::testQuoted()
     TSUNIT_EQUAL(u"'a\\\\b'", ts::UString(u"a\\b").toQuoted());
 }
 
-void UStringTest::testToQuotedLine()
+TSUNIT_DEFINE_TEST(ToQuotedLine)
 {
     TSUNIT_EQUAL(u"", ts::UString::ToQuotedLine(ts::UStringVector()));
     TSUNIT_EQUAL(u"''", ts::UString::ToQuotedLine(ts::UStringVector({u""})));
@@ -2144,7 +2267,7 @@ void UStringTest::testToQuotedLine()
     TSUNIT_EQUAL(u"ab 'er ty' 'sdf?hh' ' \\'vf\\ndf\\' '", ts::UString::ToQuotedLine(ts::UStringVector({u"ab", u"er ty", u"sdf?hh", u" 'vf\ndf' "})));
 }
 
-void UStringTest::testFromQuotedLine()
+TSUNIT_DEFINE_TEST(FromQuotedLine)
 {
     ts::UStringVector s;
 
@@ -2168,11 +2291,95 @@ void UStringTest::testFromQuotedLine()
     TSUNIT_EQUAL(u"c[d e]f", s[1]);
 }
 
-void UStringTest::testIndent()
+TSUNIT_DEFINE_TEST(Indent)
 {
     TSUNIT_EQUAL(u"", ts::UString().toIndented(0));
     TSUNIT_EQUAL(u"", ts::UString().toIndented(4));
     TSUNIT_EQUAL(u"  ", ts::UString(u"  ").toIndented(4));
     TSUNIT_EQUAL(u"      a", ts::UString(u"  a").toIndented(4));
     TSUNIT_EQUAL(u"    a\n\n  b\n  c d", ts::UString(u"  a\n\nb\nc d").toIndented(2));
+}
+
+TSUNIT_DEFINE_TEST(ToFloat)
+{
+    double val = 0.0;
+    TSUNIT_ASSERT(!ts::UString().toFloat(val));
+
+    TSUNIT_ASSERT(ts::UString(u"1.23").toFloat(val));
+    TSUNIT_EQUAL(1.23, val);
+
+    TSUNIT_ASSERT(!ts::UString(u"1c.23").toFloat(val));
+    TSUNIT_EQUAL(1.0, val);
+
+    TSUNIT_ASSERT(!ts::UString(u"c.23").toFloat(val));
+    TSUNIT_EQUAL(0.0, val);
+
+    TSUNIT_ASSERT(ts::UString(u"-34.56e-4").toFloat(val));
+    TSUNIT_EQUAL(-34.56e-4, val);
+
+    TSUNIT_ASSERT(ts::UString(u"78.31e12").toFloat(val));
+    TSUNIT_EQUAL(78.31e12, val);
+
+    TSUNIT_ASSERT(!ts::UString(u"1.2").toFloat(val, -1.0, 1.0));
+    TSUNIT_EQUAL(1.2, val);
+
+    TSUNIT_ASSERT(ts::UString(u"11").toFloat(val));
+    TSUNIT_EQUAL(11.0, val);
+}
+
+TSUNIT_DEFINE_TEST(SuperCompare)
+{
+    TSUNIT_EQUAL(0, ts::UString::SuperCompare(nullptr, nullptr));
+    TSUNIT_EQUAL(1, ts::UString::SuperCompare(u"", nullptr));
+    TSUNIT_EQUAL(1, ts::UString::SuperCompare(u"abc", nullptr));
+    TSUNIT_EQUAL(-1, ts::UString::SuperCompare(nullptr, u""));
+    TSUNIT_EQUAL(-1, ts::UString::SuperCompare(nullptr, u"xyz"));
+    TSUNIT_EQUAL(-1, ts::UString::SuperCompare(u"a bc", u"abc"));
+    TSUNIT_EQUAL(0, ts::UString::SuperCompare(u"a bc", u"abc", ts::SCOMP_IGNORE_BLANKS));
+    TSUNIT_EQUAL(0, ts::UString::SuperCompare(u"  \t a   \n b \r c  ", u"a bc", ts::SCOMP_IGNORE_BLANKS));
+    TSUNIT_EQUAL(0, ts::UString::SuperCompare(u"a bC", u" aBc", ts::SCOMP_IGNORE_BLANKS | ts::SCOMP_CASE_INSENSITIVE));
+    TSUNIT_EQUAL(-1, ts::UString::SuperCompare(u"version 8.12.3", u"VERSION 8.4.21", ts::SCOMP_IGNORE_BLANKS | ts::SCOMP_CASE_INSENSITIVE));
+    TSUNIT_EQUAL(1, ts::UString::SuperCompare(u"version 8.12.3", u"VERSION 8.4.21", ts::SCOMP_IGNORE_BLANKS | ts::SCOMP_NUMERIC | ts::SCOMP_CASE_INSENSITIVE));
+}
+
+TSUNIT_DEFINE_TEST(ChronoUnit)
+{
+    TSUNIT_EQUAL(u"nanosecond", ts::UString::ChronoUnit<cn::nanoseconds>());
+    TSUNIT_EQUAL(u"second", ts::UString::ChronoUnit<cn::seconds>());
+    TSUNIT_EQUAL(u"hour", ts::UString::ChronoUnit<cn::hours>());
+
+    TSUNIT_EQUAL(u"ns", ts::UString::ChronoUnit<cn::nanoseconds>(true));
+    TSUNIT_EQUAL(u"s", ts::UString::ChronoUnit<cn::seconds>(true));
+    TSUNIT_EQUAL(u"h", ts::UString::ChronoUnit<cn::hours>(true));
+
+    TSUNIT_EQUAL(u"nanoseconds", ts::UString::ChronoUnit<cn::nanoseconds>(false, true));
+    TSUNIT_EQUAL(u"seconds", ts::UString::ChronoUnit<cn::seconds>(false, true));
+    TSUNIT_EQUAL(u"hours", ts::UString::ChronoUnit<cn::hours>(false, true));
+
+    using centiseconds = cn::duration<int, std::ratio<2, 200>>;
+    TSUNIT_EQUAL(u"1/100-second", ts::UString::ChronoUnit<centiseconds>());
+    TSUNIT_EQUAL(u"1/100-sec", ts::UString::ChronoUnit<centiseconds>(true));
+
+    using decaseconds = cn::duration<int, std::ratio<10>>;
+    TSUNIT_EQUAL(u"10-second", ts::UString::ChronoUnit<decaseconds>());
+    TSUNIT_EQUAL(u"10-sec", ts::UString::ChronoUnit<decaseconds>(true));
+}
+
+TSUNIT_DEFINE_TEST(Chrono)
+{
+    TSUNIT_EQUAL(u"12,345 nanoseconds", ts::UString::Chrono(cn::nanoseconds(12345)));
+    TSUNIT_EQUAL(u"1 second", ts::UString::Chrono(cn::seconds(1)));
+    TSUNIT_EQUAL(u"250 ms", ts::UString::Chrono(cn::milliseconds(250), true));
+    TSUNIT_EQUAL(u"8,512 PCR", ts::UString::Chrono(ts::PCR(8512), true));
+    TSUNIT_EQUAL(u"25 PTS/DTS", ts::UString::Chrono(ts::PTS(25)));
+    TSUNIT_EQUAL(u"25 PTS/DTS", ts::UString::Chrono(ts::DTS(25)));
+}
+
+TSUNIT_DEFINE_TEST(Percentage)
+{
+    TSUNIT_EQUAL(u"?", ts::UString::Percentage(2, -1));
+    TSUNIT_EQUAL(u"0.00%", ts::UString::Percentage(2, 0));
+    TSUNIT_EQUAL(u"0.00%", ts::UString::Percentage(0, 34));
+    TSUNIT_EQUAL(u"50.00%", ts::UString::Percentage(200, 400));
+    TSUNIT_EQUAL(u"50.00%", ts::UString::Percentage(cn::milliseconds(500), cn::seconds(1)));
 }

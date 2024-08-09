@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -37,27 +16,6 @@
 
 // Register this section filter in the reposity.
 TS_REGISTER_SECTION_FILTER(ts::TablesLoggerFilter);
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors.
-//----------------------------------------------------------------------------
-
-ts::TablesLoggerFilter::TablesLoggerFilter() :
-    _diversified(false),
-    _negate_tid(false),
-    _negate_tidext(false),
-    _negate_secnum(false),
-    _psi_si(false),
-    _pids(),
-    _tids(),
-    _tidexts(),
-    _secnums(),
-    _content_filter(),
-    _content_mask(),
-    _pat()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -178,7 +136,18 @@ bool ts::TablesLoggerFilter::loadFilterOptions(DuckContext& duck, Args& args, PI
         initial_pids.set();
     }
 
-    // Clear the current PAT.
+    // Initialize the filter.
+    return reset();
+}
+
+
+//----------------------------------------------------------------------------
+// Reset context, if filtering restarts from the beginning for instance.
+//----------------------------------------------------------------------------
+
+bool ts::TablesLoggerFilter::reset()
+{
+    _current_pids = _pids;
     _pat.clear();
     return true;
 }
@@ -200,25 +169,25 @@ bool ts::TablesLoggerFilter::filterSection(DuckContext& duck, const Section& sec
             _pat.clear();
         }
         // Add the current section in the PAT if it was not already there.
-        if (_pat.sectionCount() <= section.sectionNumber() || _pat.sectionAt(section.sectionNumber()).isNull()) {
-            _pat.addSection(SectionPtr(new Section(section, ShareMode::SHARE)), true, true);
+        if (_pat.sectionCount() <= section.sectionNumber() || _pat.sectionAt(section.sectionNumber()) == nullptr) {
+            _pat.addNewSection(section, ShareMode::SHARE);
         }
         // If a new PAT is now available, analyze it to grab PSI/SI information.
         if (_pat.isValid() && (!was_valid || _pat.version() != previous_version)) {
             const PAT new_pat(duck, _pat);
             if (new_pat.isValid()) {
                 // Check NIT PID, if present.
-                if (new_pat.nit_pid != PID_NULL && !_pids.test(new_pat.nit_pid)) {
+                if (new_pat.nit_pid != PID_NULL && !_current_pids.test(new_pat.nit_pid)) {
                     // The NIT PID was not yet known.
-                    _pids.set(new_pat.nit_pid);
+                    _current_pids.set(new_pat.nit_pid);
                     more_pids.set(new_pat.nit_pid);
                 }
                 // Check all PMT PID's.
-                for (auto it = new_pat.pmts.begin(); it != new_pat.pmts.end(); ++it) {
-                    const PID pmt_pid = it->second;
-                    if (pmt_pid != PID_NULL && !_pids.test(pmt_pid)) {
+                for (const auto& it : new_pat.pmts) {
+                    const PID pmt_pid = it.second;
+                    if (pmt_pid != PID_NULL && !_current_pids.test(pmt_pid)) {
                         // This PMT PID was not yet known.
-                        _pids.set(pmt_pid);
+                        _current_pids.set(pmt_pid);
                         more_pids.set(pmt_pid);
                     }
                 }
@@ -235,7 +204,7 @@ bool ts::TablesLoggerFilter::filterSection(DuckContext& duck, const Section& sec
     // not specified or the corresponding value matches.
     return
         // Check PID:
-        (_pids.none() || _pids.test(section.sourcePID())) &&
+        (_current_pids.none() || _current_pids.test(section.sourcePID())) &&
         // Check TID:
         (_tids.empty() || (tid_set && !_negate_tid) || (!tid_set && _negate_tid)) &&
         // Check TIDext:

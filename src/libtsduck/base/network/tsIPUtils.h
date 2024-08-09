@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,11 +14,8 @@
 
 #pragma once
 #include "tsCerrReport.h"
-#include "tsSysUtils.h"
 #include "tsIPv4Address.h"
 #include "tsIPv4AddressMask.h"
-#include "tsIPv6Address.h"
-#include "tsIPv4SocketAddress.h"
 
 namespace ts {
     //!
@@ -63,11 +39,11 @@ namespace ts {
     //! Data type for socket descriptors as returned by the socket() system call.
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketType;
+    using SysSocketType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef ::SOCKET SysSocketType;
+    using SysSocketType = ::SOCKET;
 #elif defined(TS_UNIX)
-    typedef int SysSocketType;
+    using SysSocketType = int;
 #endif
 
     //!
@@ -89,60 +65,26 @@ namespace ts {
 #endif
 
     //!
-    //! Type for socket error codes as returned by system calls.
-    //!
-    typedef int SysSocketErrorCode;
-
-    //!
     //! System error code value meaning "connection reset by peer".
     //!
 #if defined(DOXYGEN)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_RESET = platform_specific;
+    constexpr int SYS_SOCKET_ERR_RESET = platform_specific;
 #elif defined(TS_WINDOWS)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_RESET = WSAECONNRESET;
+    constexpr int SYS_SOCKET_ERR_RESET = WSAECONNRESET;
 #elif defined(TS_UNIX)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_RESET = EPIPE;
+    constexpr int SYS_SOCKET_ERR_RESET = EPIPE;
 #endif
 
     //!
     //! System error code value meaning "peer socket not connected".
     //!
 #if defined(DOXYGEN)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_NOTCONN = platform_specific;
+    constexpr int SYS_SOCKET_ERR_NOTCONN = platform_specific;
 #elif defined(TS_WINDOWS)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_NOTCONN = WSAENOTCONN;
+    constexpr int SYS_SOCKET_ERR_NOTCONN = WSAENOTCONN;
 #elif defined(TS_UNIX)
-    constexpr SysSocketErrorCode SYS_SOCKET_ERR_NOTCONN = ENOTCONN;
+    constexpr int SYS_SOCKET_ERR_NOTCONN = ENOTCONN;
 #endif
-
-    //!
-    //! Get the error code of the last socket system call.
-    //! The validity of the returned value may depends on specific conditions.
-    //! @return The error code of the last socket system call.
-    //!
-    TSDUCKDLL inline SysSocketErrorCode LastSysSocketErrorCode()
-    {
-#if defined(TS_WINDOWS)
-        return ::WSAGetLastError();
-#elif defined(TS_UNIX)
-        return errno;
-#else
-        #error "Unsupported operating system"
-#endif
-    }
-
-    //!
-    //! Format a socket error code into a string.
-    //! @param [in] code An error code from the operating system.
-    //! Typically a result from LastSysSocketErrorCode().
-    //! @return A string describing the error.
-    //!
-    TSDUCKDLL inline UString SysSocketErrorCodeMessage(SysSocketErrorCode code = LastSysSocketErrorCode())
-    {
-        // Note for windows: although error codes types are different for system and
-        // winsock, it appears that the system error message also applies to winsock.
-        return SysErrorCodeMessage(code);
-    }
 
     //!
     //! Integer data type which receives the length of a struct sockaddr.
@@ -156,11 +98,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketLengthType;
+    using SysSocketLengthType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef int SysSocketLengthType;
+    using SysSocketLengthType = int;
 #elif defined(TS_UNIX)
-    typedef ::socklen_t SysSocketLengthType;
+    using SysSocketLengthType = ::socklen_t;
 #endif
 
     //!
@@ -171,11 +113,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketSignedSizeType;
+    using SysSocketSignedSizeType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef int SysSocketSignedSizeType;
+    using SysSocketSignedSizeType = int;
 #elif defined(TS_UNIX)
-    typedef ::ssize_t SysSocketSignedSizeType;
+    using SysSocketSignedSizeType = ::ssize_t;
 #endif
 
     //!
@@ -189,11 +131,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketTTLType;
+    using SysSocketTTLType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef ::DWORD SysSocketTTLType;
+    using SysSocketTTLType = ::DWORD;
 #elif defined(TS_UNIX)
-    typedef int SysSocketTTLType;
+    using SysSocketTTLType = int;
 #endif
 
     //!
@@ -207,22 +149,40 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketMulticastTTLType;
+    using SysSocketMulticastTTLType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef ::DWORD SysSocketMulticastTTLType;
+    using SysSocketMulticastTTLType = ::DWORD;
 #elif defined(TS_UNIX)
-    typedef unsigned char SysSocketMulticastTTLType;
+    using SysSocketMulticastTTLType = unsigned char;
 #endif
 
     //!
     //! Integer data type for the Type Of Service (TOS) socket option.
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketTOSType;
+    using SysSocketTOSType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef ::DWORD SysSocketTOSType;
+    using SysSocketTOSType = ::DWORD;
 #elif defined(TS_UNIX)
-    typedef int SysSocketTOSType;
+    using SysSocketTOSType = int;
+#endif
+
+    //!
+    //! Integer data type for the multicast loop socket option.
+    //! Example:
+    //! @code
+    //! SysSocketMulticastLoopType mloop = 1;
+    //! if (setsockopt(sock, IPPROTO_IP, IP_MULTICAST_LOOP, SysSockOptPointer(&mloop), sizeof(mloop)) != 0) {
+    //!     ... error processing ...
+    //! }
+    //! @endcode
+    //!
+#if defined(DOXYGEN)
+    using SysSocketMulticastLoopType = platform_specific;
+#elif defined(TS_WINDOWS)
+    using SysSocketMulticastLoopType = ::DWORD;
+#elif defined(TS_UNIX)
+    using SysSocketMulticastLoopType = unsigned char;
 #endif
 
     //!
@@ -236,11 +196,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketPktInfoType;
+    using SysSocketPktInfoType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef ::DWORD SysSocketPktInfoType;
+    using SysSocketPktInfoType = ::DWORD;
 #elif defined(TS_UNIX)
-    typedef int SysSocketPktInfoType;
+    using SysSocketPktInfoType = int;
 #endif
 
     //!
@@ -253,11 +213,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSocketLingerType;
+    using SysSocketLingerType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef u_short SysSocketLingerType;
+    using SysSocketLingerType = u_short;
 #elif defined(TS_UNIX)
-    typedef int SysSocketLingerType;
+    using SysSocketLingerType = int;
 #endif
 
     //!
@@ -272,11 +232,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSockOptPointer;
+    using SysSockOptPointer = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef const char* SysSockOptPointer;
+    using SysSockOptPointer = const char*;
 #elif defined(TS_UNIX)
-    typedef void* SysSockOptPointer;
+    using SysSockOptPointer = void*;
 #endif
 
     //!
@@ -288,11 +248,11 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysRecvBufferPointer;
+    using SysRecvBufferPointer = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef char* SysRecvBufferPointer;
+    using SysRecvBufferPointer = char*;
 #elif defined(TS_UNIX)
-    typedef void* SysRecvBufferPointer;
+    using SysRecvBufferPointer = void*;
 #endif
 
     //!
@@ -304,22 +264,22 @@ namespace ts {
     //! @endcode
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSendBufferPointer;
+    using SysSendBufferPointer = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef const char* SysSendBufferPointer;
+    using SysSendBufferPointer = const char*;
 #elif defined(TS_UNIX)
-    typedef void* SysSendBufferPointer;
+    using SysSendBufferPointer = const void*;
 #endif
 
     //!
     //! Integer type for the size of the data buffer for a send() system call.
     //!
 #if defined(DOXYGEN)
-    typedef platform_specific SysSendSizeType;
+    using SysSendSizeType = platform_specific;
 #elif defined(TS_WINDOWS)
-    typedef int SysSendSizeType;
+    using SysSendSizeType = int;
 #elif defined(TS_UNIX)
-    typedef size_t SysSendSizeType;
+    using SysSendSizeType = size_t;
 #endif
 
     //!
@@ -373,7 +333,7 @@ namespace ts {
     //! @param [in] sock System socket descriptor.
     //! @return Error code.
     //!
-    TSDUCKDLL inline SysSocketErrorCode SysCloseSocket(SysSocketType sock)
+    TSDUCKDLL inline int SysCloseSocket(SysSocketType sock)
     {
 #if defined(TS_WINDOWS)
         return ::closesocket(sock);
@@ -383,6 +343,12 @@ namespace ts {
         #error "Unsupported operating system"
 #endif
     }
+
+    //!
+    //! Get the std::error_category for getaddrinfo() error code (Unix only).
+    //! @return A constant reference to a std::error_category instance.
+    //!
+    TSDUCKDLL const std::error_category& getaddrinfo_category();
 
     //------------------------------------------------------------------------
     // Local network interfaces.

@@ -1,34 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstsmuxPluginExecutor.h"
-#include "tsGuardMutex.h"
 
 
 //----------------------------------------------------------------------------
@@ -44,15 +22,7 @@ ts::tsmux::PluginExecutor::PluginExecutor(const MuxerArgs& opt,
 
     PluginThread(&log, opt.appName, type, pl_options, attributes),
     _opt(opt),
-    _mutex(),
-    _got_packets(),
-    _got_freespace(),
-    _terminate(false),
-    _packets_first(0),
-    _packets_count(0),
     _buffer_size(type == PluginType::INPUT ? _opt.inBufferPackets : _opt.outBufferPackets),
-    _packets(_buffer_size),
-    _metadata(_buffer_size),
     _handlers(handlers)
 {
     // Preset common default options.
@@ -115,8 +85,8 @@ void ts::tsmux::PluginExecutor::signalPluginEvent(uint32_t event_code, Object* p
 void ts::tsmux::PluginExecutor::terminate()
 {
     // Locked the mutex on behalf of the two conditions.
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     _terminate = true;
-    _got_packets.signal();
-    _got_freespace.signal();
+    _got_packets.notify_all();
+    _got_freespace.notify_all();
 }

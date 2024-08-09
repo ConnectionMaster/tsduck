@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,7 +12,7 @@
 
 #include "tsByteBlock.h"
 #include "tsFileUtils.h"
-#include "tsNullReport.h"
+#include "tsErrCodeReport.h"
 #include "tsunit.h"
 
 
@@ -43,22 +22,17 @@
 
 class ByteBlockTest: public tsunit::Test
 {
-public:
-    ByteBlockTest();
+    TSUNIT_DECLARE_TEST(Constructors);
+    TSUNIT_DECLARE_TEST(Find);
+    TSUNIT_DECLARE_TEST(Append);
+    TSUNIT_DECLARE_TEST(File);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testAppend();
-    void testFile();
-
-    TSUNIT_TEST_BEGIN(ByteBlockTest);
-    TSUNIT_TEST(testAppend);
-    TSUNIT_TEST(testFile);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFileName;
+    fs::path _tempFileName {};
 };
 
 TSUNIT_REGISTER(ByteBlockTest);
@@ -68,25 +42,19 @@ TSUNIT_REGISTER(ByteBlockTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-ByteBlockTest::ByteBlockTest() :
-    _tempFileName()
-{
-}
-
 // Test suite initialization method.
 void ByteBlockTest::beforeTest()
 {
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void ByteBlockTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 
@@ -94,7 +62,56 @@ void ByteBlockTest::afterTest()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void ByteBlockTest::testAppend()
+namespace {
+    class Test1
+    {
+    public:
+        ts::ByteBlock a = ts::ByteBlock(12);
+        ts::ByteBlock b = ts::ByteBlock(13, 42);
+    };
+}
+TSUNIT_DEFINE_TEST(Constructors)
+{
+    ts::ByteBlock v1;
+    TSUNIT_ASSERT(v1.empty());
+    TSUNIT_EQUAL(0, v1.size());
+
+    ts::ByteBlock v2(16);
+    TSUNIT_ASSERT(!v2.empty());
+    TSUNIT_EQUAL(16, v2.size());
+    for (auto x : v2) {
+        TSUNIT_EQUAL(0, x);
+    }
+
+    ts::ByteBlock v3(32, 27);
+    TSUNIT_ASSERT(!v3.empty());
+    TSUNIT_EQUAL(32, v3.size());
+    for (auto x : v3) {
+        TSUNIT_EQUAL(27, x);
+    }
+
+    Test1 t1;
+    TSUNIT_EQUAL(12, t1.a.size());
+    TSUNIT_EQUAL(13, t1.b.size());
+    for (auto x : t1.a) {
+        TSUNIT_EQUAL(0, x);
+    }
+    for (auto x : t1.b) {
+        TSUNIT_EQUAL(42, x);
+    }
+}
+
+TSUNIT_DEFINE_TEST(Find)
+{
+    ts::ByteBlock v;
+    TSUNIT_EQUAL(ts::NPOS, v.find(1));
+    v = {2, 4, 7, 9};
+    TSUNIT_EQUAL(ts::NPOS, v.find(1));
+    TSUNIT_EQUAL(0, v.find(2));
+    TSUNIT_EQUAL(3, v.find(9));
+}
+
+TSUNIT_DEFINE_TEST(Append)
 {
     ts::ByteBlock v;
     ts::ByteBlock valtemp;
@@ -168,7 +185,7 @@ void ByteBlockTest::testAppend()
     TSUNIT_ASSERT(v[idx++] == 0x87);
 }
 
-void ByteBlockTest::testFile()
+TSUNIT_DEFINE_TEST(File)
 {
     const ts::ByteBlock bb({
         0x1B, 0x55, 0xF1, 0xA3, 0x59, 0x76, 0xC4, 0x0C, 0xBD, 0x13, 0xCB, 0x85, 0xE1, 0x28, 0xAE, 0x0B,

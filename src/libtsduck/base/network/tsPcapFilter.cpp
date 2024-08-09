@@ -1,63 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPcapFilter.h"
 #include "tsAlgorithm.h"
 #include "tsArgs.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors.
-//----------------------------------------------------------------------------
-
-ts::PcapFilter::PcapFilter() :
-    PcapFile(),
-    _protocols(),
-    _source(),
-    _destination(),
-    _bidirectional_filter(false),
-    _wildcard_filter(true),
-    _display_addresses_severity(Severity::Debug),
-    _first_packet(0),
-    _last_packet(std::numeric_limits<size_t>::max()),
-    _first_time_offset(0),
-    _last_time_offset(std::numeric_limits<ts::MicroSecond>::max()),
-    _first_time(0),
-    _last_time(std::numeric_limits<ts::MicroSecond>::max()),
-    _opt_first_packet(0),
-    _opt_last_packet(std::numeric_limits<size_t>::max()),
-    _opt_first_time_offset(0),
-    _opt_last_time_offset(std::numeric_limits<ts::MicroSecond>::max()),
-    _opt_first_time(0),
-    _opt_last_time(std::numeric_limits<ts::MicroSecond>::max())
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -72,8 +23,8 @@ void ts::PcapFilter::defineArgs(Args& args)
          u"The packet numbering counts all captured packets from the beginning of the file, starting at 1. "
          u"This is the same value as seen on Wireshark in the leftmost column.");
 
-    args.option(u"first-timestamp", 0, Args::UNSIGNED);
-    args.help(u"first-timestamp", u"micro-seconds",
+    args.option<cn::microseconds>(u"first-timestamp");
+    args.help(u"first-timestamp",
          u"Filter packets starting at the specified timestamp in micro-seconds from the beginning of the capture. "
          u"This is the same value as seen on Wireshark in the \"Time\" column (in seconds).");
 
@@ -87,8 +38,8 @@ void ts::PcapFilter::defineArgs(Args& args)
          u"The packet numbering counts all captured packets from the beginning of the file, starting at 1. "
          u"This is the same value as seen on Wireshark in the leftmost column.");
 
-    args.option(u"last-timestamp", 0, Args::UNSIGNED);
-    args.help(u"last-timestamp", u"micro-seconds",
+    args.option<cn::microseconds>(u"last-timestamp");
+    args.help(u"last-timestamp",
          u"Filter packets up to the specified timestamp in micro-seconds from the beginning of the capture. "
          u"This is the same value as seen on Wireshark in the \"Time\" column (in seconds).");
 
@@ -102,23 +53,23 @@ void ts::PcapFilter::defineArgs(Args& args)
 // Get a date option and return it as micro-seconds since Unix epoch.
 //----------------------------------------------------------------------------
 
-ts::MicroSecond ts::PcapFilter::getDate(Args& args, const ts::UChar* arg_name, ts::MicroSecond def_value)
+cn::microseconds ts::PcapFilter::getDate(Args& args, const ts::UChar* arg_name, cn::microseconds def_value)
 {
-    ts::Time date;
+    Time date;
     const ts::UString str(args.value(arg_name));
     if (str.empty()) {
         return def_value;
     }
-    else if (!date.decode(str, ts::Time::ALL)) {
-        args.error(u"invalid date \"%s\", use format \"YYYY/MM/DD:hh:mm:ss.mmm\"", {str});
+    else if (!date.decode(str, Time::ALL)) {
+        args.error(u"invalid date \"%s\", use format \"YYYY/MM/DD:hh:mm:ss.mmm\"", str);
         return def_value;
     }
-    else if (date < ts::Time::UnixEpoch) {
-        args.error(u"invalid date %s, must be after %s", {str, ts::Time::UnixEpoch});
+    else if (date < Time::UnixEpoch) {
+        args.error(u"invalid date %s, must be after %s", str, Time::UnixEpoch);
         return def_value;
     }
     else {
-        return (date - ts::Time::UnixEpoch) * ts::MicroSecPerMilliSec;
+        return cn::duration_cast<cn::microseconds>(cn::milliseconds(date - ts::Time::UnixEpoch));
     }
 }
 
@@ -131,10 +82,10 @@ bool ts::PcapFilter::loadArgs(DuckContext& duck, Args& args)
 {
     args.getIntValue(_opt_first_packet, u"first-packet", 0);
     args.getIntValue(_opt_last_packet, u"last-packet", std::numeric_limits<size_t>::max());
-    args.getIntValue(_opt_first_time_offset, u"first-timestamp", 0);
-    args.getIntValue(_opt_last_time_offset, u"last-timestamp", std::numeric_limits<ts::MicroSecond>::max());
-    _opt_first_time = getDate(args, u"first-date", 0);
-    _opt_last_time = getDate(args, u"last-date", std::numeric_limits<ts::MicroSecond>::max());
+    args.getChronoValue(_opt_first_time_offset, u"first-timestamp", cn::microseconds::zero());
+    args.getChronoValue(_opt_last_time_offset, u"last-timestamp", cn::microseconds::max());
+    _opt_first_time = getDate(args, u"first-date", cn::microseconds::zero());
+    _opt_last_time = getDate(args, u"last-date", cn::microseconds::max());
     return true;
 }
 
@@ -221,7 +172,7 @@ const ts::IPv4SocketAddress& ts::PcapFilter::otherFilter(const IPv4SocketAddress
 // Open the file, inherited method.
 //----------------------------------------------------------------------------
 
-bool ts::PcapFilter::open(const UString& filename, Report& report)
+bool ts::PcapFilter::open(const fs::path& filename, Report& report)
 {
     // Invoke superclass.
     const bool ok = PcapFile::open(filename, report);
@@ -247,7 +198,7 @@ bool ts::PcapFilter::open(const UString& filename, Report& report)
 // Read an IPv4 packet, inherited method.
 //----------------------------------------------------------------------------
 
-bool ts::PcapFilter::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& report)
+bool ts::PcapFilter::readIPv4(IPv4Packet& packet, cn::microseconds& timestamp, Report& report)
 {
     // Read packets until one which matches all filters.
     for (;;) {
@@ -302,10 +253,10 @@ bool ts::PcapFilter::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report
         }
 
         if (display_filter) {
-            report.log(_display_addresses_severity, u"selected stream %s %s %s", {_source, _bidirectional_filter ? u"<->" : u"->", _destination});
+            report.log(_display_addresses_severity, u"selected stream %s %s %s", _source, _bidirectional_filter ? u"<->" : u"->", _destination);
         }
 
-        report.debug(u"packet: ip size: %'d, data size: %'d, timestamp: %'d", {packet.size(), packet.protocolDataSize(), timestamp});
+        report.log(2, u"packet: ip size: %'d, data size: %'d, timestamp: %'!s", packet.size(), packet.protocolDataSize(), timestamp);
         return true;
     }
 }

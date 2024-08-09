@@ -1,69 +1,27 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsEMMGClient.h"
-#include "tsIPUtils.h"
-#include "tsGuardMutex.h"
-#include "tsGuardCondition.h"
 #include "tsOneShotPacketizer.h"
 #include "tstlvSerializer.h"
+#include "tsSection.h"
 #include "tsTSPacket.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-const size_t ts::EMMGClient::RECEIVER_STACK_SIZE;
-const ts::MilliSecond ts::EMMGClient::RESPONSE_TIMEOUT;
-#endif
+#include "tsNullReport.h"
 
 
 //----------------------------------------------------------------------------
 // Constructor
 //----------------------------------------------------------------------------
 
-ts::EMMGClient::EMMGClient(const DuckContext& duck) :
+ts::EMMGClient::EMMGClient(const DuckContext& duck, const emmgmux::Protocol& protocol) :
     Thread(ThreadAttributes().setStackSize(RECEIVER_STACK_SIZE)),
     _duck(duck),
-    _state(INITIAL),
-    _udp_address(),
-    _total_bytes(0),
-    _abort(nullptr),
-    _logger(),
-    _connection(emmgmux::Protocol::Instance(), true, 3),
-    _udp_socket(),
-    _channel_status(),
-    _stream_status(),
-    _mutex(),
-    _work_to_do(),
-    _got_response(),
-    _last_response(0),
-    _allocated_bw(0),
-    _error_status(),
-    _error_info()
+    _protocol(protocol)
 {
 }
 
@@ -75,18 +33,18 @@ ts::EMMGClient::EMMGClient(const DuckContext& duck) :
 ts::EMMGClient::~EMMGClient()
 {
     {
-        GuardCondition lock(_mutex, _work_to_do);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
 
         // Break connection, if not already done
         _abort = nullptr;
-        _logger.setReport(NullReport::Instance());
+        _logger.setReport(&NULLREP);
         _connection.disconnect(NULLREP);
         _connection.close(NULLREP);
         _udp_socket.close(NULLREP);
 
         // Notify receiver thread to terminate
         _state = DESTRUCTING;
-        lock.signal();
+        _work_to_do.notify_one();
     }
     waitForTermination();
 }
@@ -106,13 +64,13 @@ bool ts::EMMGClient::abortConnection(const UString& message)
         _udp_socket.close(_logger.report());
     }
 
-    GuardCondition lock(_mutex, _work_to_do);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     _state = DISCONNECTED;
     _connection.disconnect(_logger.report());
     _connection.close(_logger.report());
-    lock.signal();
+    _work_to_do.notify_one();
 
-    _logger.setReport(NullReport::Instance());
+    _logger.setReport(&NULLREP);
     return false;
 }
 
@@ -123,31 +81,16 @@ bool ts::EMMGClient::abortConnection(const UString& message)
 
 void ts::EMMGClient::cleanupResponse()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     _last_response = 0;
 }
 
 ts::tlv::TAG ts::EMMGClient::waitResponse()
 {
-    // Lock the mutex
-    GuardCondition lock(_mutex, _got_response, RESPONSE_TIMEOUT);
-    if (!lock.isLocked()) {
-        // Timeout, no response.
-        return 0;
-    }
-
-    while (_last_response == 0) {
-        // Release the mutex and wait for response.
-        // Automatically reacquire the mutex when condition is signaled.
-        if (!lock.waitCondition(RESPONSE_TIMEOUT)) {
-            // Timeout, no response.
-            return 0;
-        }
-    }
-
-    // Mutex still held
+    std::unique_lock<std::recursive_mutex> lock(_mutex);
+    _got_response.wait_for(lock, RESPONSE_TIMEOUT, [this]() { return _last_response != 0; });
+    // No need to check wait_for() status, in case of timeout _last_response is zero.
     return _last_response;
-    // Automatically release mutex
 }
 
 
@@ -170,7 +113,7 @@ bool ts::EMMGClient::connect(const IPv4SocketAddress& mux,
 {
     // Initial state check
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         // Start receiver thread if first time
         if (_state == INITIAL) {
             _state = DISCONNECTED;
@@ -222,7 +165,7 @@ bool ts::EMMGClient::connect(const IPv4SocketAddress& mux,
     cleanupResponse();
 
     // Send a channel_setup message to MUX
-    emmgmux::ChannelSetup channel_setup;
+    emmgmux::ChannelSetup channel_setup(_protocol);
     channel_setup.channel_id = data_channel_id;
     channel_setup.client_id = client_id;
     channel_setup.section_TSpkt_flag = !section_format;
@@ -232,9 +175,9 @@ bool ts::EMMGClient::connect(const IPv4SocketAddress& mux,
 
     // Tell the receiver thread to start listening for incoming messages
     {
-        GuardCondition lock(_mutex, _work_to_do);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         _state = CONNECTING;
-        lock.signal();
+        _work_to_do.notify_one();
     }
 
     // Wait for a channel_status from the MUX.
@@ -243,14 +186,14 @@ bool ts::EMMGClient::connect(const IPv4SocketAddress& mux,
         return abortConnection(u"MUX channel_setup response timeout");
     }
     if (response != emmgmux::Tags::channel_status) {
-        return abortConnection(UString::Format(u"unexpected response 0x%X from MUX (expected channel_status)", {response}));
+        return abortConnection(UString::Format(u"unexpected response 0x%X from MUX (expected channel_status)", response));
     }
 
     // Cleanup response state.
     cleanupResponse();
 
     // Send a stream_setup message to MUX.
-    emmgmux::StreamSetup stream_setup;
+    emmgmux::StreamSetup stream_setup(_protocol);
     stream_setup.channel_id = data_channel_id;
     stream_setup.stream_id = data_stream_id;
     stream_setup.client_id = client_id;
@@ -266,17 +209,28 @@ bool ts::EMMGClient::connect(const IPv4SocketAddress& mux,
         return abortConnection(u"MUX stream_setup response timeout");
     }
     if (response != emmgmux::Tags::stream_status) {
-        return abortConnection(UString::Format(u"unexpected response 0x%X from MUX (expected stream_status)", {response}));
+        return abortConnection(UString::Format(u"unexpected response 0x%X from MUX (expected stream_status)", response));
     }
 
     // Data stream now established
     _total_bytes = 0;
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         _state = CONNECTED;
     }
 
     return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Check if the EMMG is connected.
+//----------------------------------------------------------------------------
+
+bool ts::EMMGClient::isConnected() const
+{
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    return _state == CONNECTED;
 }
 
 
@@ -289,7 +243,7 @@ bool ts::EMMGClient::disconnect()
     // Mark disconnection in progress
     State previous_state;
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         previous_state = _state;
         if (_state == CONNECTING || _state == CONNECTED) {
             _state = DISCONNECTING;
@@ -303,7 +257,7 @@ bool ts::EMMGClient::disconnect()
         cleanupResponse();
 
         // Politely send a stream_close_request and wait for a stream_close_response
-        emmgmux::StreamCloseRequest req;
+        emmgmux::StreamCloseRequest req(_protocol);
         req.channel_id = _stream_status.channel_id;
         req.stream_id = _stream_status.stream_id;
         req.client_id = _stream_status.client_id;
@@ -311,7 +265,7 @@ bool ts::EMMGClient::disconnect()
 
         // If we get a polite reply, send a channel_close
         if (ok) {
-            emmgmux::ChannelClose cc;
+            emmgmux::ChannelClose cc(_protocol);
             cc.channel_id = _channel_status.channel_id;
             cc.client_id = _channel_status.client_id;
             ok = _connection.send(cc, _logger);
@@ -319,12 +273,12 @@ bool ts::EMMGClient::disconnect()
     }
 
     // TCP disconnection
-    GuardCondition lock(_mutex, _work_to_do);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     if (previous_state == CONNECTING || previous_state == CONNECTED) {
         _state = DISCONNECTED;
         ok = _connection.disconnect(_logger.report()) && ok;
         ok = _connection.close(_logger.report()) && ok;
-        lock.signal();
+        _work_to_do.notify_one();
     }
 
     // Cleanup UDP socket.
@@ -332,7 +286,7 @@ bool ts::EMMGClient::disconnect()
         ok = _udp_socket.close() && ok;
     }
 
-    _logger.setReport(NullReport::Instance());
+    _logger.setReport(&NULLREP);
     return ok;
 }
 
@@ -347,7 +301,7 @@ bool ts::EMMGClient::requestBandwidth(uint16_t bandwidth, bool synchronous)
     cleanupResponse();
 
     // Send a stream_BW_request message to MUX.
-    emmgmux::StreamBWRequest request;
+    emmgmux::StreamBWRequest request(_protocol);
     request.channel_id = _stream_status.channel_id;
     request.stream_id = _stream_status.stream_id;
     request.client_id = _stream_status.client_id;
@@ -376,7 +330,7 @@ bool ts::EMMGClient::requestBandwidth(uint16_t bandwidth, bool synchronous)
             // Valid response.
             return true;
         default:
-            _logger.report().error(u"unexpected response 0x%X from MUX (expected stream_status)", {response});
+            _logger.report().error(u"unexpected response 0x%X from MUX (expected stream_status)", response);
             return false;
     }
 }
@@ -388,7 +342,7 @@ bool ts::EMMGClient::requestBandwidth(uint16_t bandwidth, bool synchronous)
 
 uint16_t ts::EMMGClient::allocatedBandwidth()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     return _allocated_bw;
 }
 
@@ -405,13 +359,13 @@ bool ts::EMMGClient::dataProvision(const ByteBlockPtr& data)
 
 bool ts::EMMGClient::dataProvision(const void* data, size_t size)
 {
-    return dataProvision(new ByteBlock(data, size));
+    return dataProvision(std::make_shared<ByteBlock>(data, size));
 }
 
 bool ts::EMMGClient::dataProvision(const std::vector<ByteBlockPtr>& data)
 {
     // Build a data provision message.
-    emmgmux::DataProvision request;
+    emmgmux::DataProvision request(_protocol);
     request.channel_id = _stream_status.channel_id;
     request.stream_id = _stream_status.stream_id;
     request.client_id = _stream_status.client_id;
@@ -420,7 +374,7 @@ bool ts::EMMGClient::dataProvision(const std::vector<ByteBlockPtr>& data)
 
     // Eliminate null pointers, count total data bytes.
     for (auto it = request.datagram.begin(); it != request.datagram.end(); ) {
-        if (it->isNull()) {
+        if (*it == nullptr) {
             it = request.datagram.erase(it);
         }
         else {
@@ -472,8 +426,8 @@ bool ts::EMMGClient::dataProvision(const SectionPtrVector& sections)
         // Send data in section format.
         std::vector<ByteBlockPtr> chunks;
         for (size_t i = 0; i < sections.size(); ++i) {
-            if (!sections[i].isNull()) {
-                chunks.push_back(new ByteBlock(sections[i]->content(), sections[i]->size()));
+            if (sections[i] != nullptr) {
+                chunks.push_back(std::make_shared<ByteBlock>(sections[i]->content(), sections[i]->size()));
             }
         }
         return dataProvision(chunks);
@@ -486,7 +440,7 @@ bool ts::EMMGClient::dataProvision(const SectionPtrVector& sections)
 
 void ts::EMMGClient::getLastErrorResponse(std::vector<uint16_t>& error_status, std::vector<uint16_t>& error_information)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     error_status = _error_status;
     error_information = _error_info;
 }
@@ -506,11 +460,11 @@ void ts::EMMGClient::main()
         // Wait for a connection to be managed
         {
             // Lock the mutex, get object state
-            GuardCondition lock(_mutex, _work_to_do);
+            std::unique_lock<std::recursive_mutex> lock(_mutex);
             while (_state == DISCONNECTED) {
                 // Release the mutex and wait for something to do.
                 // Automatically reacquire the mutex when condition is signaled.
-                lock.waitCondition();
+                _work_to_do.wait(lock);
             }
             // Mutex still held, check if thread must terminate
             if (_state == DESTRUCTING) {
@@ -543,20 +497,20 @@ void ts::EMMGClient::main()
                 }
                 case emmgmux::Tags::stream_BW_allocation: {
                     // Store returned bandwidth.
-                    emmgmux::StreamBWAllocation* const resp = dynamic_cast<emmgmux::StreamBWAllocation*>(msg.pointer());
+                        emmgmux::StreamBWAllocation* const resp = dynamic_cast<emmgmux::StreamBWAllocation*>(msg.get());
                     assert(resp != nullptr);
                     {
-                        GuardMutex lock(_mutex);
+                        std::lock_guard<std::recursive_mutex> lock(_mutex);
                         _allocated_bw = resp->has_bandwidth ? resp->bandwidth : 0;
                     }
                     break;
                 }
                 case emmgmux::Tags::stream_error: {
                     // Store returned error.
-                    emmgmux::StreamError* const resp = dynamic_cast<emmgmux::StreamError*>(msg.pointer());
+                        emmgmux::StreamError* const resp = dynamic_cast<emmgmux::StreamError*>(msg.get());
                     assert(resp != nullptr);
                     {
-                        GuardMutex lock(_mutex);
+                        std::lock_guard<std::recursive_mutex> lock(_mutex);
                         _error_status = resp->error_status;
                         _error_info = resp->error_information;
                     }
@@ -564,10 +518,10 @@ void ts::EMMGClient::main()
                 }
                 case emmgmux::Tags::channel_error: {
                     // Store returned error.
-                    emmgmux::ChannelError* const resp = dynamic_cast<emmgmux::ChannelError*>(msg.pointer());
+                        emmgmux::ChannelError* const resp = dynamic_cast<emmgmux::ChannelError*>(msg.get());
                     assert(resp != nullptr);
                     {
-                        GuardMutex lock(_mutex);
+                        std::lock_guard<std::recursive_mutex> lock(_mutex);
                         _error_status = resp->error_status;
                         _error_info = resp->error_information;
                     }
@@ -581,15 +535,15 @@ void ts::EMMGClient::main()
 
             // Notify application thread that a response has arrived.
             if (reportResponse) {
-                GuardCondition lock(_mutex, _got_response);
+                std::lock_guard<std::recursive_mutex> lock(_mutex);
                 _last_response = msg->tag();
-                lock.signal();
+                _got_response.notify_one();
             }
         }
 
         // Error while receiving messages, most likely a disconnection
         {
-            GuardMutex lock(_mutex);
+            std::lock_guard<std::recursive_mutex> lock(_mutex);
             if (_state == DESTRUCTING) {
                 return;
             }

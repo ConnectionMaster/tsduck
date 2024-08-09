@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -36,7 +15,6 @@
 #include "tsTSAnalyzerReport.h"
 #include "tsTSSpeedMetrics.h"
 #include "tsFileNameGenerator.h"
-#include "tsFileUtils.h"
 
 
 //----------------------------------------------------------------------------
@@ -46,10 +24,9 @@
 namespace ts {
     class AnalyzePlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(AnalyzePlugin);
+        TS_PLUGIN_CONSTRUCTORS(AnalyzePlugin);
     public:
         // Implementation of plugin API
-        AnalyzePlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -57,18 +34,19 @@ namespace ts {
 
     private:
         // Command line options:
-        UString           _output_name;
-        NanoSecond        _output_interval;
-        bool              _multiple_output;
-        TSAnalyzerOptions _analyzer_options;
+        fs::path          _output_name {};
+        cn::nanoseconds   _output_interval {};
+        bool              _multiple_output = false;
+        bool              _cumulative = false;
+        TSAnalyzerOptions _analyzer_options {};
 
         // Working data:
-        std::ofstream     _output_stream;
-        std::ostream*     _output;
-        TSSpeedMetrics    _metrics;
-        NanoSecond        _next_report;
-        TSAnalyzerReport  _analyzer;
-        FileNameGenerator _name_gen;
+        std::ofstream     _output_stream {};
+        std::ostream*     _output = nullptr;
+        TSSpeedMetrics    _metrics {};
+        cn::nanoseconds   _next_report {};
+        TSAnalyzerReport  _analyzer {duck};
+        FileNameGenerator _name_gen {};
 
         bool openOutput();
         void closeOutput();
@@ -84,17 +62,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"analyze", ts::AnalyzePlugin);
 //----------------------------------------------------------------------------
 
 ts::AnalyzePlugin::AnalyzePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Analyze the structure of a transport stream", u"[options]"),
-    _output_name(),
-    _output_interval(0),
-    _multiple_output(false),
-    _analyzer_options(),
-    _output_stream(),
-    _output(nullptr),
-    _metrics(),
-    _next_report(0),
-    _analyzer(duck),
-    _name_gen()
+    ProcessorPlugin(tsp_, u"Analyze the structure of a transport stream", u"[options]")
 {
     // Define all standard analysis options.
     duck.defineArgsForStandards(*this);
@@ -103,8 +71,14 @@ ts::AnalyzePlugin::AnalyzePlugin(TSP* tsp_) :
     duck.defineArgsForPDS(*this);
     _analyzer_options.defineArgs(*this);
 
-    option(u"interval", 'i', POSITIVE);
-    help(u"interval", u"seconds",
+    option(u"cumulative", 'c');
+    help(u"cumulative",
+         u"With --interval, accumulate analysis data of all intervals. "
+         u"With this option, each new report is an analysis from the beginning of the stream. "
+         u"By default, the analyzed data are reset after each report.");
+
+    option<cn::seconds>(u"interval", 'i');
+    help(u"interval",
          u"Produce a new output file at regular intervals. "
          u"The interval value is in seconds. "
          u"After outputting a file, the analysis context is reset, "
@@ -118,7 +92,7 @@ ts::AnalyzePlugin::AnalyzePlugin(TSP* tsp_) :
          u"with a time stamp in its name as 'base-YYYYMMDD-hhmmss.ext'.");
 
     option(u"output-file", 'o', FILENAME);
-    help(u"output-file", u"filename",
+    help(u"output-file",
          u"Specify the output text file for the analysis result. "
          u"By default, use the standard output.");
 }
@@ -132,9 +106,10 @@ bool ts::AnalyzePlugin::getOptions()
 {
     duck.loadArgs(*this);
     _analyzer_options.loadArgs(duck, *this);
-    _output_name = value(u"output-file");
-    _output_interval = NanoSecPerSec * intValue<Second>(u"interval", 0);
+    getPathValue(_output_name, u"output-file");
+    getChronoValue(_output_interval, u"interval");
     _multiple_output = present(u"multiple-files");
+    _cumulative = present(u"cumulative");
     return true;
 }
 
@@ -146,6 +121,7 @@ bool ts::AnalyzePlugin::getOptions()
 bool ts::AnalyzePlugin::start()
 {
     _output = _output_name.empty() ? &std::cout : &_output_stream;
+    _analyzer.reset();
     _analyzer.setAnalysisOptions(_analyzer_options);
     _name_gen.initDateTime(_output_name);
 
@@ -156,7 +132,7 @@ bool ts::AnalyzePlugin::start()
     // Create the output file. Note that this file is used only in the stop
     // method and could be created there. However, if the file cannot be
     // created, we do not want to wait all along the analysis and finally fail.
-    if (_output_interval == 0 && !openOutput()) {
+    if (_output_interval <= cn::nanoseconds::zero() && !openOutput()) {
         return false;
     }
 
@@ -176,15 +152,15 @@ bool ts::AnalyzePlugin::openOutput()
     }
 
     // Build file name in case of --multiple-files
-    const UString name(_multiple_output ? _name_gen.newFileName() : _output_name);
+    const fs::path name(_multiple_output ? _name_gen.newFileName() : _output_name);
 
     // Create the file
-    _output_stream.open(name.toUTF8().c_str());
+    _output_stream.open(name);
     if (_output_stream) {
         return true;
     }
     else {
-        tsp->error(u"cannot create file %s", {name});
+        error(u"cannot create file %s", name);
         return false;
     }
 }
@@ -216,7 +192,7 @@ bool ts::AnalyzePlugin::produceReport()
         _analyzer.setBitrateHint(tsp->bitrate(), tsp->bitrateConfidence());
 
         // Produce the report
-        _analyzer.report(*_output, _analyzer_options, *tsp);
+        _analyzer.report(*_output, _analyzer_options, *this);
         closeOutput();
         return true;
     }
@@ -244,13 +220,15 @@ ts::ProcessorPlugin::Status ts::AnalyzePlugin::processPacket(TSPacket& pkt, TSPa
     _analyzer.feedPacket(pkt);
 
     // With --interval, check if it is time to produce a report
-    if (_output_interval > 0 && _metrics.processedPacket() && _metrics.sessionNanoSeconds() >= _next_report) {
+    if (_output_interval > cn::nanoseconds::zero() && _metrics.processedPacket() && _metrics.sessionNanoSeconds() >= _next_report) {
         // Time to produce a report.
         if (!produceReport()) {
             return TSP_END;
         }
         // Reset analysis context.
-        _analyzer.reset();
+        if (!_cumulative) {
+            _analyzer.reset();
+        }
         // Compute next report time.
         _next_report += _output_interval;
     }

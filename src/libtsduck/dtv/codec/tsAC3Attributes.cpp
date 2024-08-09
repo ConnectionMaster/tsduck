@@ -1,49 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsAC3Attributes.h"
 #include "tsBuffer.h"
-
-
-//----------------------------------------------------------------------------
-// Default constructor.
-//----------------------------------------------------------------------------
-
-ts::AC3Attributes::AC3Attributes() :
-    _eac3(false),
-    _surround(false),
-    _bsid(0),
-    _bsmod(0),
-    _acmod(0),
-    _sampling_freq(0)
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -295,7 +259,7 @@ ts::UString ts::AC3Attributes::toString() const
         desc += name;
     }
 
-    desc += UString::Format(u", bsid %d", {_bsid});
+    desc += UString::Format(u", bsid %d", _bsid);
     return desc;
 }
 
@@ -318,7 +282,7 @@ ts::UString ts::AC3Attributes::bitstreamModeDescription() const
         case 5:  return u"commentary";
         case 6:  return u"emergency";
         case 7:  return _acmod == 1 ? u"voice over" : u"karaoke";
-        default: return UString::Format(u"bsmod=%d", {_bsmod});
+        default: return UString::Format(u"bsmod=%d", _bsmod);
     }
 }
 
@@ -341,7 +305,7 @@ ts::UString ts::AC3Attributes::audioCodingDescription() const
         case 5:  return u"3/1 (L,C,R,S)";
         case 6:  return u"2/2 (L,R,SL,SR)";
         case 7:  return u"3/2 (L,C,R,SL,SR)";
-        default: return UString::Format(u"acmod=%d", {_acmod});
+        default: return UString::Format(u"acmod=%d", _acmod);
     }
 }
 

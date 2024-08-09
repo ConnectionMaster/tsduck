@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -102,11 +81,19 @@ bool ts::AbstractTable::useTrailingCRC32() const
 //----------------------------------------------------------------------------
 
 ts::AbstractTable::EntryWithDescriptors::EntryWithDescriptors(const AbstractTable* table) :
+    EntryBase(NPOS),
     descs(table)
 {
 }
 
 ts::AbstractTable::EntryWithDescriptors::EntryWithDescriptors(const AbstractTable* table, const EntryWithDescriptors& other) :
+    EntryBase(NPOS),
+    descs(table, other.descs)
+{
+}
+
+ts::AbstractTable::EntryWithDescriptors::EntryWithDescriptors(const AbstractTable* table, EntryWithDescriptors&& other) :
+    EntryBase(NPOS),
     descs(table, other.descs)
 {
 }
@@ -116,6 +103,7 @@ ts::AbstractTable::EntryWithDescriptors& ts::AbstractTable::EntryWithDescriptors
     if (&other != this) {
         // Copying the descriptor list preserves the associated table of the target.
         descs = other.descs;
+        order_hint = other.order_hint;
     }
     return *this;
 }
@@ -125,6 +113,7 @@ ts::AbstractTable::EntryWithDescriptors& ts::AbstractTable::EntryWithDescriptors
     if (&other != this) {
         // Moving the descriptor list preserves the associated table of the target.
         descs = std::move(other.descs);
+        order_hint = other.order_hint;
     }
     return *this;
 }
@@ -218,14 +207,14 @@ void ts::AbstractTable::addOneSectionImpl(BinaryTable &table, PSIBuffer &payload
     // This method is overridden in AbstractLongTable.
     // Always set one single section in short tables.
     if (table.sectionCount() == 0) {
-        const SectionPtr section(new Section(tableId(), isPrivate(), payload.currentReadAddress(), payload.remainingReadBytes()));
+        const SectionPtr section(std::make_shared<Section>(tableId(), isPrivate(), payload.currentReadAddress(), payload.remainingReadBytes()));
         // Add a trailing CRC32 if this table needs it, even though this is a short section.
         if (useTrailingCRC32()) {
             // The CRC must be computed on the section with the final CRC included in the length.
             section->appendPayload(ByteBlock(4));
             section->setUInt32(section->payloadSize() - 4, CRC32(section->content(), section->size() - 4));
         }
-        table.addSection(section, true);
+        table.addSection(section);
     }
     else {
         // More than one section, this is an error.

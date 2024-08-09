@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,6 +11,8 @@
 #include "tsT2MIDescriptor.h"
 #include "tsBinaryTable.h"
 #include "tsPAT.h"
+#include "tsMemory.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -113,9 +94,9 @@ void ts::T2MIDemux::feedPacket(const TSPacket& pkt)
 
     // Get / create PID context.
     PIDContextPtr& pc(_pids[pid]);
-    if (pc.isNull()) {
-        pc = new PIDContext;
-        CheckNonNull(pc.pointer());
+    if (pc == nullptr) {
+        pc = std::make_shared<PIDContext>();
+        CheckNonNull(pc.get());
     }
 
     // Ignore packets without a payload (their CC should not be incremented, no need to check the synchronization).
@@ -288,9 +269,9 @@ void ts::T2MIDemux::demuxTS(PID pid, PIDContext& pc, const T2MIPacket& pkt)
     // Get / create PLP context.
     const uint8_t plp = pkt.plp();
     PLPContextPtr& plpp(pc.plps[plp]);
-    if (plpp.isNull()) {
-        plpp = new PLPContext;
-        CheckNonNull(plpp.pointer());
+    if (plpp == nullptr) {
+        plpp = std::make_shared<PLPContext>();
+        CheckNonNull(plpp.get());
     }
 
     if (syncd == 0xFFFF) {
@@ -332,7 +313,7 @@ void ts::T2MIDemux::demuxTS(PID pid, PIDContext& pc, const T2MIPacket& pkt)
 
         // Build the TS packet.
         TSPacket tsPkt;
-        ::memcpy(tsPkt.b, &plpp->ts[plpp->ts_next], PKT_SIZE);
+        MemCopy(tsPkt.b, &plpp->ts[plpp->ts_next], PKT_SIZE);
         plpp->ts_next += PKT_SIZE;
 
         // Notify the application. Note that we are already in a protected section.
@@ -402,7 +383,7 @@ void ts::T2MIDemux::processPMT(const PMT& pmt)
         const PID pid = it.first;
         const DescriptorList& dlist(it.second.descs);
         for (size_t index = dlist.search(DID_DVB_EXTENSION); index < dlist.count(); index = dlist.search(DID_DVB_EXTENSION, index + 1)) {
-            if (!dlist[index].isNull()) {
+            if (dlist[index] != nullptr) {
                 const T2MIDescriptor desc(_duck, *dlist[index]);
                 if (desc.isValid() && _handler != nullptr) {
                     // Invoke the user-defined handler to signal the new PID.

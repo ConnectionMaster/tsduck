@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,21 +11,13 @@
 #include "tsTablesDisplay.h"
 #include "tsBinaryTable.h"
 #include "tsSectionFile.h"
-#include "tsPAT.h"
 #include "tsArgs.h"
-#include "tstlv.h"
-#include "tsFileUtils.h"
 #include "tsDuckContext.h"
 #include "tsSimulCryptDate.h"
-#include "tsDuckProtocol.h"
-#include "tsxmlComment.h"
 #include "tsxmlElement.h"
 #include "tsjsonArray.h"
 #include "tsjsonObject.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::TablesLogger::DEFAULT_LOG_SIZE;
-#endif
+#include "tsMJD.h"
 
 
 //----------------------------------------------------------------------------
@@ -54,76 +25,13 @@ constexpr size_t ts::TablesLogger::DEFAULT_LOG_SIZE;
 //----------------------------------------------------------------------------
 
 ts::TablesLogger::TablesLogger(TablesDisplay& display) :
-    TableHandlerInterface(),
-    SectionHandlerInterface(),
-    _use_text(false),
-    _use_xml(false),
-    _use_json(false),
-    _use_binary(false),
-    _use_udp(false),
-    _text_destination(),
-    _xml_destination(),
-    _json_destination(),
-    _bin_destination(),
-    _udp_destination(),
-    _bin_multi_files(false),
-    _bin_stdout(false),
-    _flush(false),
-    _rewrite_xml(false),
-    _rewrite_json(false),
-    _rewrite_binary(false),
-    _log_xml_line(false),
-    _log_json_line(false),
-    _log_hexa_line(false),
-    _log_xml_prefix(),
-    _log_json_prefix(),
-    _log_hexa_prefix(),
-    _udp_local(),
-    _udp_ttl(0),
-    _udp_raw(false),
-    _all_sections(false),
-    _all_once(false),
-    _invalid_sections(false),
-    _invalid_only(false),
-    _invalid_versions(false),
-    _max_tables(0),
-    _time_stamp(false),
-    _packet_index(false),
-    _logger(false),
-    _log_size(DEFAULT_LOG_SIZE),
-    _no_duplicate(false),
-    _pack_all_sections(false),
-    _pack_and_flush(false),
-    _fill_eit(false),
-    _use_current(true),
-    _use_next(false),
-    _xml_tweaks(),
-    _initial_pids(),
-    _xml_options(),
     _display(display),
     _duck(_display.duck()),
-    _report(_duck.report()),
-    _table_handler(nullptr),
-    _section_handler(nullptr),
-    _abort(false),
-    _exit(false),
-    _table_count(0),
-    _packet_count(0),
-    _demux(_duck),
-    _cas_mapper(_duck),
-    _xml_doc(_report),
-    _x2j_conv(_report),
-    _json_doc(_report),
-    _bin_file(),
-    _sock(false, _report),
-    _short_sections(),
-    _last_sections(),
-    _sections_once(),
-    _section_filters()
+    _report(_duck.report())
 {
     // Create an instance of each registered section filter.
-    TablesLoggerFilterRepository::Instance()->createFilters(_section_filters);
-    _report.debug(u"TablesLogger has %s section filters", {_section_filters.size()});
+    TablesLoggerFilterRepository::Instance().createFilters(_section_filters);
+    _report.debug(u"TablesLogger has %s section filters", _section_filters.size());
 }
 
 ts::TablesLogger::~TablesLogger()
@@ -142,8 +50,8 @@ void ts::TablesLogger::defineArgs(Args& args)
     _xml_tweaks.defineArgs(args);
 
     // Define options from all section filters.
-    for (auto it = _section_filters.begin(); it != _section_filters.end(); ++it) {
-        (*it)->defineFilterOptions(args);
+    for (const auto& it : _section_filters) {
+        it->defineFilterOptions(args);
     }
 
     args.option(u"all-once");
@@ -160,7 +68,7 @@ void ts::TablesLogger::defineArgs(Args& args)
               u"or JSON structures may contain complete tables only.");
 
     args.option(u"binary-output", 'b', Args::FILENAME);
-    args.help(u"binary-output", u"filename",
+    args.help(u"binary-output",
               u"Save sections in the specified binary output file. "
               u"If empty or '-', the binary sections are written to the standard output. "
               u"See also option -m, --multiple-files.");
@@ -242,6 +150,9 @@ void ts::TablesLogger::defineArgs(Args& args)
     args.option(u"max-tables", 'x', Args::POSITIVE);
     args.help(u"max-tables", u"Maximum number of tables to dump. Stop logging tables when this limit is reached.");
 
+    args.option(u"meta-sections");
+    args.help(u"meta-sections", u"Add hexadecimal dump of each section in XML and JSON metadata.");
+
     args.option(u"multiple-files", 'm');
     args.help(u"multiple-files",
               u"Create multiple binary output files, one per section. "
@@ -250,6 +161,13 @@ void ts::TablesLogger::defineArgs(Args& args)
               u"each file is created with the name 'base_pXXXX_tXX.ext' for short sections and "
               u"'base_pXXXX_tXX_eXXXX_vXX_sXX.ext' for long sections, where the XX specify the hexadecimal "
               u"values of the PID, TID (table id), TIDext (table id extension), version and section index.");
+
+    args.option(u"no-deep-duplicate");
+    args.help(u"no-deep-duplicate",
+              u"Do not report identical sections in the same PID, even when non-consecutive. "
+              u"A hash of each section is kept for each PID and later identical sections are not reported.\n"
+              u"Warning: This option accumulates memory for hash values of all sections since the beginning. "
+              u"Do not use that option for commands running too long or the process may crash with insufficient memory.");
 
     args.option(u"no-duplicate");
     args.help(u"no-duplicate",
@@ -268,7 +186,7 @@ void ts::TablesLogger::defineArgs(Args& args)
               u"Same as --invalid-sections but do not display valid tables and sections.");
 
     args.option(u"output-file", 'o', Args::FILENAME);
-    args.help(u"output-file", u"filename",
+    args.help(u"output-file",
               u"Save the tables or sections in human-readable text format in the specified "
               u"file. By default, when no output option is specified, text is produced on "
               u"the standard output. If you need text formatting on the standard output in "
@@ -314,7 +232,7 @@ void ts::TablesLogger::defineArgs(Args& args)
               u"The specified file always contains one single table, the latest one.");
 
     args.option(u"text-output", 0, Args::FILENAME);
-    args.help(u"text-output", u"filename", u"A synonym for --output-file.");
+    args.help(u"text-output", u"A synonym for --output-file.");
 
     args.option(u"time-stamp");
     args.help(u"time-stamp", u"Display a time stamp (current local time) with each table.");
@@ -327,12 +245,12 @@ void ts::TablesLogger::defineArgs(Args& args)
               u"Multicast TTL is 1 on most systems.");
 
     args.option(u"xml-output", 0,  Args::FILENAME);
-    args.help(u"xml-output", u"filename",
+    args.help(u"xml-output",
               u"Save the tables in XML format in the specified file. "
               u"To output the XML text on the standard output, explicitly specify this option with \"-\" as output file name.");
 
     args.option(u"json-output", 0,  Args::FILENAME);
-    args.help(u"json-output", u"filename",
+    args.help(u"json-output",
               u"Save the tables in JSON format in the specified file. "
               u"The tables are initially formatted as XML and automated XML-to-JSON conversion is applied. "
               u"To output the JSON text on the standard output, explicitly specify this option with \"-\" as output file name.");
@@ -365,11 +283,11 @@ bool ts::TablesLogger::loadArgs(DuckContext& duck, Args& args)
     }
 
     // Output destinations.
-    args.getValue(_xml_destination, u"xml-output");
-    args.getValue(_json_destination, u"json-output");
-    args.getValue(_bin_destination, u"binary-output");
+    args.getPathValue(_text_destination, u"output-file", args.value(u"text-output"));
+    args.getPathValue(_xml_destination, u"xml-output");
+    args.getPathValue(_json_destination, u"json-output");
+    args.getPathValue(_bin_destination, u"binary-output");
     args.getValue(_udp_destination, u"ip-udp");
-    args.getValue(_text_destination, u"output-file", args.value(u"text-output").c_str());
 
     _bin_stdout = _use_binary && (_bin_destination.empty() || _bin_destination == u"-");
     _bin_multi_files = !_bin_stdout && args.present(u"multiple-files");
@@ -393,9 +311,11 @@ bool ts::TablesLogger::loadArgs(DuckContext& duck, Args& args)
     args.getIntValue(_max_tables, u"max-tables", 0);
     _time_stamp = args.present(u"time-stamp");
     _packet_index = args.present(u"packet-index");
+    _meta_sections = args.present(u"meta-sections");
     _logger = args.present(u"log");
     args.getIntValue(_log_size, u"log-size", DEFAULT_LOG_SIZE);
     _no_duplicate = args.present(u"no-duplicate");
+    _no_deep_duplicate = args.present(u"no-deep-duplicate");
     _udp_raw = args.present(u"no-encapsulation");
     _use_current = !args.present(u"exclude-current");
     _use_next = args.present(u"include-next");
@@ -412,9 +332,9 @@ bool ts::TablesLogger::loadArgs(DuckContext& duck, Args& args)
 
     // Load options from all section filters.
     _initial_pids.reset();
-    for (auto it = _section_filters.begin(); it != _section_filters.end(); ++it) {
+    for (const auto& it : _section_filters) {
         PIDSet pids;
-        if (!(*it)->loadFilterOptions(_duck, args, pids)) {
+        if (!it->loadFilterOptions(_duck, args, pids)) {
             return false;
         }
         _initial_pids |= pids;
@@ -424,6 +344,7 @@ bool ts::TablesLogger::loadArgs(DuckContext& duck, Args& args)
     _xml_options.setPID = true;
     _xml_options.setLocalTime = _time_stamp;
     _xml_options.setPackets = _packet_index;
+    _xml_options.setSections = _meta_sections;
     return _xml_tweaks.loadArgs(duck, args);
 }
 
@@ -444,7 +365,9 @@ bool ts::TablesLogger::open()
     _json_doc.close();
     _short_sections.clear();
     _last_sections.clear();
+    _deep_hashes.clear();
     _sections_once.clear();
+    _x2j_conv.clear();
 
     if (_bin_file.is_open()) {
         _bin_file.close();
@@ -455,6 +378,13 @@ bool ts::TablesLogger::open()
 
     // Set PID's to filter.
     _demux.setPIDFilter(_initial_pids);
+
+    // Reinitialize all section filters.
+    for (const auto& it : _section_filters) {
+        if (!it->reset()) {
+            return false;
+        }
+    }
 
     // Set either a table or section handler, depending on --all-sections
     _demux.setTableHandler(_all_sections ? nullptr : this);
@@ -497,9 +427,9 @@ bool ts::TablesLogger::open()
     if (_use_json && !_rewrite_json) {
         json::ValuePtr root;
         if (_xml_tweaks.x2jIncludeRoot) {
-            root = new json::Object;
+            root = std::make_shared<json::Object>();
             root->add(u"#name", u"tsduck");
-            root->add(u"#nodes", json::ValuePtr(new json::Array));
+            root->add(u"#nodes", std::make_shared<json::Array>());
         }
         if (!_json_doc.open(root, _json_destination, std::cout)) {
             _abort = true;
@@ -599,6 +529,27 @@ bool ts::TablesLogger::isDuplicate(PID pid, const Section& section, std::map<PID
 
 
 //----------------------------------------------------------------------------
+// Detect and track deep duplicate sections by PID.
+//----------------------------------------------------------------------------
+
+bool ts::TablesLogger::isDeepDuplicate(PID pid, const Section& section)
+{
+    // Get a SHA-1 for the section.
+    const ByteBlock hash(section.hash());
+    auto& set(_deep_hashes[pid]);
+    if (set.find(hash) == set.end()) {
+        // Section not yet found on that PID, keep the hash for next time.
+        set.insert(hash);
+        return false;
+    }
+    else {
+        // Section already found.
+        return true;
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // This hook is invoked when a complete table is available.
 //----------------------------------------------------------------------------
 
@@ -623,9 +574,15 @@ void ts::TablesLogger::handleTable(SectionDemux& demux, const BinaryTable& table
     }
 
     // Ignore duplicate tables with a short section.
-    if (_no_duplicate && table.isShortSection() && isDuplicate(pid, *table.sectionAt(0), &TablesLogger::_short_sections)) {
-        // Same section as previously, ignore it.
-        return;
+    if (table.isShortSection()) {
+        if (_no_duplicate && isDuplicate(pid, *table.sectionAt(0), &TablesLogger::_short_sections)) {
+            // Same section as previously, ignore it.
+            return;
+        }
+        if (_no_deep_duplicate && isDeepDuplicate(pid, *table.sectionAt(0))) {
+            // Section alread seen on that PID, ignore it.
+            return;
+        }
     }
 
     // Filtering done, now save table in various formats.
@@ -652,7 +609,7 @@ void ts::TablesLogger::handleTable(SectionDemux& demux, const BinaryTable& table
             xml::Document doc(_report);
             doc.initialize(u"tsduck");
             table.toXML(_duck, doc.rootElement(), _xml_options);
-            doc.save(_xml_destination, 2, true);
+            doc.save(_xml_destination, 2);
         }
         else {
             // Just add the table in the running doc.
@@ -764,7 +721,7 @@ void ts::TablesLogger::handleSection(SectionDemux& demux, const Section& sect)
     // With option --pack-all-sections, force the processing of a complete table.
     if (_pack_all_sections) {
         BinaryTable table;
-        table.addSection(new Section(sect, ShareMode::SHARE));
+        table.addNewSection(sect, ShareMode::SHARE);
         table.packSections();
         if (table.isValid()) {
             handleTable(demux, table);
@@ -785,6 +742,10 @@ void ts::TablesLogger::handleSection(SectionDemux& demux, const Section& sect)
     // Ignore duplicate sections.
     if (_no_duplicate && isDuplicate(pid, sect, &TablesLogger::_last_sections)) {
         // Same section (same hash) as previously, ignore it.
+        return;
+    }
+    if (_no_deep_duplicate && isDeepDuplicate(pid, sect)) {
+        // Section alread seen on that PID, ignore it.
         return;
     }
 
@@ -852,13 +813,13 @@ void ts::TablesLogger::handleInvalidSection(SectionDemux& demux, const DemuxedDa
     const bool is_long = Section::StartLongSection(data, size);
     UString reason;
     if (sec_size > 0 && sec_size != size) {
-        reason.format(u"invalid section size: %d, data size: %d", {sec_size, size});
+        reason.format(u"invalid section size: %d, data size: %d", sec_size, size);
     }
-    else if (is_long && sec_size > 4 && CRC32(data, sec_size - 4) != GetUInt32(data + sec_size)) {
+    else if (is_long && sec_size > 4 && CRC32(data, sec_size - 4) != GetUInt32(data + sec_size - 4)) {
         reason = u"invalid CRC32, corrupted section";
     }
     else if (is_long && data[6] > data[7]) {
-        reason.format(u"invalid section number: %d, last section: %d", {data[6], data[7]});
+        reason.format(u"invalid section number: %d, last section: %d", data[6], data[7]);
     }
 
     preDisplay(ddata.firstTSPacketIndex(), ddata.lastTSPacketIndex());
@@ -889,32 +850,19 @@ void ts::TablesLogger::logXMLJSON(const BinaryTable& table)
         return;
     }
 
-    // Initialize a text formatter for one-liner.
-    TextFormatter text(_report);
-    text.setString();
-    text.setEndOfLineMode(TextFormatter::EndOfLineMode::SPACING);
-
     // Log the XML line.
     if (_log_xml_line) {
-        doc.print(text);
-        _report.info(_log_xml_prefix + text.toString());
+        _report.info(_log_xml_prefix + doc.oneLiner());
     }
 
     // Log the JSON line.
     if (_log_json_line) {
-
         // Convert the XML document into JSON.
         // Force "tsduck" root to appear so that the path to the first table is always the same.
         const json::ValuePtr root(_x2j_conv.convertToJSON(doc, true));
 
-        // Reset the text formatter if already used for XML.
-        if (_log_xml_line) {
-            text.setString();
-        }
-
         // Query the first (and only) converted table and log it as one line.
-        root->query(u"#nodes[0]").print(text);
-        _report.info(_log_json_prefix + text.toString());
+        _report.info(_log_json_prefix + root->query(u"#nodes[0]").oneLiner(_report));
     }
 }
 
@@ -939,7 +887,7 @@ void ts::TablesLogger::sendUDP(const ts::BinaryTable& table)
     }
     else {
         // Build a TLV message.
-        duck::LogTable msg;
+        duck::LogTable msg(_duck_protocol);
         msg.pid = table.sourcePID();
         msg.timestamp = SimulCryptDate(Time::CurrentLocalTime());
         for (size_t i = 0; i < table.sectionCount(); ++i) {
@@ -961,10 +909,10 @@ void ts::TablesLogger::sendUDP(const ts::Section& section)
     }
     else {
         // Build a TLV message.
-        duck::LogSection msg;
+        duck::LogSection msg(_duck_protocol);
         msg.pid = section.sourcePID();
         msg.timestamp = SimulCryptDate(Time::CurrentLocalTime());
-        msg.section = new Section(section, ShareMode::SHARE);
+        msg.section = std::make_shared<Section>(section, ShareMode::SHARE);
 
         // Serialize the message.
         ByteBlockPtr bin(new ByteBlock);
@@ -981,7 +929,7 @@ void ts::TablesLogger::sendUDP(const ts::Section& section)
 // Static routine to analyze UDP messages as sent with option --ip-udp.
 //----------------------------------------------------------------------------
 
-bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool no_encapsulation, SectionPtrVector& sections, Time& timestamp)
+bool ts::TablesLogger::AnalyzeUDPMessage(const duck::Protocol& protocol, const uint8_t* data, size_t size, bool no_encapsulation, SectionPtrVector& sections, Time& timestamp)
 {
     // Clear output parameters.
     sections.clear();
@@ -992,8 +940,8 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
         return false;
     }
 
-    Variable<SimulCryptDate> scDate;
-    Variable<PID> pid;
+    std::optional<SimulCryptDate> scDate;
+    std::optional<PID> pid;
 
     if (no_encapsulation) {
 
@@ -1016,17 +964,17 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
     }
     else {
         // TLV messages in UDP packets. Decode the message.
-        tlv::MessageFactory mf(data, size, duck::Protocol::Instance());
+        tlv::MessageFactory mf(data, size, protocol);
         tlv::MessagePtr msg(mf.factory());
 
         // We expected only two possible messages:
-        const duck::LogSection* logSection = dynamic_cast<const duck::LogSection*>(msg.pointer());
-        const duck::LogTable* logTable = dynamic_cast<const duck::LogTable*>(msg.pointer());
+        const duck::LogSection* logSection = dynamic_cast<const duck::LogSection*>(msg.get());
+        const duck::LogTable* logTable = dynamic_cast<const duck::LogTable*>(msg.get());
 
         if (logSection != nullptr) {
             scDate = logSection->timestamp;
             pid = logSection->pid;
-            if (logSection->section.isNull() || !logSection->section->isValid()) {
+            if (logSection->section == nullptr || !logSection->section->isValid()) {
                 return false;
             }
             else {
@@ -1044,16 +992,16 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
     }
 
     // Set the PID in all sections.
-    if (pid.set()) {
+    if (pid.has_value()) {
         for (auto& it : sections) {
-            if (!it.isNull()) {
+            if (it != nullptr) {
                 it->setSourcePID(pid.value());
             }
         }
     }
 
     // Interpret the timestamp.
-    if (scDate.set()) {
+    if (scDate.has_value()) {
         try {
             timestamp = Time(scDate.value());
         }
@@ -1070,20 +1018,20 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
 // Create a binary file. On error, set _abort and return false.
 //----------------------------------------------------------------------------
 
-bool ts::TablesLogger::createBinaryFile(const ts::UString& name)
+bool ts::TablesLogger::createBinaryFile(const fs::path& name)
 {
     if (_bin_stdout) {
         // Make sure that the standard output is in binary mode.
         return SetBinaryModeStdout(_report);
     }
     else {
-        _report.verbose(u"creating %s", {name});
-        _bin_file.open(name.toUTF8().c_str(), std::ios::out | std::ios::binary);
+        _report.verbose(u"creating %s", name);
+        _bin_file.open(name, std::ios::out | std::ios::binary);
         if (_bin_file) {
             return true;
         }
         else {
-            _report.error(u"error creating %s", {name});
+            _report.error(u"error creating %s", name);
             _abort = true;
             return false;
         }
@@ -1100,12 +1048,13 @@ void ts::TablesLogger::saveBinarySection(const Section& sect)
     // Create individual file for this section if required.
     if (_bin_multi_files) {
         // Build a unique file name for this section
-        UString outname(PathPrefix(_bin_destination));
-        outname.format(u"_p%04X_t%02X", {sect.sourcePID(), sect.tableId()});
+        UString suffix;
+        suffix.format(u"_p%04X_t%02X", sect.sourcePID(), sect.tableId());
         if (sect.isLongSection()) {
-            outname.format(u"_e%04X_v%02X_s%02X", {sect.tableIdExtension(), sect.version(), sect.sectionNumber()});
+            suffix.format(u"_e%04X_v%02X_s%02X", sect.tableIdExtension(), sect.version(), sect.sectionNumber());
         }
-        outname += PathSuffix(_bin_destination);
+        fs::path outname(_bin_destination);
+        outname.replace_filename(_bin_destination.stem() + suffix + _bin_destination.extension());
         // Create the output file
         if (!createBinaryFile(outname)) {
             return;
@@ -1131,21 +1080,30 @@ ts::UString ts::TablesLogger::logHeader(const DemuxedData& data)
 {
     UString header;
     if (_time_stamp) {
-        header.format(u"%s: ", {Time::CurrentLocalTime()});
+        header.format(u"%s: ", Time::CurrentLocalTime());
     }
     if (_packet_index) {
-        header.format(u"Packet %'d to %'d, ", {data.firstTSPacketIndex(), data.lastTSPacketIndex()});
+        header.format(u"Packet %'d to %'d, ", data.firstTSPacketIndex(), data.lastTSPacketIndex());
     }
-    header.format(u"PID 0x%X", {data.sourcePID()});
+    header.format(u"PID 0x%X", data.sourcePID());
     return header;
 }
 
 void ts::TablesLogger::logSection(const Section& sect)
 {
+    const TID tid = sect.tableId();
     UString header(logHeader(sect));
-    header.format(u", TID 0x%X", {sect.tableId()});
+    header.format(u", TID 0x%X", tid);
     if (sect.isLongSection()) {
-        header.format(u", TIDext 0x%X, V%d, Sec %d/%d", {sect.tableIdExtension(), sect.version(), sect.sectionNumber(), sect.lastSectionNumber()});
+        header.format(u", TIDext 0x%X, V%d, Sec %d/%d", sect.tableIdExtension(), sect.version(), sect.sectionNumber(), sect.lastSectionNumber());
+    }
+    else if (bool(_duck.standards() & Standards::DVB) && (tid == TID_TDT || tid == TID_TOT) && sect.payloadSize() >= MJD_SIZE) {
+        // Get UTC time from DVB TDT or TOT. The time reference is UTC as defined by DVB, but can be non-standard.
+        Time utc;
+        if (DecodeMJD(sect.payload(), MJD_SIZE, utc)) {
+            utc -= _duck.timeReferenceOffset();
+            header.format(u", %s", utc.format(Time::DATETIME));
+        }
     }
     header.append(u": ");
     _display.logSectionData(sect, header, _log_size, _cas_mapper.casId(sect.sourcePID()));
@@ -1156,15 +1114,17 @@ void ts::TablesLogger::logInvalid(const DemuxedData& data, const UString& reason
     // Number of bytes to log:
     const size_t size = _log_size == 0 ? data.size() : std::min(_log_size, data.size());
 
-    _display << logHeader(data) << ", invalid section";
+    UString line(logHeader(data));
+    line += u", invalid section";
     if (!reason.empty()) {
-        _display << " (" << reason << ")";
+        line.format(u" (%s)", reason);
     }
-    _display << ": " << UString::Dump(data.content(), size, UString::SINGLE_LINE);
+    line += u": ";
+    line.appendDump(data.content(), size, UString::SINGLE_LINE);
     if (data.size() > size) {
-        _display << " ...";
+        line += u" ...";
     }
-    _display << std::endl;
+    _display.logLine(line);
 }
 
 
@@ -1179,9 +1139,9 @@ bool ts::TablesLogger::isFiltered(const Section& sect, uint16_t cas)
 
     // Call all section filters. Keep the section if all filters agree.
     // Make sure to call all filters, even after one returned false to collect additional PID's.
-    for (auto it = _section_filters.begin(); it != _section_filters.end(); ++it) {
+    for (const auto& it : _section_filters) {
         PIDSet pids;
-        if (!(*it)->filterSection(_duck, sect, cas, pids)) {
+        if (!it->filterSection(_duck, sect, cas, pids)) {
             status = false;
         }
         _demux.addPIDs(pids);
@@ -1213,7 +1173,7 @@ void ts::TablesLogger::preDisplay(PacketCounter first, PacketCounter last)
             strm << ", ";
         }
         if (_packet_index) {
-            strm << UString::Format(u"First TS packet: %'d, last: %'d", {first, last});
+            strm << UString::Format(u"First TS packet: %'d, last: %'d", first, last);
         }
         strm << std::endl;
     }

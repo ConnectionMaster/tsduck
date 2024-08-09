@@ -1,57 +1,84 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsReport.h"
 
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr int ts::Severity::Fatal;
-constexpr int ts::Severity::Severe;
-constexpr int ts::Severity::Error;
-constexpr int ts::Severity::Warning;
-constexpr int ts::Severity::Info;
-constexpr int ts::Severity::Verbose;
-constexpr int ts::Severity::Debug;
-#endif
-
 
 //----------------------------------------------------------------------------
-// Constructors and destructors.
+// Constructors and destructor.
 //----------------------------------------------------------------------------
 
-ts::Report::Report(int max_severity) :
+ts::Report::Report(int max_severity, const UString& prefix, Report* report) :
     _max_severity(max_severity),
-    _got_errors(false)
+    _prefix(prefix)
 {
+    if (report != nullptr && report != this) {
+        // Constructor: no need to synchronize on "this" yet, only on delegate.
+        std::lock_guard<std::mutex> lock(report->_mutex);
+        report->_delegated.insert(this);
+        _delegate = report;
+    }
 }
 
 ts::Report::~Report()
 {
+    // Destructor: no longer need to synchronize on "this".
+    std::lock_guard<std::mutex> lock1(_mutex);
+
+    // Unlink from delegate, if there is one.
+    Report* const del = _delegate;
+    if (del != nullptr) {
+        std::lock_guard<std::mutex> lock2(del->_mutex);
+        del->_delegated.erase(this);
+        _delegate = nullptr;
+    }
+
+    // Unlink other reports which delegated to this.
+    for (auto child : _delegated) {
+        // There is a race condition here (see comment at end of class declaration).
+        // If the child logs a message at the same time, it may read its _delegate,
+        // then the delegate (this object) is destructed, then the child logs on
+        // the destructed object.
+        child->_delegate = nullptr;
+    }
+    _delegated.clear();
+}
+
+
+//----------------------------------------------------------------------------
+// Delegate message logging to another report object.
+//----------------------------------------------------------------------------
+
+ts::Report* ts::Report::delegateReport(Report* report)
+{
+    // Avoid looping.
+    if (report == this) {
+        report = nullptr;
+    }
+
+    // First, lock on this object.
+    std::lock_guard<std::mutex> lock1(_mutex);
+
+    // Unlink from previous.
+    Report* const previous = _delegate;
+    if (previous != nullptr) {
+        std::lock_guard<std::mutex> lock2(previous->_mutex);
+        previous->_delegated.erase(this);
+    }
+
+    // Link to new.
+    if (report != nullptr) {
+        std::lock_guard<std::mutex> lock2(report->_mutex);
+        report->_delegated.insert(this);
+    }
+    _delegate = report;
+
+    return previous;
 }
 
 
@@ -59,65 +86,33 @@ ts::Report::~Report()
 // Set maximum debug level.
 //----------------------------------------------------------------------------
 
-void ts::Report::setMaxSeverity(int level)
+void ts::Report::setMaxSeverity(int level, bool delegated)
 {
     _max_severity = level;
+    if (delegated) {
+        for (Report* del = _delegate; del != nullptr; del = del->_delegate) {
+            del->_max_severity = level;
+        }
+    }
     if (level >= Severity::Debug) {
-        log(level, u"debug level set to %d", {level});
+        log(level, u"debug level set to %d", level);
     }
 }
 
-void ts::Report::raiseMaxSeverity(int level)
+void ts::Report::raiseMaxSeverity(int level, bool delegated)
 {
     if (_max_severity < level) {
-        setMaxSeverity(level);
+        _max_severity = level;
     }
-}
-
-
-//----------------------------------------------------------------------------
-// Enumeration to use severity values on the command line for instance.
-//----------------------------------------------------------------------------
-
-const ts::Enumeration ts::Severity::Enums({
-    {u"fatal",   ts::Severity::Fatal},
-    {u"severe",  ts::Severity::Severe},
-    {u"error",   ts::Severity::Error},
-    {u"warning", ts::Severity::Warning},
-    {u"info",    ts::Severity::Info},
-    {u"verbose", ts::Severity::Verbose},
-    {u"debug",   ts::Severity::Debug},
-});
-
-
-//----------------------------------------------------------------------------
-// Formatted line prefix header for a severity
-//----------------------------------------------------------------------------
-
-ts::UString ts::Severity::Header(int severity)
-{
-    if (severity < Fatal) {
-        // Invalid / undefined severity.
-        return UString::Format(u"[%d] ", {severity});
-    }
-    else if (severity > Debug) {
-        return UString::Format(u"Debug[%d]: ", {severity});
-    }
-    else {
-        switch (severity) {
-            case Fatal:
-                return u"FATAL ERROR: ";
-            case Severe:
-                return u"SEVERE ERROR: ";
-            case Error:
-                return u"Error: ";
-            case Warning:
-                return u"Warning: ";
-            case Debug:
-                return u"Debug: ";
-            default: // Including Info and Verbose
-                return UString();
+    if (delegated) {
+        for (Report* del = _delegate; del != nullptr; del = del->_delegate) {
+            if (del->_max_severity < level) {
+                del->_max_severity = level;
+            }
         }
+    }
+    if (level >= Severity::Debug) {
+        log(level, u"debug level set to %d", level);
     }
 }
 
@@ -132,20 +127,22 @@ void ts::Report::log(int severity, const UString& msg)
         _got_errors = true;
     }
     if (severity <= _max_severity) {
-        writeLog(severity, msg);
+        // _delegate is volatile, use a copy.
+        Report* const del = _delegate;
+        if (del != nullptr) {
+            del->log(severity, _prefix.empty() ? msg : _prefix + msg);
+        }
+        else {
+            writeLog(severity, _prefix.empty() ? msg : _prefix + msg);
+        }
     }
 }
 
-void ts::Report::log(int severity, const UChar* fmt, std::initializer_list<ArgMixIn> args)
-{
-    if (severity <= _max_severity) {
-        log(severity, UString::Format(fmt, args));
-    }
-}
 
-void ts::Report::log(int severity, const UString& fmt, std::initializer_list<ArgMixIn> args)
+//----------------------------------------------------------------------------
+// Actual message reporting method. By default, does nothing.
+//----------------------------------------------------------------------------
+
+void ts::Report::writeLog(int severity, const UString& msg)
 {
-    if (severity <= _max_severity) {
-        log(severity, UString::Format(fmt, args));
-    }
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,9 +14,6 @@
 #include "tsPluginRepository.h"
 #include "tsTimeShiftBuffer.h"
 
-#define DEF_EVAL_MS       1000  // Default initial evaluation duration in milliseconds.
-#define MAX_EVAL_PACKETS 30000  // Max number of packets after which the bitrate must be known.
-
 
 //----------------------------------------------------------------------------
 // Plugin definition
@@ -46,10 +22,9 @@
 namespace ts {
     class PIDShiftPlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(PIDShiftPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PIDShiftPlugin);
     public:
         // Implementation of plugin API
-        PIDShiftPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -57,16 +32,19 @@ namespace ts {
 
     private:
         // Command line options:
-        bool            _ignore_errors;  // Ignore evaluation errors.
-        size_t          _shift_packets;  // Shift buffer size in packets.
-        MilliSecond     _shift_ms;       // Shift buffer size in milliseconds.
-        MilliSecond     _eval_ms;        // Initial evaluation phase duration in milliseconds.
-        PIDSet          _pids;           // List of PID's to shift forward.
+        bool             _ignore_errors = false;  // Ignore evaluation errors.
+        size_t           _shift_packets = 0;      // Shift buffer size in packets.
+        cn::milliseconds _shift_ms {};            // Shift buffer size in milliseconds.
+        cn::milliseconds _eval_ms {};             // Initial evaluation phase duration in milliseconds.
+        PIDSet           _pids {};                // List of PID's to shift forward.
 
         // Working data:
-        bool            _pass_all;       // Pass all packets after an error.
-        PacketCounter   _init_packets;   // Count packets in PID's to shift during initial evaluation phase.
-        TimeShiftBuffer _buffer;         // The timeshift buffer logic.
+        bool             _pass_all = false;       // Pass all packets after an error.
+        PacketCounter    _init_packets = 0;       // Count packets in PID's to shift during initial evaluation phase.
+        TimeShiftBuffer  _buffer {};              // The timeshift buffer logic.
+
+        static constexpr cn::milliseconds DEF_EVAL_MS = cn::milliseconds(1000);  // Default initial evaluation duration in milliseconds.
+        static constexpr PacketCounter MAX_EVAL_PACKETS = 30000;                 // Max number of packets after which the bitrate must be known.
     };
 }
 
@@ -78,15 +56,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pidshift", ts::PIDShiftPlugin);
 //----------------------------------------------------------------------------
 
 ts::PIDShiftPlugin::PIDShiftPlugin (TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Shift one or more PID's forward in the transport stream", u"[options]"),
-    _ignore_errors(false),
-    _shift_packets(0),
-    _shift_ms(0),
-    _eval_ms(0),
-    _pids(),
-    _pass_all(false),
-    _init_packets(0),
-    _buffer()
+    ProcessorPlugin(tsp_, u"Shift one or more PID's forward in the transport stream", u"[options]")
 {
     option(u"pid", 'p', PIDVAL, 1, UNLIMITED_COUNT);
     help(u"pid", u"pid1[-pid2]",
@@ -104,8 +74,8 @@ ts::PIDShiftPlugin::PIDShiftPlugin (TSP* tsp_) :
          u"There is no default, the size of the buffer shall be specified either using --packets or --time. "
          u"Using --packets is less intuitive than --time but allows starting the shift from the beginning.");
 
-    option(u"time", 't', POSITIVE);
-    help(u"time", u"milliseconds",
+    option<cn::milliseconds>(u"time", 't');
+    help(u"time",
          u"Specify the size of the shift buffer in milliseconds. "
          u"During an initial evaluation phase (see option --initial-evaluation), "
          u"the global bitrate of all PID's to shift forward is evaluated. "
@@ -114,11 +84,11 @@ ts::PIDShiftPlugin::PIDShiftPlugin (TSP* tsp_) :
          u"Actual shifting the PID's starts at the end of this evaluation phase. "
          u"There is no default, the size of the buffer shall be specified either using --packets or --time.");
 
-    option(u"initial-evaluation", 'i', POSITIVE);
-    help(u"initial-evaluation", u"milliseconds",
+    option<cn::milliseconds>(u"initial-evaluation", 'i');
+    help(u"initial-evaluation",
          u"With --time, specify the duration of the initial evaluation phase in milliseconds. "
          u"This is a transport stream playout duration, not a wall-clock duration. "
-         u"The default is " + UString::Decimal(DEF_EVAL_MS) + u" milliseconds.");
+         u"The default is " + UString::Chrono(DEF_EVAL_MS) + u".");
 
     option(u"ignore-errors");
     help(u"ignore-errors",
@@ -149,8 +119,8 @@ bool ts::PIDShiftPlugin::getOptions()
 {
     _ignore_errors = present(u"ignore-errors");
     getIntValue(_shift_packets, u"packets", 0);
-    getIntValue(_shift_ms, u"time", 0);
-    getIntValue(_eval_ms, u"initial-evaluation", DEF_EVAL_MS);
+    getChronoValue(_shift_ms, u"time");
+    getChronoValue(_eval_ms, u"initial-evaluation", DEF_EVAL_MS);
     getIntValues(_pids, u"pid");
 
     _buffer.setBackupDirectory(value(u"directory"));
@@ -161,8 +131,8 @@ bool ts::PIDShiftPlugin::getOptions()
         _pids.flip();
     }
 
-    if ((_shift_packets > 0 && _shift_ms > 0) || (_shift_packets == 0 && _shift_ms == 0)) {
-        tsp->error(u"specify exactly one of --packets and --time for shift buffer sizing");
+    if ((_shift_packets > 0 && _shift_ms > cn::milliseconds::zero()) || (_shift_packets == 0 && _shift_ms == cn::milliseconds::zero())) {
+        error(u"specify exactly one of --packets and --time for shift buffer sizing");
         return false;
     }
     return true;
@@ -178,7 +148,7 @@ bool ts::PIDShiftPlugin::start()
     if (_shift_packets > 0) {
         // Initialize the buffer only when its size is specified in packets.
         _buffer.setTotalPackets(_shift_packets);
-        return _buffer.open(*tsp);
+        return _buffer.open(*this);
     }
     else {
         // Need an evaluation phase.
@@ -195,7 +165,7 @@ bool ts::PIDShiftPlugin::start()
 
 bool ts::PIDShiftPlugin::stop()
 {
-    _buffer.close(*tsp);
+    _buffer.close(*this);
     return true;
 }
 
@@ -224,34 +194,34 @@ ts::ProcessorPlugin::Status ts::PIDShiftPlugin::processPacket(TSPacket& pkt, TSP
         // Evaluate the duration from the beginning of the TS (zero if bitrate is unknown).
         const BitRate ts_bitrate = tsp->bitrate();
         const PacketCounter ts_packets = tsp->pluginPackets() + 1;
-        const MilliSecond ms = PacketInterval(ts_bitrate, ts_packets);
+        const cn::milliseconds ms = PacketInterval(ts_bitrate, ts_packets);
 
         if (ms >= _eval_ms) {
             // The evaluation phase is completed.
             // Global bitrate of the selected PID's = ts_bitrate * _init_packet / ts_packets
             // Compute the amount of packets to shift in the selected PID's:
-            const PacketCounter count = ((ts_bitrate * _init_packets * _shift_ms) / (ts_packets * MilliSecPerSec * PKT_SIZE_BITS)).toInt();
+            const PacketCounter count = PacketDistance((ts_bitrate * _init_packets) / ts_packets, _shift_ms);
 
-            tsp->debug(u"TS bitrate: %'d b/s, TS packets: %'d, selected: %'d, duration: %'d ms, shift: %'d packets", {ts_bitrate, ts_packets, _init_packets, ms, count});
+            debug(u"TS bitrate: %'d b/s, TS packets: %'d, selected: %'d, duration: %'!s, shift: %'d packets", ts_bitrate, ts_packets, _init_packets, ms, count);
 
             // We can do that only if we have seen some packets from them.
             if (count < TimeShiftBuffer::MIN_TOTAL_PACKETS) {
-                tsp->error(u"not enough packets from selected PID's during evaluation phase, cannot compute the shift buffer size");
+                error(u"not enough packets from selected PID's during evaluation phase, cannot compute the shift buffer size");
                 _pass_all = true;
                 return _ignore_errors ? TSP_OK : TSP_END;
             }
 
-            tsp->verbose(u"setting shift buffer size to %'d packets", {count});
+            verbose(u"setting shift buffer size to %'d packets", count);
             _buffer.setTotalPackets(size_t(count));
 
             // Open the shift buffer.
-            if (!_buffer.open(*tsp)) {
+            if (!_buffer.open(*this)) {
                 _pass_all = true;
                 return _ignore_errors ? TSP_OK : TSP_END;
             }
         }
         else if (ts_packets > MAX_EVAL_PACKETS && ts_bitrate == 0) {
-            tsp->error(u"bitrate still unknown after %'d packets, cannot compute the shift buffer size", {ts_packets});
+            error(u"bitrate still unknown after %'d packets, cannot compute the shift buffer size", ts_packets);
             _pass_all = true;
             return _ignore_errors ? TSP_OK : TSP_END;
         }
@@ -262,7 +232,7 @@ ts::ProcessorPlugin::Status ts::PIDShiftPlugin::processPacket(TSPacket& pkt, TSP
     }
 
     // No longer in evaluation phase, shift packets.
-    if (_pids.test(pid) && !_buffer.shift(pkt, pkt_data, *tsp)) {
+    if (_pids.test(pid) && !_buffer.shift(pkt, pkt_data, *this)) {
         _pass_all = true;
         return _ignore_errors ? TSP_OK : TSP_END;
     }

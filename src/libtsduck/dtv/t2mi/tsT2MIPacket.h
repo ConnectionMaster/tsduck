@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -44,16 +23,17 @@ namespace ts {
     //!
     //! Safe pointer for T2MIPacket (not thread-safe).
     //!
-    typedef SafePtr<T2MIPacket, NullMutex> T2MIPacketPtr;
+    using T2MIPacketPtr = std::shared_ptr<T2MIPacket>;
 
     //!
     //! Vector of T2MIPacket safe pointers.
     //!
-    typedef std::vector<T2MIPacketPtr> T2MIPacketPtrVector;
+    using T2MIPacketPtrVector = std::vector<T2MIPacketPtr>;
 
     //!
     //! Representation of a DVB T2-MI (DVB-T2 Modulator Interface) packet.
     //! @ingroup mpeg
+    //! @see ETSI TS 102 773 V1.4.1, section 5.1
     //!
     class TSDUCKDLL T2MIPacket : public DemuxedData
     {
@@ -61,13 +41,13 @@ namespace ts {
         //!
         //! Explicit identification of super class.
         //!
-        typedef DemuxedData SuperClass;
+        using SuperClass = DemuxedData;
 
         //!
         //! Default constructor.
         //! The T2MIPacket is initially marked invalid.
         //!
-        T2MIPacket();
+        T2MIPacket() = default;
 
         //!
         //! Copy constructor.
@@ -153,17 +133,7 @@ namespace ts {
         //! @return True if the two packets are identical. False otherwise.
         //!
         bool operator==(const T2MIPacket& other) const;
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! The source PID's are ignored, only the packet contents are compared.
-        //! Invalid packets are never identical.
-        //! @param [in] other Other packet to compare.
-        //! @return True if the two packets are different. False otherwise.
-        //!
-        bool operator!=(const T2MIPacket& other) const { return !operator==(other); }
-#endif
+        TS_UNEQUAL_OPERATOR(T2MIPacket)
 
         //!
         //! Access to the payload of the packet.
@@ -246,7 +216,7 @@ namespace ts {
 
     private:
         // Private fields
-        bool _is_valid;
+        bool _is_valid = false;
 
         // Validate binary content.
         void validate();

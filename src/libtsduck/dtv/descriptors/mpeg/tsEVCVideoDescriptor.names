@@ -1,0 +1,31 @@
+[EVC_video_descriptor.profile_idc]
+Bits = 8
+# ISO/IEC 23094-1, Annex A.3
+0 = Baseline
+1 = Main
+2 = Baseline Still Picture
+3 = Main Still Picture
+
+[EVC_video_descriptor.level_idc]
+Bits = 8
+# ISO/IEC 23094-1, Annex A.4
+30  = 1
+60  = 2
+63  = 2.1
+90  = 3
+93  = 3.1
+120 = 4
+123 = 4.1
+150 = 5
+153 = 5.1
+156 = 5.2
+180 = 6
+183 = 6.1
+186 = 6.2
+
+[EVC_video_descriptor.hdr_wcg_idc]
+Inherit = VVC_video_descriptor.hdr_wcg_idc
+
+[EVC_video_descriptor.video_properties]
+Inherit = VVC_video_descriptor.video_properties
+

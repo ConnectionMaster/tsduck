@@ -1,55 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPollFiles.h"
 #include "tsFileUtils.h"
-#include "tsSysUtils.h"
-
-
-//----------------------------------------------------------------------------
-// Constructor.
-//----------------------------------------------------------------------------
-
-ts::PollFiles::PollFiles(const UString& wildcard,
-                         PollFilesListener* listener,
-                         MilliSecond poll_interval,
-                         MilliSecond min_stable_delay,
-                         Report& report) :
-    _files_wildcard(wildcard),
-    _report(report),
-    _poll_interval(poll_interval),
-    _min_stable_delay(min_stable_delay),
-    _listener(listener),
-    _polled_files(),
-    _notified_files()
-{
-}
+#include "tsErrCodeReport.h"
 
 
 //----------------------------------------------------------------------------
@@ -58,12 +17,12 @@ ts::PollFiles::PollFiles(const UString& wildcard,
 
 void ts::PollFiles::pollRepeatedly()
 {
-    _report.debug(u"Starting PollFiles on %s, poll interval = %d ms, min stable delay = %d ms", {_files_wildcard, _poll_interval, _min_stable_delay});
+    _report.debug(u"Starting PollFiles on %s, poll interval = %!s, min stable delay = %!s", _files_wildcard, _poll_interval, _min_stable_delay);
 
     // Loop on poll for files.
     while (pollOnce()) {
         // Wait until next poll
-        SleepThread(_poll_interval);
+        std::this_thread::sleep_for(_poll_interval);
     }
 }
 
@@ -84,7 +43,7 @@ bool ts::PollFiles::pollOnce()
         }
         catch (const std::exception& e) {
             const char* msg = e.what();
-            _report.error(u"Exception in PollFiles listener: %s", {msg == nullptr ? "unknown" : msg});
+            _report.error(u"Exception in PollFiles listener: %s", msg == nullptr ? "unknown" : msg);
         }
     }
 
@@ -99,7 +58,7 @@ bool ts::PollFiles::pollOnce()
     for (const auto& name : found_files) {
 
         // Get characteristics of next found file
-        const int64_t size(GetFileSize(name));
+        const std::uintmax_t size = fs::file_size(name, &ErrCodeReport());
         const Time date(GetFileModificationTimeUTC(name));
 
         // Remove polled files before the found file
@@ -124,7 +83,7 @@ bool ts::PollFiles::pollOnce()
         if (pf->_pending && now >= pf->_found_date + _min_stable_delay) {
             pf->_pending = false;
             _notified_files.push_back(pf);
-            _report.debug(u"PolledFiles: %s %s", {PolledFile::StatusEnumeration.name(pf->_status), name});
+            _report.debug(u"PolledFiles: %s %s", PolledFile::StatusEnumeration.name(pf->_status), name);
         }
 
         // Next polled file
@@ -146,7 +105,7 @@ bool ts::PollFiles::pollOnce()
         }
         catch (const std::exception& e) {
             const char* msg = e.what();
-            _report.error(u"Exception in PollFiles listener: %s", {msg == nullptr ? "unknown" : msg});
+            _report.error(u"Exception in PollFiles listener: %s", msg == nullptr ? "unknown" : msg);
         }
     }
 
@@ -162,7 +121,7 @@ bool ts::PollFiles::pollOnce()
 
 void ts::PollFiles::deleteFile(PolledFileList::iterator& polled)
 {
-    _report.debug(u"PolledFiles: deleted %s", {(*polled)->_name});
+    _report.debug(u"PolledFiles: deleted %s", (*polled)->_name);
     (*polled)->_status = PolledFile::DELETED;
     _notified_files.push_back(*polled);
     polled = _polled_files.erase(polled);

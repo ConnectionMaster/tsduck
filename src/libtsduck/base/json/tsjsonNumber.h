@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -39,30 +18,38 @@ namespace ts {
     namespace json {
         //!
         //! Implementation of a JSON number.
-        //! Currently, floating-point numbers are not implemented.
-        //! All JSON numbers are integers or null.
         //! @ingroup json
         //!
         class TSDUCKDLL Number : public Value
         {
         public:
             //!
-            //! Constructor.
-            //! @param [in] value Initial integer value.
+            //! Default constructor.
             //!
-            Number(int64_t value = 0) : _value(value) {}
+            Number() = default;
+
+            //!
+            //! Constructor with an integer or floating point value.
+            //! @tparam T An integer or floating point type.
+            //! @param [in] value Initial value.
+            //!
+            template <typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
+            Number(T value) : _integer(int64_t(value)), _float(double(value)) {}
 
             // Implementation of ts::json::Value.
             virtual Type type() const override;
             virtual bool isNumber() const override;
+            virtual bool isInteger() const override;
             virtual void print(TextFormatter& output) const override;
             virtual bool toBoolean(bool defaultValue = false) const override;
             virtual int64_t toInteger(int64_t defaultValue = 0) const override;
+            virtual double toFloat(double defaultValue = 0.0) const override;
             virtual UString toString(const UString& defaultValue = UString()) const override;
             virtual void clear() override;
 
         private:
-            int64_t _value;
+            int64_t _integer = 0;
+            double _float = 0.0;
         };
     }
 }

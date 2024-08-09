@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,9 +13,14 @@
 
 #pragma once
 #include "tsSignalizationHandlerInterface.h"
+#include "tsService.h"
 #include "tsSectionDemux.h"
-#include "tsSafePtr.h"
+#include "tsCodecType.h"
 #include "tsAlgorithm.h"
+#include "tsTime.h"
+#include "tsPAT.h"
+#include "tsPMT.h"
+#include "tsNIT.h"
 
 namespace ts {
     //!
@@ -307,6 +291,13 @@ namespace ts {
         uint8_t streamType(PID pid, uint8_t deftype = ST_NULL) const;
 
         //!
+        //! Check if a PID contains scrambled packets.
+        //! @param [in] pid The PID to check.
+        //! @return True if at least one scrambled packets has been found in the PID.
+        //!
+        bool isScrambled(PID pid) const;
+
+        //!
         //! Get the number of TS packets in a PID.
         //! @param [in] pid The PID to check.
         //! @return The number of packets in that PID.
@@ -402,19 +393,20 @@ namespace ts {
         {
             TS_NOBUILD_NOCOPY(PIDContext);
         public:
-            const PID          pid;          // PID value (cannot change).
-            PIDClass           pid_class;    // Class of PID.
-            CodecType          codec;        // Codec type (if any).
-            uint8_t            stream_type;  // Stream type from PMT or ST_NULL.
-            uint16_t           cas_id;       // CAS id for ECM or EMM PID's.
-            PacketCounter      packets;      // Number of packets in this PID.
-            PacketCounter      pusi_count;   // Number of packets with PUSI.
-            PacketCounter      first_pusi;   // Number of packets before first PUSI.
-            PacketCounter      last_pusi;    // Number of packets before last PUSI.
-            PacketCounter      intra_count;  // Number of packets with PUSI.
-            PacketCounter      first_intra;  // Number of packets before first PUSI.
-            PacketCounter      last_intra;   // Number of packets before last PUSI.
-            std::set<uint16_t> services;     // List of services owning this PID.
+            const PID          pid;                                   // PID value (cannot change).
+            bool               scrambled = false;                     // Contains encrypted packets.
+            PIDClass           pid_class = PIDClass::UNDEFINED;       // Class of PID.
+            CodecType          codec = CodecType::UNDEFINED;          // Codec type (if any).
+            uint8_t            stream_type = ST_NULL;                 // Stream type from PMT or ST_NULL.
+            uint16_t           cas_id = CASID_NULL;                   // CAS id for ECM or EMM PID's.
+            PacketCounter      packets = 0;                           // Number of packets in this PID.
+            PacketCounter      pusi_count = 0;                        // Number of packets with PUSI.
+            PacketCounter      first_pusi = INVALID_PACKET_COUNTER;   // Number of packets before first PUSI.
+            PacketCounter      last_pusi = INVALID_PACKET_COUNTER;    // Number of packets before last PUSI.
+            PacketCounter      intra_count = 0;                       // Number of packets with PUSI.
+            PacketCounter      first_intra = INVALID_PACKET_COUNTER;  // Number of packets before first PUSI.
+            PacketCounter      last_intra = INVALID_PACKET_COUNTER;   // Number of packets before last PUSI.
+            std::set<uint16_t> services {};                           // List of services owning this PID.
 
             // Constructor.
             PIDContext(PID);
@@ -422,41 +414,74 @@ namespace ts {
             // Register a CAS type from a table.
             void setCAS(const AbstractTable* table, uint16_t cas_id);
         };
-        typedef SafePtr<PIDContext> PIDContextPtr;
-        typedef std::map<PID, PIDContextPtr> PIDContextMap;
+        using PIDContextPtr = std::shared_ptr<PIDContext>;
+        using PIDContextMap = std::map<PID, PIDContextPtr>;
 
         // Description of a Service.
         class ServiceContext
         {
             TS_NOBUILD_NOCOPY(ServiceContext);
         public:
-            Service service;  // Service description. The service id is always present and constant.
-            PMT     pmt;      // Last PMT (invalidated if not yet received).
+            Service service {};  // Service description. The service id is always present and constant.
+            PMT     pmt {};      // Last PMT (invalidated if not yet received).
 
             // Constructor.
             ServiceContext(uint16_t service_id);
         };
-        typedef SafePtr<ServiceContext> ServiceContextPtr;
-        typedef std::map<uint16_t, ServiceContextPtr> ServiceContextMap;
+        using ServiceContextPtr = std::shared_ptr<ServiceContext>;
+        using ServiceContextMap = std::map<uint16_t, ServiceContextPtr>;
+
+        // A view of ServiceContextMap which iterates over Service fields.
+        // Used with LogicalChannelNumbers::updateServices() which uses a container of Services.
+        class ServiceContextMapView
+        {
+            TS_NOBUILD_NOCOPY(ServiceContextMapView);
+        private:
+            uint16_t _tsid;
+            uint16_t _onid;
+            ServiceContextMap& _svmap;
+        public:
+            // An iterator over Service fields.
+            //! @cond nodoxygen (for some reason/bug, doxygen wants this to be documented)
+            class iterator
+            {
+                TS_DEFAULT_COPY_MOVE(iterator);
+            private:
+                ServiceContextMap::iterator _iter;
+            public:
+                iterator() = delete;
+                iterator(ServiceContextMap::iterator it) : _iter(it) {}
+                Service& operator*() const { return _iter->second->service; }
+                iterator& operator++() { ++_iter; return *this; }
+                bool operator==(const iterator& other) const { return _iter == other._iter; }
+                TS_UNEQUAL_OPERATOR(iterator)
+            };
+            //! @endcond
+
+            ServiceContextMapView(ServiceContextMap& m, uint16_t tsid, uint16_t onid) : _tsid(tsid), _onid(onid), _svmap(m) {}
+            iterator begin() const { return _svmap.begin(); }
+            iterator end() const { return _svmap.end(); }
+            void push_back(const Service& srv);
+        };
 
         // SignalizationDemux private fields.
         DuckContext&                   _duck;
         SectionDemux                   _demux;
-        SignalizationHandlerInterface* _handler;
-        bool                           _full_filters;       // Use full filters by default.
-        std::set<TID>                  _filtered_tids;      // Set of filtered table id's.
-        std::set<uint16_t>             _filtered_srv_ids;   // Set of services which are filtered by id.
-        std::set<UString>              _filtered_srv_names; // Set of services which are filtered by name.
-        PAT                            _last_pat;           // Last received PAT.
-        bool                           _last_pat_handled;   // Last received PAT was handled by application.
-        NIT                            _last_nit;           // Last received NIT.
-        bool                           _last_nit_handled;   // Last received NIT was handled by application.
-        uint16_t                       _ts_id;              // Transport stream id.
-        uint16_t                       _orig_network_id;    // Original network id.
-        uint16_t                       _network_id;         // Actual network id.
-        Time                           _last_utc;           // Last received UTC time.
-        PIDContextMap                  _pids;               // Descriptions of PID's.
-        ServiceContextMap              _services;           // Descriptions of services.
+        SignalizationHandlerInterface* _handler = nullptr;
+        bool                           _full_filters = false;      // Use full filters by default.
+        std::set<TID>                  _filtered_tids {};          // Set of filtered table id's.
+        std::set<uint16_t>             _filtered_srv_ids {};       // Set of services which are filtered by id.
+        std::set<UString>              _filtered_srv_names {};     // Set of services which are filtered by name.
+        PAT                            _last_pat {};               // Last received PAT.
+        bool                           _last_pat_handled = false;  // Last received PAT was handled by application.
+        NIT                            _last_nit {};               // Last received NIT.
+        bool                           _last_nit_handled = false;  // Last received NIT was handled by application.
+        uint16_t                       _ts_id = 0xFFFF;            // Transport stream id.
+        uint16_t                       _orig_network_id = 0xFFFF;  // Original network id.
+        uint16_t                       _network_id = 0xFFFF;       // Actual network id.
+        Time                           _last_utc {};               // Last received UTC time.
+        PIDContextMap                  _pids {};                   // Descriptions of PID's.
+        ServiceContextMap              _services {};               // Descriptions of services.
 
         // Get the context for a PID. Create if not existent.
         PIDContextPtr getPIDContext(PID pid);
@@ -478,6 +503,7 @@ namespace ts {
         void handleNIT(const NIT&, PID);
         void handleSDT(const SDT&, PID);
         void handleMGT(const MGT&, PID);
+        void handleSAT(const SAT&, PID);
 
         // Template common version for CVCT and TVCT.
         template <class XVCT, typename std::enable_if<std::is_base_of<VCT, XVCT>::value, int>::type = 0>

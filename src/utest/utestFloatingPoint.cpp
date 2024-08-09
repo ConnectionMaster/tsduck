@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,52 +20,24 @@
 
 class FloatingPointTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testConstructor();
-    void testComparison();
-    void testArithmetics();
-    void testToInt();
-    void testToString();
-    void testFromString();
-
-    TSUNIT_TEST_BEGIN(FloatingPointTest);
-    TSUNIT_TEST(testConstructor);
-    TSUNIT_TEST(testComparison);
-    TSUNIT_TEST(testArithmetics);
-    TSUNIT_TEST(testToInt);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST(testFromString);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Constructor);
+    TSUNIT_DECLARE_TEST(Comparison);
+    TSUNIT_DECLARE_TEST(Arithmetics);
+    TSUNIT_DECLARE_TEST(ToInt);
+    TSUNIT_DECLARE_TEST(ToString);
+    TSUNIT_DECLARE_TEST(FromString);
 };
 
 TSUNIT_REGISTER(FloatingPointTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void FloatingPointTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void FloatingPointTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void FloatingPointTest::testConstructor()
+TSUNIT_DEFINE_TEST(Constructor)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     Double a1;
     TSUNIT_EQUAL(0, a1.toInt());
@@ -105,9 +56,9 @@ void FloatingPointTest::testConstructor()
     TSUNIT_EQUAL(-12.3, a4.toDouble());
 }
 
-void FloatingPointTest::testComparison()
+TSUNIT_DEFINE_TEST(Comparison)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     TSUNIT_ASSERT(Double(1.2) == Double(1.2));
     TSUNIT_ASSERT(Double(1.2) != Double(-4.8));
@@ -139,9 +90,9 @@ void FloatingPointTest::testComparison()
     TSUNIT_ASSERT(2 <= Double(5.2));
 }
 
-void FloatingPointTest::testArithmetics()
+TSUNIT_DEFINE_TEST(Arithmetics)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     Double a1;
     TSUNIT_EQUAL(0.0, a1.toDouble());
@@ -218,9 +169,9 @@ void FloatingPointTest::testArithmetics()
     TSUNIT_EQUAL(0.5625, a1.toDouble());
 }
 
-void FloatingPointTest::testToInt()
+TSUNIT_DEFINE_TEST(ToInt)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     TSUNIT_EQUAL(3, Double(3.4999).toInt());
     TSUNIT_EQUAL(4, Double(3.5001).toInt());
@@ -233,28 +184,28 @@ void FloatingPointTest::testToInt()
     TSUNIT_EQUAL(-4, Double(-3.5001).toInt64());
 }
 
-void FloatingPointTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     TSUNIT_EQUAL(u"12,345", Double(12345).toString());
     TSUNIT_EQUAL(u"-12,345.04", Double(-12345.04).toString());
     TSUNIT_EQUAL(u"0", Double().toString());
     TSUNIT_EQUAL(u"1.333,333", (Double(4) / Double(3)).toString());
-    TSUNIT_EQUAL(u"1.333333", ts::UString::Format(u"%s", {Double(4) / Double(3)}));
-    TSUNIT_EQUAL(u"1.333333", ts::UString::Format(u"%f", {Double(4) / Double(3)}));
-    TSUNIT_EQUAL(u"1.333,333", ts::UString::Format(u"%'s", {Double(4) / Double(3)}));
-    TSUNIT_EQUAL(u"1.333,333", ts::UString::Format(u"%'f", {Double(4) / Double(3)}));
+    TSUNIT_EQUAL(u"1.333333", ts::UString::Format(u"%s", Double(4) / Double(3)));
+    TSUNIT_EQUAL(u"1.333333", ts::UString::Format(u"%f", Double(4) / Double(3)));
+    TSUNIT_EQUAL(u"1.333,333", ts::UString::Format(u"%'s", Double(4) / Double(3)));
+    TSUNIT_EQUAL(u"1.333,333", ts::UString::Format(u"%'f", Double(4) / Double(3)));
 
-    typedef ts::FloatingPoint<double, 2> Double2;
+    using Double2 = ts::FloatingPoint<double, 2>;
     TSUNIT_EQUAL(u"1.33", (Double2(4) / Double2(3)).toString());
-    TSUNIT_EQUAL(u"1.33", ts::UString::Format(u"%s", {Double2(4) / Double2(3)}));
-    TSUNIT_EQUAL(u"1.33", ts::UString::Format(u"%f", {Double2(4) / Double2(3)}));
+    TSUNIT_EQUAL(u"1.33", ts::UString::Format(u"%s", Double2(4) / Double2(3)));
+    TSUNIT_EQUAL(u"1.33", ts::UString::Format(u"%f", Double2(4) / Double2(3)));
 }
 
-void FloatingPointTest::testFromString()
+TSUNIT_DEFINE_TEST(FromString)
 {
-    typedef ts::FloatingPoint<double> Double;
+    using Double = ts::FloatingPoint<double>;
 
     Double a;
 

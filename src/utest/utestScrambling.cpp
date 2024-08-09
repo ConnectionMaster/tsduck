@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,33 +22,10 @@
 
 class ScramblingTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testScrambling();
-
-    TSUNIT_TEST_BEGIN(ScramblingTest);
-    TSUNIT_TEST(testScrambling);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Scrambling);
 };
 
 TSUNIT_REGISTER(ScramblingTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void ScramblingTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void ScramblingTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -171,7 +127,7 @@ namespace {
     };
 }
 
-void ScramblingTest::testScrambling()
+TSUNIT_DEFINE_TEST(Scrambling)
 {
     const ScramblingTestVector* vec = scrambling_test_vectors;
     size_t count = sizeof(scrambling_test_vectors) / sizeof(ScramblingTestVector);
@@ -189,7 +145,7 @@ void ScramblingTest::testScrambling()
         debug() << "ScramblingTest: " << ti << ", header: " << header_size <<
               " byte, payload: " << payload_size <<
               " bytes, PID: " << vec->plain.getPID() <<
-              ", scrambling: " << ts::names::ScramblingControl(scv) << std::endl;
+              ", scrambling: " << ts::NameFromDTV(u"ts.scrambling_control", scv) << std::endl;
 
         TSUNIT_ASSERT(header_size == vec->cipher.getHeaderSize());
         TSUNIT_ASSERT(payload_size == vec->cipher.getPayloadSize());
@@ -201,12 +157,12 @@ void ScramblingTest::testScrambling()
 
         // Descrambling test
         pkt = vec->cipher;
-        TSUNIT_ASSERT(scrambler.decryptInPlace(pkt.b + header_size, payload_size));
-        TSUNIT_ASSERT(::memcmp (pkt.b + header_size, vec->plain.b + header_size, payload_size) == 0);
+        TSUNIT_ASSERT(scrambler.decrypt(pkt.b + header_size, payload_size, pkt.b + header_size, payload_size));
+        TSUNIT_EQUAL(0, ts::MemCompare(pkt.b + header_size, vec->plain.b + header_size, payload_size));
 
         // Scrambling test
         pkt = vec->plain;
-        TSUNIT_ASSERT(scrambler.encryptInPlace(pkt.b + header_size, payload_size));
-        TSUNIT_ASSERT(::memcmp(pkt.b + header_size, vec->cipher.b + header_size, payload_size) == 0);
+        TSUNIT_ASSERT(scrambler.encrypt(pkt.b + header_size, payload_size, pkt.b + header_size, payload_size));
+        TSUNIT_EQUAL(0, ts::MemCompare(pkt.b + header_size, vec->cipher.b + header_size, payload_size));
     }
 }

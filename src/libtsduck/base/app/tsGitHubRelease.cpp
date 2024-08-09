@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -46,22 +25,9 @@
 
 #include "tsGitHubRelease.h"
 #include "tsWebRequest.h"
-#include "tsSysUtils.h"
+#include "tsEnvironment.h"
 #include "tsSysInfo.h"
 #include "tsjsonValue.h"
-
-
-//----------------------------------------------------------------------------
-// Default constructor.
-//----------------------------------------------------------------------------
-
-ts::GitHubRelease::GitHubRelease() :
-    _isValid(false),
-    _owner(),
-    _repository(),
-    _root()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -82,9 +48,9 @@ ts::GitHubRelease::GitHubRelease(const UString& owner, const UString& repository
 bool ts::GitHubRelease::validate(Report& report)
 {
     // We simply check the presence of a few fields in the object.
-    _isValid = !_root.isNull() &&
-        _root->value(u"name").isString() && !_root->value(u"name").toString().empty() &&
-        _root->value(u"tag_name").isString() && !_root->value(u"tag_name").toString().empty();
+    _isValid = _root != nullptr &&
+               _root->value(u"name").isString() && !_root->value(u"name").toString().empty() &&
+               _root->value(u"tag_name").isString() && !_root->value(u"tag_name").toString().empty();
 
     if (!_isValid) {
         InvalidResponse(_root, report);
@@ -101,8 +67,8 @@ bool ts::GitHubRelease::validate(Report& report)
 void ts::GitHubRelease::InvalidResponse(const json::ValuePtr& response, Report& report)
 {
     report.error(u"invalid response from GitHub, use --debug for more details");
-    if (report.debug()) {
-        report.debug(u"GitHub response: %s", {response->printed(2, report)});
+    if (report.debug() && response != nullptr) {
+        report.debug(u"GitHub response: %s", response->printed(2, report));
     }
 }
 
@@ -149,12 +115,12 @@ bool ts::GitHubRelease::CallGitHub(json::ValuePtr& response, json::Type expected
     if (!req.downloadTextContent(url, text) || !json::Parse(response, text, report)) {
         return false;
     }
-    assert(!response.isNull());
+    assert(response != nullptr);
 
     // If the response is an object containing a "message" field, this is an error.
     const UString message(response->value(u"message").toString());
     if (!message.empty()) {
-        report.error(u"GitHub error: %s", {message});
+        report.error(u"GitHub error: %s", message);
         return false;
     }
 
@@ -174,7 +140,7 @@ bool ts::GitHubRelease::CallGitHub(json::ValuePtr& response, json::Type expected
 
 bool ts::GitHubRelease::downloadInfo(const UString& owner, const UString& repository, const UString& tag, Report& report)
 {
-    _root.clear();
+    _root.reset();
     _owner = owner;
     _repository = repository;
     _isValid = false;
@@ -216,18 +182,9 @@ bool ts::GitHubRelease::GetAllVersions(GitHubReleaseVector& versions, const UStr
 
 //----------------------------------------------------------------------------
 // Description of an "asset" of the release (typically a binary installer).
+// Build an asset description from a JSON object.
 //----------------------------------------------------------------------------
 
-ts::GitHubRelease::Asset::Asset() :
-    name(),
-    size(0),
-    mimeType(),
-    url(),
-    downloadCount(0)
-{
-}
-
-// Build an asset description from a JSON object.
 void ts::GitHubRelease::BuildAsset(Asset& asset, const json::Value& value)
 {
     if (!value.isNull()) {
@@ -275,7 +232,7 @@ ts::Time ts::GitHubRelease::StringToTime(const UString& str)
 
     // Decode up to 6 fields.
     Time::Fields f;
-    s.scan(u"%d %d %d %d %d %d", {&f.year, &f.month, &f.day, &f.hour, &f.minute, &f.second});
+    s.scan(u"%d %d %d %d %d %d", &f.year, &f.month, &f.day, &f.hour, &f.minute, &f.second);
     try {
         return Time(f);
     }
@@ -391,46 +348,55 @@ void ts::GitHubRelease::getAssets(AssetList& assets) const
 
 bool ts::GitHubRelease::IsPlatformAsset(const UString& fileName)
 {
-    const SysInfo& sys(*SysInfo::Instance());
+    const SysInfo& sys(SysInfo::Instance());
+    const SysInfo::SysArch arch = sys.arch();
+    const SysInfo::SysOS os = sys.os();
+    const SysInfo::SysFlavor osFlavor = sys.osFlavor();
 
-    if (sys.isWindows() && sys.isIntel64()) {
-        return fileName.contain(u"win64", ts::CASE_INSENSITIVE) && fileName.endWith(u".exe", ts::CASE_INSENSITIVE);
+    // System major version as a string (empty string if unknown).
+    UString smv;
+    if (sys.systemMajorVersion() >= 0) {
+        smv.format(u"%d", sys.systemMajorVersion());
     }
-    else if (sys.isWindows() && sys.isIntel32()) {
-        return fileName.contain(u"win32", ts::CASE_INSENSITIVE) && fileName.endWith(u".exe", ts::CASE_INSENSITIVE);
+
+    if (os == SysInfo::WINDOWS) {
+        return fileName.endWith(u".exe", ts::CASE_INSENSITIVE) &&
+               ((arch == SysInfo::INTEL64 && fileName.contain(u"win64", ts::CASE_INSENSITIVE)) ||
+                (arch == SysInfo::INTEL32 && fileName.endWith(u".exe", ts::CASE_INSENSITIVE)));
     }
-    else if (sys.isMacOS() && sys.isIntel64()) {
+    else if (os == SysInfo::MACOS) {
         return fileName.endWith(u".dmg");
     }
-    else if (sys.isFedora() && sys.isIntel64()) {
-        return fileName.contain(u".fc") && (fileName.endWith(u".x86_64.rpm") || fileName.endWith(u".noarch.rpm"));
+    else if (osFlavor == SysInfo::FEDORA) {
+        return fileName.contain(u".fc" + smv) &&
+               (fileName.endWith(u".noarch.rpm") ||
+                (arch == SysInfo::INTEL64 && fileName.endWith(u".x86_64.rpm")) ||
+                (arch == SysInfo::INTEL32 && (fileName.endWith(u".i386.rpm") || fileName.endWith(u".i686.rpm"))) ||
+                (arch == SysInfo::ARM64 && fileName.endWith(u".aarch64.rpm")));
     }
-    else if (sys.isFedora() && sys.isIntel32()) {
-        return fileName.contain(u".fc") && (fileName.endWith(u".i386.rpm") || fileName.endWith(u".i686.rpm") || fileName.endWith(u".noarch.rpm"));
+    else if (osFlavor == SysInfo::REDHAT) {
+        return fileName.contain(u".el" + smv) &&
+               (fileName.endWith(u".noarch.rpm") ||
+                (arch == SysInfo::INTEL64 && fileName.endWith(u".x86_64.rpm")) ||
+                (arch == SysInfo::INTEL32 && (fileName.endWith(u".i386.rpm") || fileName.endWith(u".i686.rpm"))) ||
+                (arch == SysInfo::ARM64 && fileName.endWith(u".aarch64.rpm")));
     }
-    else if (sys.isRedHat() && sys.isIntel64()) {
-        return fileName.contain(u".el") && (fileName.endWith(u".x86_64.rpm") || fileName.endWith(u".noarch.rpm"));
+    else if (osFlavor == SysInfo::UBUNTU) {
+        return fileName.contain(u".ubuntu" + smv) &&
+               (fileName.endWith(u"_all.deb") ||
+                (arch == SysInfo::INTEL64 && fileName.endWith(u"_amd64.deb")) ||
+                (arch == SysInfo::INTEL32 && (fileName.endWith(u"_i386.deb") || fileName.endWith(u"_i686.deb"))) ||
+                (arch == SysInfo::ARM64 && (fileName.endWith(u"_arm64.deb") || fileName.endWith(u"_aarch64.deb"))));
     }
-    else if (sys.isRedHat() && sys.isIntel32()) {
-        return fileName.contain(u".el") && (fileName.endWith(u".i386.rpm") || fileName.endWith(u".i686.rpm") || fileName.endWith(u".noarch.rpm"));
+    else if (osFlavor == SysInfo::DEBIAN) {
+        return fileName.contain(u".debian" + smv) &&
+               (fileName.endWith(u"_all.deb") ||
+                (arch == SysInfo::INTEL64 && fileName.endWith(u"_amd64.deb")) ||
+                (arch == SysInfo::INTEL32 && (fileName.endWith(u"_i386.deb") || fileName.endWith(u"_i686.deb"))) ||
+                (arch == SysInfo::ARM64 && (fileName.endWith(u"_arm64.deb") || fileName.endWith(u"_aarch64.deb"))));
     }
-    else if (sys.isUbuntu() && sys.isIntel64()) {
-        return fileName.contain(u".ubuntu") && (fileName.endWith(u"_amd64.deb") || fileName.endWith(u"_all.deb"));
-    }
-    else if (sys.isUbuntu() && sys.isIntel32()) {
-        return fileName.contain(u".ubuntu") && (fileName.endWith(u"_i386.deb") || fileName.endWith(u"_i686.deb") || fileName.endWith(u"_all.deb"));
-    }
-    else if (sys.isDebian() && sys.isIntel64()) {
-        return fileName.contain(u".debian") && (fileName.endWith(u"_amd64.deb") || fileName.endWith(u"_all.deb"));
-    }
-    else if (sys.isDebian() && sys.isIntel32()) {
-        return fileName.contain(u".debian") && (fileName.endWith(u"_i386.deb") || fileName.endWith(u"_i686.deb") || fileName.endWith(u"_all.deb"));
-    }
-    else if (sys.isRaspbian() && sys.isIntel64()) {
-        return fileName.contain(u".raspbian") && (fileName.endWith(u"_amd64.deb") || fileName.endWith(u"_all.deb"));
-    }
-    else if (sys.isRaspbian() && sys.isIntel32()) {
-        return fileName.contain(u".raspbian") && (fileName.endWith(u"_i386.deb") || fileName.endWith(u"_i686.deb") || fileName.endWith(u"_all.deb"));
+    else if (osFlavor == SysInfo::RASPBIAN && arch == SysInfo::ARM32) {
+        return fileName.contain(u".raspbian" + smv) && (fileName.endWith(u"_armhf.deb") || fileName.endWith(u"_all.deb"));
     }
     else {
         return false;  // unknown platform.

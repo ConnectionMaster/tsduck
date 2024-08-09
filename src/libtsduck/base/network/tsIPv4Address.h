@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -52,6 +31,9 @@ namespace ts {
     //!
     class TSDUCKDLL IPv4Address: public AbstractNetworkAddress
     {
+        TS_RULE_OF_FIVE(IPv4Address, override);
+    private:
+        uint32_t _addr = 0;  // An IPv4 address is a 32-bit word in host byte order
     public:
         //!
         //! Size in bits of an IPv4 address.
@@ -66,7 +48,7 @@ namespace ts {
         //!
         //! Wildcard integer value for "any IP address".
         //!
-        static const uint32_t AnyAddress = 0;
+        static constexpr uint32_t AnyAddress = 0;
 
         //!
         //! Local host address.
@@ -77,19 +59,13 @@ namespace ts {
         //!
         //! Default constructor
         //!
-        IPv4Address() :
-            _addr(0)
-        {
-        }
+        IPv4Address() = default;
 
         //!
         //! Constructor from an integer address.
         //! @param [in] addr The IP v4 address as an integer in host byte order.
         //!
-        IPv4Address(uint32_t addr) :
-            _addr(addr)
-        {
-        }
+        IPv4Address(uint32_t addr) : _addr(addr) {}
 
         //!
         //! Constructor from 4 bytes (classical IPv4 notation).
@@ -104,10 +80,7 @@ namespace ts {
         //! Constructor from a system "struct in_addr" structure (socket API).
         //! @param [in] a A system "struct in_addr" structure.
         //!
-        IPv4Address(const ::in_addr& a) :
-            _addr(ntohl(a.s_addr))
-        {
-        }
+        IPv4Address(const ::in_addr& a) : _addr(ntohl(a.s_addr)) {}
 
         //!
         //! Constructor from a system "struct sockaddr" structure (socket API).
@@ -122,11 +95,6 @@ namespace ts {
         IPv4Address(const ::sockaddr_in& a);
 
         //!
-        //! Virtual destructor.
-        //!
-        virtual ~IPv4Address() override;
-
-        //!
         //! Constructor from a string, host name or "a.b.c.d" integer format.
         //! If @a name cannot be resolved, the integer value of the address is
         //! set to @link AnyAddress @endlink.
@@ -134,11 +102,7 @@ namespace ts {
         //! representation of the address "a.b.c.d".
         //! @param [in] report Where to report errors.
         //!
-        IPv4Address(const UString& name, Report& report) :
-            _addr (0)
-        {
-            IPv4Address::resolve(name, report);
-        }
+        IPv4Address(const UString& name, Report& report) { IPv4Address::resolve(name, report); }
 
         // Inherited methods.
         virtual size_t binarySize() const override;
@@ -219,15 +183,7 @@ namespace ts {
         //! @return True if both object contains the same address, false otherwise.
         //!
         bool operator==(const IPv4Address& a) const { return _addr == a._addr; }
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! @param [in] a Another instance to compare with.
-        //! @return True if both object contains distinct addresses, false otherwise.
-        //!
-        bool operator!=(const IPv4Address& a) const { return _addr != a._addr; }
-#endif
+        TS_UNEQUAL_OPERATOR(IPv4Address)
 
         //!
         //! Comparison "less than" operator.
@@ -236,25 +192,22 @@ namespace ts {
         //! @return True if this instance is less than to @a other.
         //!
         bool operator<(const IPv4Address& other) const { return _addr < other._addr; }
-
-    private:
-        uint32_t _addr;  // An IPv4 address is a 32-bit word in host byte order
     };
 
     //!
     //! Vector of IP addresses.
     //!
-    typedef std::vector<IPv4Address> IPv4AddressVector;
+    using IPv4AddressVector = std::vector<IPv4Address>;
 
     //!
     //! Set of IP addresses.
     //!
-    typedef std::set<IPv4Address> IPv4AddressSet;
+    using IPv4AddressSet = std::set<IPv4Address>;
 
     //! @cond nodoxygen
     // Legacy definitions.
-    typedef IPv4Address IPAddress;
-    typedef IPv4AddressVector IPAddressVector;
-    typedef IPv4AddressSet IPAddressSet;
+    using IPAddress = IPv4Address;
+    using IPAddressVector = IPv4AddressVector;
+    using IPAddressSet = IPv4AddressSet;
     //! @endcond
 }

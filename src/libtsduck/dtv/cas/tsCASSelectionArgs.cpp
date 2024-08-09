@@ -1,35 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
-#include "tsArgs.h"
 #include "tsCASSelectionArgs.h"
 #include "tsPIDOperator.h"
+#include "tsArgs.h"
 
 const std::vector<ts::CASSelectionArgs::PredefinedCAS> ts::CASSelectionArgs::_predefined_cas{
     {u"conax",       CASID_CONAX_MIN,      CASID_CONAX_MAX},
@@ -41,20 +20,6 @@ const std::vector<ts::CASSelectionArgs::PredefinedCAS> ts::CASSelectionArgs::_pr
     {u"viaccess",    CASID_VIACCESS_MIN,   CASID_VIACCESS_MAX},
     {u"widevine",    CASID_WIDEVINE_MIN,   CASID_WIDEVINE_MAX}
 };
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors.
-//----------------------------------------------------------------------------
-
-ts::CASSelectionArgs::CASSelectionArgs() :
-    pass_ecm(false),
-    pass_emm(false),
-    min_cas_id(0),
-    max_cas_id(0),
-    cas_oper(0)
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -91,8 +56,8 @@ void ts::CASSelectionArgs::defineArgs(Args& args)
     for (const auto& cas : _predefined_cas) {
         args.option(cas.name);
         args.help(cas.name, cas.min == cas.max ?
-            UString::Format(u"Equivalent to --cas 0x%04X.", {cas.min}) :
-            UString::Format(u"Equivalent to --min-cas 0x%04X --max-cas 0x%04X.", {cas.min, cas.max}));
+            UString::Format(u"Equivalent to --cas 0x%04X.", cas.min) :
+            UString::Format(u"Equivalent to --min-cas 0x%04X --max-cas 0x%04X.", cas.min, cas.max));
     }
 }
 
@@ -199,7 +164,7 @@ size_t ts::CASSelectionArgs::addMatchingPIDs(PIDSet& pids, const DescriptorList&
             if (operatorMatch(it.oper) && casMatch(it.cas_id)) {
                 pids.set(it.pid);
                 pid_count++;
-                report.verbose(u"Filtering %s PID %d (0x%X)", {tid == TID_CAT ? u"EMM" : u"ECM", it.pid, it.pid});
+                report.verbose(u"Filtering %s PID %n", tid == TID_CAT ? u"EMM" : u"ECM", it.pid);
             }
         }
     }
@@ -216,7 +181,7 @@ size_t ts::CASSelectionArgs::addMatchingPIDs(PIDSet& pids, const DescriptorList&
                 if (casMatch(sysid)) {
                     pids.set(pid);
                     pid_count++;
-                    report.verbose(u"Filtering %s PID %d (0x%X)", {tid == TID_CAT ? u"EMM" : u"ECM", pid, pid});
+                    report.verbose(u"Filtering %s PID %n", tid == TID_CAT ? u"EMM" : u"ECM", pid);
                 }
             }
         }

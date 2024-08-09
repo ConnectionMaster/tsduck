@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 //!
@@ -46,21 +25,21 @@ namespace ts {
     {
     public:
         // Size of one VPD entry
-        static const size_t VPD_SIZE = 64;
+        static constexpr size_t VPD_SIZE = 64;
 
         // List of all VPD (always nul-terminated).
-        char vpdid [VPD_SIZE];  // Flawfinder: ignore
-        char cl    [VPD_SIZE];  // Flawfinder: ignore
-        char ec    [VPD_SIZE];  // Flawfinder: ignore
-        char mn    [VPD_SIZE];  // Flawfinder: ignore
-        char pd    [VPD_SIZE];  // Flawfinder: ignore
-        char pn    [VPD_SIZE];  // Flawfinder: ignore
-        char sn    [VPD_SIZE];  // Flawfinder: ignore
-        char xt    [VPD_SIZE];  // Flawfinder: ignore
-        char bo    [VPD_SIZE];  // Flawfinder: ignore
+        char vpdid [VPD_SIZE];
+        char cl    [VPD_SIZE];
+        char ec    [VPD_SIZE];
+        char mn    [VPD_SIZE];
+        char pd    [VPD_SIZE];
+        char pn    [VPD_SIZE];
+        char sn    [VPD_SIZE];
+        char xt    [VPD_SIZE];
+        char bo    [VPD_SIZE];
 
         // Constructors
-        DektecVPD() {clear();}
+        DektecVPD() { clear(); }
         DektecVPD(const Dtapi::DtDeviceDesc& dev) {get(dev);}
         DektecVPD(Dtapi::DtDevice& dev) {get(dev);}
 

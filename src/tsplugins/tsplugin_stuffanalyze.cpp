@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -49,10 +28,9 @@ namespace ts {
         private TableHandlerInterface,
         private SectionHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(StuffAnalyzePlugin);
+        TS_PLUGIN_CONSTRUCTORS(StuffAnalyzePlugin);
     public:
         // Implementation of plugin API
-        StuffAnalyzePlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
@@ -62,31 +40,29 @@ namespace ts {
         class PIDContext
         {
         public:
-            uint64_t total_sections;     // Total number of sections.
-            uint64_t stuffing_sections;  // Number of stuffing sections.
-            uint64_t total_bytes;        // Total number of bytes in sections.
-            uint64_t stuffing_bytes;     // Total number of bytes in stuffing sections.
-
-            // Constructor.
-            PIDContext();
+            PIDContext() = default;          // Constructor.
+            uint64_t total_sections = 0;     // Total number of sections.
+            uint64_t stuffing_sections = 0;  // Number of stuffing sections.
+            uint64_t total_bytes = 0;        // Total number of bytes in sections.
+            uint64_t stuffing_bytes = 0;     // Total number of bytes in stuffing sections.
 
             // Format as a string.
             UString toString() const;
         };
 
-        typedef SafePtr<PIDContext, NullMutex> PIDContextPtr;
-        typedef std::map<PID, PIDContextPtr> PIDContextMap;
+        using PIDContextPtr = std::shared_ptr<PIDContext>;
+        using PIDContextMap = std::map<PID, PIDContextPtr>;
 
         // Plugin private fields.
-        UString          _output_name;    // Output file name
-        std::ofstream    _output_stream;  // Output file stream
-        std::ostream*    _output;         // Actual output stream
-        CASSelectionArgs _cas_args;       // CAS selection
-        PIDSet           _analyze_pids;   // List of PIDs to pass
-        SectionDemux     _analyze_demux;  // Demux for sections to analyze for stuffing
-        SectionDemux     _psi_demux;      // Demux for PSI parsing
-        PIDContext       _total;          // Global context.
-        PIDContextMap    _pid_contexts;   // Contexts of analyzed PID's.
+        fs::path         _output_name {};    // Output file name
+        std::ofstream    _output_stream {};  // Output file stream
+        std::ostream*    _output = nullptr;  // Actual output stream
+        CASSelectionArgs _cas_args {};       // CAS selection
+        PIDSet           _analyze_pids {};   // List of PIDs to pass
+        SectionDemux     _analyze_demux {duck, nullptr, this};  // Demux for sections to analyze for stuffing
+        SectionDemux     _psi_demux {duck, this, nullptr};      // Demux for PSI tables parsing
+        PIDContext       _total {};          // Global context.
+        PIDContextMap    _pid_contexts {};   // Contexts of analyzed PID's.
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -102,18 +78,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"stuffanalyze", ts::StuffAnalyzePlugin);
 //----------------------------------------------------------------------------
 
 ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Analyze the level of stuffing in tables", u"[options]"),
-    TableHandlerInterface(),
-    SectionHandlerInterface(),
-    _output_name(),
-    _output_stream(),
-    _output(nullptr),
-    _cas_args(),
-    _analyze_pids(),
-    _analyze_demux(duck, nullptr, this),  // this one intercepts all sections for stuffing analysis
-    _psi_demux(duck, this, nullptr),      // this one is used for PSI parsing
-    _total(),
-    _pid_contexts()
+    ProcessorPlugin(tsp_, u"Analyze the level of stuffing in tables", u"[options]")
 {
     option(u"output-file", 'o', FILENAME);
     help(u"output-file",
@@ -141,7 +106,7 @@ bool ts::StuffAnalyzePlugin::start()
 {
     // Get command line arguments
     _cas_args.loadArgs(duck, *this);
-    getValue(_output_name, u"output-file");
+    getPathValue(_output_name, u"output-file");
     getIntValues(_analyze_pids, u"pid");
 
     // Initialize the PSI demux.
@@ -165,27 +130,14 @@ bool ts::StuffAnalyzePlugin::start()
     }
     else {
         _output = &_output_stream;
-        _output_stream.open(_output_name.toUTF8().c_str());
+        _output_stream.open(_output_name);
         if (!_output_stream) {
-            tsp->error(u"cannot create file %s", {_output_name});
+            error(u"cannot create file %s", _output_name);
             return false;
         }
     }
 
     return true;
-}
-
-
-//----------------------------------------------------------------------------
-// PID context constructor.
-//----------------------------------------------------------------------------
-
-ts::StuffAnalyzePlugin::PIDContext::PIDContext() :
-    total_sections(0),
-    stuffing_sections(0),
-    total_bytes(0),
-    stuffing_bytes(0)
-{
 }
 
 
@@ -196,8 +148,8 @@ ts::StuffAnalyzePlugin::PIDContext::PIDContext() :
 ts::UString ts::StuffAnalyzePlugin::PIDContext::toString() const
 {
     return UString::Format(u"%10d %10d %10d %10d %9s",
-                           {total_sections, stuffing_sections, total_bytes, stuffing_bytes,
-                            UString::Percentage(stuffing_bytes, total_bytes)});
+                           total_sections, stuffing_sections, total_bytes, stuffing_bytes,
+                           UString::Percentage(stuffing_bytes, total_bytes));
 }
 
 
@@ -217,8 +169,8 @@ bool ts::StuffAnalyzePlugin::stop()
     for (const auto& it : _pid_contexts) {
         const PID pid = it.first;
         const PIDContextPtr& ctx(it.second);
-        if (!ctx.isNull()) {
-            (*_output) << UString::Format(u"%4d (0x%04<X) ", {pid}) << ctx->toString() << std::endl;
+        if (ctx != nullptr) {
+            (*_output) << UString::Format(u"%4d (0x%04<X) ", pid) << ctx->toString() << std::endl;
         }
     }
     (*_output) << "Total         " << _total.toString() << std::endl;
@@ -256,7 +208,7 @@ void ts::StuffAnalyzePlugin::handleTable(SectionDemux& demux, const BinaryTable&
             CAT cat(duck, table);
             if (cat.isValid() && table.sourcePID() == PID_CAT) {
                 PIDSet pids;
-                _cas_args.addMatchingPIDs(pids, cat, *tsp);
+                _cas_args.addMatchingPIDs(pids, cat, *this);
                 _analyze_demux.addPIDs(pids);
                 _analyze_pids |= pids;
             }
@@ -268,7 +220,7 @@ void ts::StuffAnalyzePlugin::handleTable(SectionDemux& demux, const BinaryTable&
             PMT pmt(duck, table);
             if (pmt.isValid()) {
                 PIDSet pids;
-                _cas_args.addMatchingPIDs(pids, pmt, *tsp);
+                _cas_args.addMatchingPIDs(pids, pmt, *this);
                 _analyze_demux.addPIDs(pids);
                 _analyze_pids |= pids;
             }
@@ -291,10 +243,10 @@ void ts::StuffAnalyzePlugin::handleSection(SectionDemux& demux, const Section& s
     // Locate the PID context.
     const PID pid = section.sourcePID();
     PIDContextPtr ctx(_pid_contexts[pid]);
-    if (ctx.isNull()) {
+    if (ctx == nullptr) {
         // First section on this PID, allocate a context.
         // Note that the new context becomes managed by the safe pointer (assignment magic).
-        ctx = new PIDContext;
+        ctx = std::make_shared<PIDContext>();
         _pid_contexts[pid] = ctx;
     }
 

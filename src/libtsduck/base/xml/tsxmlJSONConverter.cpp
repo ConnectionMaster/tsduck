@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -33,7 +12,9 @@
 #include "tsjsonArray.h"
 #include "tsjsonNull.h"
 #include "tsjsonNumber.h"
+#include "tsjsonObject.h"
 #include "tsjsonString.h"
+#include "tsFatal.h"
 
 const ts::UString ts::xml::JSONConverter::HashName(u"#name");
 const ts::UString ts::xml::JSONConverter::HashNodes(u"#nodes");
@@ -64,7 +45,7 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertToJSON(const Document& source,
 
     if (docRoot == nullptr) {
         report().error(u"invalid XML document, no root element");
-        return json::ValuePtr(new json::Null());
+        return std::make_shared<json::Null>();
     }
     else {
         // Ignore the model if the model root has a different name from the source root.
@@ -94,7 +75,7 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertElementToJSON(const Element* m
 {
     // Build the JSON object for the node.
     json::ValuePtr jobj(new json::Object());
-    CheckNonNull(jobj.pointer());
+    CheckNonNull(jobj.get());
     jobj->add(HashName, source->name());
 
     // Get all attributes of the XML element.
@@ -102,7 +83,7 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertElementToJSON(const Element* m
     source->getAttributes(attributes);
 
     // Add attributes in the JSON object.
-    for (auto it = attributes.begin(); it != attributes.end(); ++it) {
+    for (const auto& it : attributes) {
 
         // JSON value of the attribute.
         json::ValuePtr jvalue;
@@ -115,7 +96,7 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertElementToJSON(const Element* m
         bool boolModel = false;
         if (model != nullptr) {
             // Get description, empty string without error if not found.
-            model->getAttribute(description, it->first, false);
+            model->getAttribute(description, it.first, false);
             description.trim(true, false, false);
             intModel = description.startWith(u"uint", CASE_INSENSITIVE) || description.startWith(u"int", CASE_INSENSITIVE);
             boolModel = description.startWith(u"bool", CASE_INSENSITIVE);
@@ -124,47 +105,47 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertElementToJSON(const Element* m
         // Try to convert as an integer or boolean if defined as such by the model.
         if (intModel) {
             // Should be an integer according to the model.
-            if (it->second.toInteger(intValue, UString::DEFAULT_THOUSANDS_SEPARATOR)) {
-                if (intValue < -TS_CONST64(0xFFFFFFFF)) {
+            if (it.second.toInteger(intValue, UString::DEFAULT_THOUSANDS_SEPARATOR)) {
+                if (intValue < -0xFFFFFFFFLL) {
                     // This is a "very negative" value. This is typically a large unsigned hexadecimal value
                     // which will not be handled correctly when reading back the JSON file. We cannot use
                     // hexadecimal literals in JSON (new in JSON 5), so we leave it as a string.
-                    jvalue = new json::String(it->second);
+                    jvalue = std::make_shared<json::String>(it.second);
                 }
                 else {
                     // Acceptable integer.
-                    jvalue = new json::Number(intValue);
+                    jvalue = std::make_shared<json::Number>(intValue);
                 }
             }
             else {
-                source->report().warning(u"attribute '%s' in <%s> line %d is '%s' but should be an integer", {it->first, source->name(), source->lineNumber(), it->second});
+                source->report().warning(u"attribute '%s' in <%s> line %d is '%s' but should be an integer", it.first, source->name(), source->lineNumber(), it.second);
             }
         }
         else if (boolModel) {
             // Should be a boolean according to the model.
-            if (it->second.toBool(boolValue)) {
+            if (it.second.toBool(boolValue)) {
                 jvalue = json::Bool(boolValue);
             }
             else {
-                source->report().warning(u"attribute '%s' in <%s> line %d is '%s' but should be a boolean", {it->first, source->name(), source->lineNumber(), it->second});
+                source->report().warning(u"attribute '%s' in <%s> line %d is '%s' but should be a boolean", it.first, source->name(), source->lineNumber(), it.second);
             }
         }
 
         // Try to enforce integer of boolean value if specified on command line.
-        if (jvalue.isNull() && xml_tweaks.x2jEnforceInteger && !intModel && it->second.toInteger(intValue, UString::DEFAULT_THOUSANDS_SEPARATOR)) {
-            jvalue = new json::Number(intValue);
+        if (jvalue == nullptr && xml_tweaks.x2jEnforceInteger && !intModel && it.second.toInteger(intValue, UString::DEFAULT_THOUSANDS_SEPARATOR)) {
+            jvalue = std::make_shared<json::Number>(intValue);
         }
-        if (jvalue.isNull() && xml_tweaks.x2jEnforceBoolean && !boolModel && it->second.toBool(boolValue)) {
+        if (jvalue == nullptr && xml_tweaks.x2jEnforceBoolean && !boolModel && it.second.toBool(boolValue)) {
             jvalue = json::Bool(boolValue);
         }
 
         // Use a string value by default.
-        if (jvalue.isNull()) {
-            jvalue = new json::String(it->second);
+        if (jvalue == nullptr) {
+            jvalue = std::make_shared<json::String>(it.second);
         }
 
         // Add the attribute in the JSON object.
-        jobj->add(it->first, jvalue);
+        jobj->add(it.first, jvalue);
     }
 
     // Process the list of children, if any.
@@ -184,7 +165,7 @@ ts::json::ValuePtr ts::xml::JSONConverter::convertChildrenToJSON(const Element* 
 {
     // All JSON children are placed in an array.
     json::ValuePtr jchildren(new json::Array());
-    CheckNonNull(jchildren.pointer());
+    CheckNonNull(jchildren.get());
 
     // Content of the text children in the model.
     UString textModel;
@@ -241,7 +222,7 @@ ts::UString ts::xml::JSONConverter::ToElementName(const UString& str)
             result.push_back(c);
         }
         else {
-            result.format(u"_%02X", {int(c)});
+            result.format(u"_%02X", int(c));
         }
     }
     return result;
@@ -308,12 +289,12 @@ void ts::xml::JSONConverter::convertObjectToXML(Element* element, const json::Va
     UStringList names;
     object.getNames(names);
 
-    for (auto it = names.begin(); it != names.end(); ++it) {
-        const json::Value& child(object.value(*it));
-        if (it->similar(HashName)) {
+    for (const auto& it : names) {
+        const json::Value& child(object.value(it));
+        if (it.similar(HashName)) {
             // The "#name" was the name of the element, already used.
         }
-        else if (it->similar(HashNodes)) {
+        else if (it.similar(HashNodes)) {
             // The value must be an array of child elements.
             convertArrayToXML(element, child);
         }
@@ -329,7 +310,7 @@ void ts::xml::JSONConverter::convertObjectToXML(Element* element, const json::Va
         }
         else if (!child.isNull()) {
             // An attribute of the parent element.
-            element->setAttribute(ToElementName(*it), child.toString());
+            element->setAttribute(ToElementName(it), child.toString());
         }
     }
 }

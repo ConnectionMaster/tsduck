@@ -1,37 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsIPv4Address.h"
-#include "tsIPUtils.h"
 #include "tsMemory.h"
+#include "tsUString.h"
+#include "tsSysUtils.h"
+#include "tsIPUtils.h" // Windows
 
-// Local host address
 const ts::IPv4Address ts::IPv4Address::LocalHost(127, 0, 0, 1);
 
 
@@ -44,8 +24,7 @@ ts::IPv4Address::IPv4Address(uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4) :
 {
 }
 
-ts::IPv4Address::IPv4Address(const ::sockaddr& s) :
-    _addr(AnyAddress)
+ts::IPv4Address::IPv4Address(const ::sockaddr& s)
 {
     if (s.sa_family == AF_INET) {
         assert(sizeof(::sockaddr) >= sizeof(::sockaddr_in));
@@ -54,8 +33,7 @@ ts::IPv4Address::IPv4Address(const ::sockaddr& s) :
     }
 }
 
-ts::IPv4Address::IPv4Address(const ::sockaddr_in& s) :
-    _addr(AnyAddress)
+ts::IPv4Address::IPv4Address(const ::sockaddr_in& s)
 {
     if (s.sin_family == AF_INET) {
         _addr = ntohl(s.sin_addr.s_addr);
@@ -75,7 +53,7 @@ void ts::IPv4Address::copy(::sockaddr& s, uint16_t port) const
 {
     TS_ZERO(s);
     assert(sizeof(::sockaddr) >= sizeof(::sockaddr_in));
-    ::sockaddr_in* sp = reinterpret_cast<::sockaddr_in*> (&s);
+    ::sockaddr_in* sp = reinterpret_cast<::sockaddr_in*>(&s);
     sp->sin_family = AF_INET;
     sp->sin_addr.s_addr = htonl(_addr);
     sp->sin_port = htons(port);
@@ -151,8 +129,8 @@ bool ts::IPv4Address::resolve(const UString& name, Report& report)
     _addr = AnyAddress;
 
     // Try the trivial case of an IPv4 address.
-    uint8_t b1, b2, b3, b4;
-    if (name.scan(u"%d.%d.%d.%d", {&b1, &b2, &b3, &b4})) {
+    uint8_t b1 = 0, b2 = 0, b3 = 0, b4 = 0;
+    if (name.scan(u"%d.%d.%d.%d", &b1, &b2, &b3, &b4)) {
         setAddress(b1, b2, b3, b4);
         return true;
     }
@@ -164,7 +142,7 @@ bool ts::IPv4Address::resolve(const UString& name, Report& report)
 
 #if defined(TSDUCK_STATIC)
 
-    report.error(u"error resolving %s: must be an IPv4 address x.x.x.x (statically linked application)", {name});
+    report.error(u"error resolving %s: must be an IPv4 address x.x.x.x (statically linked application)", name);
     return false;
 
 #else
@@ -178,18 +156,14 @@ bool ts::IPv4Address::resolve(const UString& name, Report& report)
 
     if (status != 0) {
 #if defined(TS_WINDOWS)
-        const SysSocketErrorCode code = LastSysSocketErrorCode();
-        report.error(name + u": " + SysSocketErrorCodeMessage(code));
+        report.error(u"%s: %s", name, SysErrorCodeMessage());
 #else
-        const SysErrorCode code = LastSysErrorCode();
-        UString errmsg;
         if (status == EAI_SYSTEM) {
-            errmsg = SysErrorCodeMessage(code);
+            report.error(u"%s: %s", name, SysErrorCodeMessage(LastSysErrorCode()));
         }
         else {
-            errmsg = UString::FromUTF8(gai_strerror(status));
+            report.error(u"%s: %s", name, SysErrorCodeMessage(status, getaddrinfo_category()));
         }
-        report.error(name + u": " + errmsg);
 #endif
         return false;
     }
@@ -203,7 +177,7 @@ bool ts::IPv4Address::resolve(const UString& name, Report& report)
     }
     if (ai != nullptr) {
         assert(sizeof(::sockaddr) >= sizeof(::sockaddr_in));
-        const ::sockaddr_in* sp = reinterpret_cast<const ::sockaddr_in*> (ai->ai_addr);
+        const ::sockaddr_in* sp = reinterpret_cast<const ::sockaddr_in*>(ai->ai_addr);
         _addr = ntohl(sp->sin_addr.s_addr);
     }
     else {
@@ -232,5 +206,5 @@ bool ts::IPv4Address::match(const IPv4Address& other) const
 
 ts::UString ts::IPv4Address::toString() const
 {
-    return UString::Format(u"%d.%d.%d.%d", {(_addr >> 24) & 0xFF, (_addr >> 16) & 0xFF, (_addr >> 8) & 0xFF, _addr & 0xFF});
+    return UString::Format(u"%d.%d.%d.%d", (_addr >> 24) & 0xFF, (_addr >> 16) & 0xFF, (_addr >> 8) & 0xFF, _addr & 0xFF);
 }

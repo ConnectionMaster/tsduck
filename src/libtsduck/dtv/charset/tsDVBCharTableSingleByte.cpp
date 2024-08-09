@@ -1,34 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsDVBCharTableSingleByte.h"
-#include "tsByteBlock.h"
 #include "tsUString.h"
 #include "tsAlgorithm.h"
 
@@ -56,14 +34,12 @@ const ts::DVBCharset ts::DVBCharTableSingleByte::DVB_ISO_8859_15(u"ISO-8859-15",
 
 ts::DVBCharTableSingleByte::DVBCharTableSingleByte(const UChar* name, uint32_t tableCode, std::initializer_list<uint16_t> init, std::initializer_list<uint8_t> revDiac) :
     DVBCharTable(name, tableCode),
-    _upperCodePoints(init),
-    _bytesMap(),
-    _reversedDiacritical()
+    _upperCodePoints(init)
 {
     // Check the size of the upper code point table.
     if (_upperCodePoints.size() != (0x100 - 0xA0)) {
         unregister();
-        throw InvalidCharset(UString::Format(u"%s (%d entries)", {name, _upperCodePoints.size()}));
+        throw InvalidCharset(UString::Format(u"%s (%d entries)", name, _upperCodePoints.size()));
     }
 
     // Code point to byte mapping for ASCII range
@@ -82,9 +58,9 @@ ts::DVBCharTableSingleByte::DVBCharTableSingleByte(const UChar* name, uint32_t t
     }
 
     // Combining diacritical marks which precede their base letter (and must be reversed from Unicode).
-    for (auto it = revDiac.begin(); it != revDiac.end(); ++it) {
-        if (*it >= 0xA0) {
-            _reversedDiacritical.set(*it - 0xA0);
+    for (auto it : revDiac) {
+        if (it >= 0xA0) {
+            _reversedDiacritical.set(it - 0xA0);
         }
     }
 }
@@ -180,7 +156,6 @@ size_t ts::DVBCharTableSingleByte::encode(uint8_t*& buffer, size_t& size, const 
             // Encode character.
             *buffer = it->second;
             size--;
-            result++;
             // Reverse letter and diacritical mark when necessary.
             if (buffer > base && *buffer >= 0xA0 && _reversedDiacritical.test(*buffer - 0xA0)) {
                 // Reverse order of letter/mark into mark/letter.
@@ -188,6 +163,7 @@ size_t ts::DVBCharTableSingleByte::encode(uint8_t*& buffer, size_t& size, const 
             }
             buffer++;
         }
+        result++; // include CR characters, not physically encoded, but still taken into account.
         start++;
         count--;
     }

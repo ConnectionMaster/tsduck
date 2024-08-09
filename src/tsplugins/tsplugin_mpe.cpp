@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -47,10 +26,9 @@
 namespace ts {
     class MPEPlugin: public ProcessorPlugin, private MPEHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(MPEPlugin);
+        TS_PLUGIN_CONSTRUCTORS(MPEPlugin);
     public:
         // Implementation of plugin API
-        MPEPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -58,41 +36,41 @@ namespace ts {
 
     private:
         // Command line options.
-        bool          _log;               // Log MPE datagrams.
-        bool          _sync_layout;       // Display a layout of 0x47 sync bytes.
-        bool          _dump_datagram;     // Dump complete network datagrams.
-        bool          _dump_udp;          // Dump UDP payloads.
-        bool          _send_udp;          // Send all datagrams through UDP.
-        bool          _log_hexa_line;     // Log datagrams as one hexa line in the system message log.
-        bool          _signal_event;      // Signal a plugin event on MPE packet.
-        bool          _all_mpe_pids;      // Extract all MPE PID's.
-        bool          _outfile_append;    // Append file.
-        UString       _outfile_name;      // Output file name.
-        UString       _log_hexa_prefix;   // Prefix before hexa log line.
-        PacketCounter _max_datagram;      // Maximum number of datagrams to extract.
-        size_t        _min_net_size;      // Minimum size of network datagrams.
-        size_t        _max_net_size;      // Maximum size of network datagrams.
-        size_t        _min_udp_size;      // Minimum size of UDP datagrams.
-        size_t        _max_udp_size;      // Maximum size of UDP datagrams.
-        size_t        _dump_max;          // Max dump size in bytes.
-        size_t        _skip_size;         // Initial bytes to skip for --dump and --output-file.
-        uint32_t      _event_code;        // Event code to signal.
-        int           _ttl;               // Time to live option.
-        PIDSet        _pids;              // Explicitly specified PID's to extract.
-        IPv4SocketAddress _ip_source;     // IP source filter.
-        IPv4SocketAddress _ip_dest;       // IP destination filter.
-        IPv4SocketAddress _ip_forward;    // Forwarded socket address.
-        IPv4Address       _local_address; // Local IP address for UDP forwarding.
-        uint16_t          _local_port;    // Local UDP source port for UDP forwarding.
+        bool          _log = false;             // Log MPE datagrams.
+        bool          _sync_layout = false;     // Display a layout of 0x47 sync bytes.
+        bool          _dump_datagram = false;   // Dump complete network datagrams.
+        bool          _dump_udp = false;        // Dump UDP payloads.
+        bool          _send_udp = false;        // Send all datagrams through UDP.
+        bool          _log_hexa_line = false;   // Log datagrams as one hexa line in the system message log.
+        bool          _signal_event = false;    // Signal a plugin event on MPE packet.
+        bool          _all_mpe_pids = false;    // Extract all MPE PID's.
+        bool          _outfile_append = false;  // Append file.
+        fs::path      _outfile_name {};         // Output file name.
+        UString       _log_hexa_prefix {};      // Prefix before hexa log line.
+        PacketCounter _max_datagram = 0;        // Maximum number of datagrams to extract.
+        size_t        _min_net_size = 0;        // Minimum size of network datagrams.
+        size_t        _max_net_size = 0;        // Maximum size of network datagrams.
+        size_t        _min_udp_size = 0;        // Minimum size of UDP datagrams.
+        size_t        _max_udp_size = 0;        // Maximum size of UDP datagrams.
+        size_t        _dump_max = 0;            // Max dump size in bytes.
+        size_t        _skip_size = 0;           // Initial bytes to skip for --dump and --output-file.
+        uint32_t      _event_code = 0;          // Event code to signal.
+        int           _ttl = 0;                 // Time to live option.
+        PIDSet        _pids {};                 // Explicitly specified PID's to extract.
+        IPv4SocketAddress _ip_source {};        // IP source filter.
+        IPv4SocketAddress _ip_dest {};          // IP destination filter.
+        IPv4SocketAddress _ip_forward {};       // Forwarded socket address.
+        IPv4Address       _local_address {};    // Local IP address for UDP forwarding.
+        uint16_t          _local_port = IPv4SocketAddress::AnyPort; // Local UDP source port for UDP forwarding.
 
         // Plugin private fields.
-        bool          _abort;             // Error, abort asap.
-        UDPSocket     _sock;              // Outgoing UDP socket (forwarded datagrams).
-        int           _previous_uc_ttl;   // Previous unicast TTL which was set.
-        int           _previous_mc_ttl;   // Previous multicast TTL which was set.
-        PacketCounter _datagram_count;    // Number of extracted datagrams.
-        std::ofstream _outfile;           // Output file for extracted datagrams.
-        MPEDemux      _demux;             // MPE demux to extract MPE datagrams.
+        bool          _abort = false;           // Error, abort asap.
+        UDPSocket     _sock {false, *this};     // Outgoing UDP socket (forwarded datagrams).
+        int           _previous_uc_ttl = 0;     // Previous unicast TTL which was set.
+        int           _previous_mc_ttl = 0;     // Previous multicast TTL which was set.
+        PacketCounter _datagram_count = 0;      // Number of extracted datagrams.
+        std::ofstream _outfile {};              // Output file for extracted datagrams.
+        MPEDemux      _demux {duck, this};      // MPE demux to extract MPE datagrams.
 
         // Inherited methods.
         virtual void handleMPENewPID(MPEDemux&, const PMT&, PID) override;
@@ -111,49 +89,15 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"mpe", ts::MPEPlugin);
 //----------------------------------------------------------------------------
 
 ts::MPEPlugin::MPEPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Extract MPE (Multi-Protocol Encapsulation) datagrams", u"[options]"),
-    MPEHandlerInterface(),
-    _log(false),
-    _sync_layout(false),
-    _dump_datagram(false),
-    _dump_udp(false),
-    _send_udp(false),
-    _log_hexa_line(false),
-    _signal_event(false),
-    _all_mpe_pids(false),
-    _outfile_append(false),
-    _outfile_name(),
-    _log_hexa_prefix(),
-    _max_datagram(0),
-    _min_net_size(0),
-    _max_net_size(0),
-    _min_udp_size(0),
-    _max_udp_size(0),
-    _dump_max(0),
-    _skip_size(0),
-    _event_code(0),
-    _ttl(0),
-    _pids(),
-    _ip_source(),
-    _ip_dest(),
-    _ip_forward(),
-    _local_address(),
-    _local_port(IPv4SocketAddress::AnyPort),
-    _abort(false),
-    _sock(false, *tsp_),
-    _previous_uc_ttl(0),
-    _previous_mc_ttl(0),
-    _datagram_count(0),
-    _outfile(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Extract MPE (Multi-Protocol Encapsulation) datagrams", u"[options]")
 {
     option(u"append", 'a');
     help(u"append",
          u"With --output-file, if the file already exists, append to the end of the "
          u"file. By default, existing files are overwritten.");
 
-    option(u"destination", 'd', STRING);
-    help(u"destination", u"address[:port]",
+    option(u"destination", 'd', IPSOCKADDR_OP);
+    help(u"destination",
          u"Filter MPE UDP datagrams based on the specified destination IP address.");
 
     option(u"dump-datagram");
@@ -174,7 +118,7 @@ ts::MPEPlugin::MPEPlugin(TSP* tsp_) :
          u"The event data is an instance of PluginEventData pointing to "
          u"the network datagram (default) or UDP payload (with --dump-udp).");
 
-    option(u"local-address", 0, STRING);
+    option(u"local-address", 0, IPADDR);
     help(u"local-address", u"address",
          u"With --udp-forward, specify the IP address of the outgoing local interface "
          u"for multicast traffic. It can be also a host name that translates to a "
@@ -223,8 +167,8 @@ ts::MPEPlugin::MPEPlugin(TSP* tsp_) :
          u"specified. When no PID is specified, use all PID's carrying MPE which are "
          u"properly declared in the signalization.");
 
-    option(u"redirect", 'r', STRING);
-    help(u"redirect", u"address[:port]",
+    option(u"redirect", 'r', IPSOCKADDR_OP);
+    help(u"redirect",
          u"With --udp-forward, redirect all UDP datagrams to the specified socket "
          u"address. By default, all datagrams are forwarded to their original "
          u"destination address. If you specify a redirected address, it is "
@@ -236,8 +180,8 @@ ts::MPEPlugin::MPEPlugin(TSP* tsp_) :
          u"With --output-file, --dump-datagram, --dump-udp or --log-hexa-line, specify the initial "
          u"number of bytes to skip. By default, save or dump from the beginning.");
 
-    option(u"source", 's', STRING);
-    help(u"source", u"address[:port]",
+    option(u"source", 's', IPSOCKADDR_OP);
+    help(u"source",
          u"Filter MPE UDP datagrams based on the specified source IP address.");
 
     option(u"sync-layout");
@@ -286,7 +230,7 @@ bool ts::MPEPlugin::getOptions()
     _log = _sync_layout || (_dump_udp && !_signal_event) || _dump_datagram || _log_hexa_line || present(u"log");
     _send_udp = present(u"udp-forward");
     _outfile_append = present(u"append");
-    getValue(_outfile_name, u"output-file");
+    getPathValue(_outfile_name, u"output-file");
     getValue(_log_hexa_prefix, u"log-hexa-line");
     getIntValue(_max_datagram, u"max-datagram");
     getIntValue(_dump_max, u"dump-max", NPOS);
@@ -294,10 +238,10 @@ bool ts::MPEPlugin::getOptions()
     getIntValue(_event_code, u"event-code");
     getIntValue(_ttl, u"ttl");
     getIntValues(_pids, u"pid");
-    const UString ipSource(value(u"source"));
-    const UString ipDest(value(u"destination"));
-    const UString ipForward(value(u"redirect"));
-    const UString ipLocal(value(u"local-address"));
+    getSocketValue(_ip_source, u"source");
+    getSocketValue(_ip_dest, u"destination");
+    getSocketValue(_ip_forward, u"redirect");
+    getIPValue(_local_address, u"local-address");
     getIntValue(_local_port, u"local-port", IPv4SocketAddress::AnyPort);
     getIntValue(_min_net_size, u"min-net-size");
     getIntValue(_max_net_size, u"max-net-size", NPOS);
@@ -307,7 +251,7 @@ bool ts::MPEPlugin::getOptions()
     // --net-size N is a shortcut for --min-net-size N --max-net-size N.
     if (present(u"net-size")) {
         if (present(u"min-net-size") || present(u"max-net-size")) {
-            tsp->error(u"--net-size is incompatible with --min-net-size and --max-net-size");
+            error(u"--net-size is incompatible with --min-net-size and --max-net-size");
             return false;
         }
         else {
@@ -318,30 +262,12 @@ bool ts::MPEPlugin::getOptions()
     // --udp-size N is a shortcut for --min-udp-size N --max-udp-size N.
     if (present(u"udp-size")) {
         if (present(u"min-udp-size") || present(u"max-udp-size")) {
-            tsp->error(u"--udp-size is incompatible with --min-udp-size and --max-udp-size");
+            error(u"--udp-size is incompatible with --min-udp-size and --max-udp-size");
             return false;
         }
         else {
             _min_udp_size = _max_udp_size = intValue<size_t>(u"udp-size");
         }
-    }
-
-    // Decode socket addresses.
-    _ip_source.clear();
-    _ip_dest.clear();
-    _ip_forward.clear();
-    _local_address.clear();
-    if (!ipSource.empty() && !_ip_source.resolve(ipSource, *tsp)) {
-        return false;
-    }
-    if (!ipDest.empty() && !_ip_dest.resolve(ipDest, *tsp)) {
-        return false;
-    }
-    if (!ipForward.empty() && !_ip_forward.resolve(ipForward, *tsp)) {
-        return false;
-    }
-    if (!ipLocal.empty() && !_local_address.resolve(ipLocal, *tsp)) {
-        return false;
     }
 
     // If no PID is specified, extract all.
@@ -366,30 +292,30 @@ bool ts::MPEPlugin::start()
         if (_outfile_append) {
             mode |= std::ios::ate;
         }
-        _outfile.open(_outfile_name.toUTF8().c_str(), mode);
+        _outfile.open(_outfile_name, mode);
         if (!_outfile.is_open()) {
-            tsp->error(u"error creating %s", {_outfile_name});
+            error(u"error creating %s", _outfile_name);
             return false;
         }
     }
 
     // Initialize the forwarding UDP socket.
     if (_send_udp) {
-        if (!_sock.open(*tsp)) {
+        if (!_sock.open(*this)) {
             return false;
         }
         // If local port is specified, bint to socket.
         const IPv4SocketAddress local(IPv4Address::AnyAddress, _local_port);
-        if (_local_port != IPv4SocketAddress::AnyPort && (!_sock.reusePort(true, *tsp) || !_sock.bind(local, *tsp))) {
+        if (_local_port != IPv4SocketAddress::AnyPort && (!_sock.reusePort(true, *this) || !_sock.bind(local, *this))) {
             return false;
         }
         // If specified, set TTL option, for unicast and multicast.
         // Otherwise, we will set the TTL for each packet.
-        if (_ttl > 0 && (!_sock.setTTL(_ttl, false, *tsp) || !_sock.setTTL(_ttl, true, *tsp))) {
+        if (_ttl > 0 && (!_sock.setTTL(_ttl, false, *this) || !_sock.setTTL(_ttl, true, *this))) {
             return false;
         }
         // Specify local address for outgoing multicast traffic.
-        if (_local_address.hasAddress() && !_sock.setOutgoingMulticast(_local_address, *tsp)) {
+        if (_local_address.hasAddress() && !_sock.setOutgoingMulticast(_local_address, *this)) {
             return false;
         }
     }
@@ -415,7 +341,7 @@ bool ts::MPEPlugin::stop()
 
     // Close the forwarding socket.
     if (_sock.isOpen()) {
-        _sock.close(*tsp);
+        _sock.close(*this);
     }
 
     return true;
@@ -431,7 +357,7 @@ void ts::MPEPlugin::handleMPENewPID(MPEDemux& demux, const PMT& pmt, PID pid)
     // Found a new PID carrying MPE.
     // If we need to extract all MPE PID's, add it.
     if (_all_mpe_pids) {
-        tsp->verbose(u"extract new MPE PID 0x%X (%d), service 0x%X (%d)", {pid, pid, pmt.service_id, pmt.service_id});
+        verbose(u"extract new MPE PID %n, service %n", pid, pmt.service_id);
         _demux.addPID(pid);
     }
 }
@@ -485,7 +411,7 @@ void ts::MPEPlugin::handleMPEPacket(MPEDemux& demux, const MPEPacket& mpe)
 
     // Log MPE packets.
     if (_log_hexa_line) {
-        tsp->info(_log_hexa_prefix + UString::Dump(dump_data, dump_size, UString::COMPACT));
+        info(_log_hexa_prefix + UString::Dump(dump_data, dump_size, UString::COMPACT));
     }
     else if (_log) {
         // Get destination IP and MAC address.
@@ -506,18 +432,18 @@ void ts::MPEPlugin::handleMPEPacket(MPEDemux& demux, const MPEPacket& mpe)
             dump.append(u"\n");
             dump.appendDump(dump_data, dump_size, UString::HEXA | UString::ASCII | UString::OFFSET | UString::BPL, 2, 16);
         }
-        tsp->info(u"PID 0x%X (%<d), src: %s:%d, dest: %s:%d (%s%s), %d bytes, fragment: 0x%X%s%s",
-                  {mpe.sourcePID(), mpe.sourceIPAddress(), mpe.sourceUDPPort(),
-                   destIP, mpe.destinationUDPPort(), destMAC, macComment, udp_size,
-                   GetUInt16(mpe.datagram() + 6), syncLayoutString(udp_data, udp_size),
-                   dump});
+        info(u"PID %n, src: %s:%d, dest: %s:%d (%s%s), %d bytes, fragment: 0x%X%s%s",
+             mpe.sourcePID(), mpe.sourceIPAddress(), mpe.sourceUDPPort(),
+             destIP, mpe.destinationUDPPort(), destMAC, macComment, udp_size,
+             GetUInt16(mpe.datagram() + 6), syncLayoutString(udp_data, udp_size),
+             dump);
     }
 
     // Save UDP messages in binary file.
     if (_outfile.is_open() && udp_size > _skip_size) {
         _outfile.write(reinterpret_cast<const char*>(udp_data + _skip_size), std::streamsize(udp_size - _skip_size));
         if (!_outfile) {
-            tsp->error(u"error writing to %s", {_outfile_name});
+            error(u"error writing to %s", _outfile_name);
             _abort = true;
         }
     }
@@ -540,7 +466,7 @@ void ts::MPEPlugin::handleMPEPacket(MPEDemux& demux, const MPEPacket& mpe)
         const bool mc = dest.isMulticast();
         const int previous_ttl = mc ? _previous_mc_ttl : _previous_uc_ttl;
         const int mpe_ttl = mpe.datagram()[8]; // in original IP header
-        if (_ttl <= 0 && mpe_ttl != previous_ttl && _sock.setTTL(mpe_ttl, mc, *tsp)) {
+        if (_ttl <= 0 && mpe_ttl != previous_ttl && _sock.setTTL(mpe_ttl, mc, *this)) {
             if (mc) {
                 _previous_mc_ttl = mpe_ttl;
             }
@@ -550,7 +476,7 @@ void ts::MPEPlugin::handleMPEPacket(MPEDemux& demux, const MPEPacket& mpe)
         }
 
         // Send the UDP datagram.
-        if (!_sock.send(udp_data, udp_size, dest, *tsp)) {
+        if (!_sock.send(udp_data, udp_size, dest, *this)) {
             _abort = true;
         }
     }
@@ -597,7 +523,7 @@ ts::UString ts::MPEPlugin::syncLayoutString(const uint8_t* udp, size_t udp_size)
                 result = u"\n ";
             }
             if (i > start) {
-                result.append(UString::Format(u" %d", {i - start}));
+                result.append(UString::Format(u" %d", i - start));
             }
             result.append(u" S");
             start = i + 1;
@@ -607,7 +533,7 @@ ts::UString ts::MPEPlugin::syncLayoutString(const uint8_t* udp, size_t udp_size)
         return u"\n  no sync byte";
     }
     else if (start < udp_size) {
-        result.append(UString::Format(u" %d", {udp_size - start}));
+        result.append(UString::Format(u" %d", udp_size - start));
     }
 
     // If we have shorter intervals (less than 187), maybe some 0x47 were simply data bytes.
@@ -622,9 +548,9 @@ ts::UString ts::MPEPlugin::syncLayoutString(const uint8_t* udp, size_t udp_size)
             }
             if (found) {
                 // Yes, found a list of complete TS packets.
-                result.append(UString::Format(u"\n  %d", {syncIndex[si]}));
+                result.append(UString::Format(u"\n  %d", syncIndex[si]));
                 for (size_t i = syncIndex[si]; i < udp_size; i += PKT_SIZE) {
-                    result.append(UString::Format(u" S %d", {std::min(PKT_SIZE - 1, udp_size - i)}));
+                    result.append(UString::Format(u" S %d", std::min(PKT_SIZE - 1, udp_size - i)));
                 }
                 // Not need to try starting at the next sync byte?
                 break;

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -32,6 +11,7 @@
 //----------------------------------------------------------------------------
 
 #include "tsBCD.h"
+#include "tsMemory.h"
 #include "tsunit.h"
 
 
@@ -41,50 +21,22 @@
 
 class BCDTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testIsValid();
-    void testEncodeByte();
-    void testDecodeByte();
-    void testEncodeString();
-    void testDecodeString();
-    void testToString();
-
-    TSUNIT_TEST_BEGIN(BCDTest);
-    TSUNIT_TEST(testIsValid);
-    TSUNIT_TEST(testEncodeByte);
-    TSUNIT_TEST(testDecodeByte);
-    TSUNIT_TEST(testEncodeString);
-    TSUNIT_TEST(testDecodeString);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(IsValid);
+    TSUNIT_DECLARE_TEST(EncodeByte);
+    TSUNIT_DECLARE_TEST(DecodeByte);
+    TSUNIT_DECLARE_TEST(EncodeString);
+    TSUNIT_DECLARE_TEST(DecodeString);
+    TSUNIT_DECLARE_TEST(ToString);
 };
 
 TSUNIT_REGISTER(BCDTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void BCDTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void BCDTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void BCDTest::testIsValid()
+TSUNIT_DEFINE_TEST(IsValid)
 {
     TSUNIT_ASSERT(ts::IsValidBCD(0x00));
     TSUNIT_ASSERT(ts::IsValidBCD(0x99));
@@ -100,7 +52,7 @@ void BCDTest::testIsValid()
     TSUNIT_ASSERT(!ts::IsValidBCD(0x0E));
 }
 
-void BCDTest::testEncodeByte()
+TSUNIT_DEFINE_TEST(EncodeByte)
 {
     TSUNIT_EQUAL(0x00, ts::EncodeBCD(0));
     TSUNIT_EQUAL(0x10, ts::EncodeBCD(10));
@@ -109,7 +61,7 @@ void BCDTest::testEncodeByte()
     TSUNIT_EQUAL(0x47, ts::EncodeBCD(47));
 }
 
-void BCDTest::testDecodeByte()
+TSUNIT_DEFINE_TEST(DecodeByte)
 {
     TSUNIT_EQUAL(0,  ts::DecodeBCD(0x00));
     TSUNIT_EQUAL(99, ts::DecodeBCD(0x99));
@@ -118,12 +70,12 @@ void BCDTest::testDecodeByte()
     TSUNIT_EQUAL(21, ts::DecodeBCD(0x21));
 }
 
-void BCDTest::testEncodeString()
+TSUNIT_DEFINE_TEST(EncodeString)
 {
     uint8_t buf[16];
 
 #define TEST(expr,...) \
-    static const uint8_t TS_UNIQUE_NAME(REF)[]={ __VA_ARGS__}; expr; TSUNIT_EQUAL(0, ::memcmp(TS_UNIQUE_NAME(REF),buf,sizeof(TS_UNIQUE_NAME(REF))))
+    static const uint8_t TS_UNIQUE_NAME(REF)[]={ __VA_ARGS__}; expr; TSUNIT_EQUAL(0, ts::MemCompare(TS_UNIQUE_NAME(REF),buf,sizeof(TS_UNIQUE_NAME(REF))))
 
     TEST(ts::EncodeBCD(buf, 4, 1234), 0x12, 0x34);
     TEST(ts::EncodeBCD(buf, 5, 1234), 0x01, 0x23, 0x40);
@@ -139,7 +91,7 @@ void BCDTest::testEncodeString()
 #undef TEST
 }
 
-void BCDTest::testDecodeString()
+TSUNIT_DEFINE_TEST(DecodeString)
 {
 #define TEST(value, bcd_count, ljustified,...) \
     static const uint8_t TS_UNIQUE_NAME(REF)[]={ __VA_ARGS__}; TSUNIT_EQUAL((value), ts::DecodeBCD(TS_UNIQUE_NAME(REF), (bcd_count), (ljustified)))
@@ -151,7 +103,7 @@ void BCDTest::testDecodeString()
 #undef TEST
 }
 
-void BCDTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
     std::string buf;
 

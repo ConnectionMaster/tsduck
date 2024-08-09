@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,6 +13,7 @@
 
 #pragma once
 #include "tsAbstractDefinedByStandards.h"
+#include "tsNamesFile.h"
 #include "tsxml.h"
 
 namespace ts {
@@ -127,6 +107,42 @@ namespace ts {
         //!
         static const UChar* const XML_GENERIC_LONG_TABLE;
 
+        //!
+        //! Get a name from a specified section in the DVB names file.
+        //! @tparam INT An integer type.
+        //! @param [in] xml_name Table or descriptor name, as used in XML structures.
+        //! @param [in] section Name of section to search. Not case-sensitive. The actual section in
+        //! the names file is prefixed by the XML name, followed by a dot.
+        //! @param [in] value Value to get the name for.
+        //! @param [in] flags Presentation flags.
+        //! @param [in] bits Nominal size in bits of the data, optional.
+        //! @param [in] alternate Display this integer value if flags ALTERNATE is set.
+        //! @return The corresponding name.
+        //!
+        template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type = 0>
+        static UString DataName(const UChar* xml_name, const UChar* section, INT value, NamesFlags flags = NamesFlags::NAME, size_t bits = 0, INT alternate = 0)
+        {
+            return NamesFile::Instance(NamesFile::Predefined::DTV)->
+                    nameFromSection(UString::Format(u"%s.%s", xml_name, section), NamesFile::Value(value), flags, bits, NamesFile::Value(alternate));
+        }
+
+        //!
+        //! Get a name from a specified section in the DVB names file for that signalization structure.
+        //! @tparam INT An integer type.
+        //! @param [in] section Name of section to search. Not case-sensitive. The actual section in
+        //! the names file is prefixed by the XML name of the structure, followed by a dot.
+        //! @param [in] value Value to get the name for.
+        //! @param [in] flags Presentation flags.
+        //! @param [in] bits Nominal size in bits of the data, optional.
+        //! @param [in] alternate Display this integer value if flags ALTERNATE is set.
+        //! @return The corresponding name.
+        //!
+        template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type = 0>
+        UString dataName(const UChar* section, INT value, NamesFlags flags = NamesFlags::NAME, size_t bits = 0, INT alternate = 0)
+        {
+            return DataName<INT>(_xml_name, section, value, flags, bits, alternate);
+        }
+
     protected:
         //!
         //! Protected constructor for subclasses.
@@ -145,11 +161,26 @@ namespace ts {
         AbstractSignalization(const AbstractSignalization& other) = default;
 
         //!
+        //! Move constructor.
+        //! Use default implementation, just tell the compiler we understand
+        //! the consequences of copying a pointer member.
+        //! @param [in] other The other instance to copy.
+        //!
+        AbstractSignalization(AbstractSignalization&& other) = default;
+
+        //!
         //! Assignment operator.
         //! @param [in] other The other instance to copy.
         //! @return A reference to this object.
         //!
         AbstractSignalization& operator=(const AbstractSignalization& other);
+
+        //!
+        //! Assignment move operator.
+        //! @param [in] other The other instance to copy.
+        //! @return A reference to this object.
+        //!
+        AbstractSignalization& operator=(AbstractSignalization&& other);
 
         //!
         //! Helper method to clear the content of the table or descriptor.
@@ -187,7 +218,7 @@ namespace ts {
         virtual bool analyzeXML(DuckContext& duck, const xml::Element* element) = 0;
 
     private:
-        bool               _is_valid;         // This object is valid.
+        bool               _is_valid = true;  // This object is valid.
         const UChar* const _xml_name;         // XML table or descriptor name.
         const UChar* const _xml_legacy_name;  // Optional XML table or descriptor legacy name. Ignored if null pointer.
         const Standards    _standards;        // Defining standards (usually only one).

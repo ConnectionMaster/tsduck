@@ -1,34 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsAbstractDatagramInputPlugin.h"
-#include "tsSysUtils.h"
 #include "tsIPProtocols.h"
 
 
@@ -45,32 +23,17 @@ ts::AbstractDatagramInputPlugin::AbstractDatagramInputPlugin(TSP* tsp_,
                                                              bool real_time) :
     InputPlugin(tsp_, description, syntax),
     _real_time(real_time),
-    _eval_time(0),
-    _display_time(0),
-    _time_priority_enum(),
-    _time_priority(RTP_TSP),
-    _default_time_priority(RTP_TSP),
-    _next_display(Time::Epoch),
-    _start(Time::Epoch),
-    _packets(0),
-    _start_0(Time::Epoch),
-    _packets_0(0),
-    _start_1(Time::Epoch),
-    _packets_1(0),
-    _inbuf_count(0),
-    _inbuf_next(0),
-    _mdata_next(0),
     _inbuf(std::max(buffer_size, 7 * PKT_SIZE)),
     _mdata(_inbuf.size() / PKT_SIZE)
 {
     if (_real_time) {
-        option(u"display-interval", 'd', POSITIVE);
+        option<cn::seconds>(u"display-interval", 'd');
         help(u"display-interval",
              u"Specify the interval in seconds between two displays of the evaluated "
              u"real-time input bitrate. The default is to never display the bitrate. "
              u"This option is ignored if --evaluation-interval is not specified.");
 
-        option(u"evaluation-interval", 'e', POSITIVE);
+        option<cn::seconds>(u"evaluation-interval", 'e');
         help(u"evaluation-interval",
              u"Specify that the real-time input bitrate shall be evaluated on a regular "
              u"basis. The value specifies the number of seconds between two evaluations. "
@@ -120,8 +83,8 @@ bool ts::AbstractDatagramInputPlugin::isRealTime()
 bool ts::AbstractDatagramInputPlugin::getOptions()
 {
     if (_real_time) {
-        _eval_time = MilliSecPerSec * intValue<MilliSecond>(u"evaluation-interval", 0);
-        _display_time = MilliSecPerSec * intValue<MilliSecond>(u"display-interval", 0);
+        getChronoValue(_eval_time, u"evaluation-interval");
+        getChronoValue(_display_time, u"display-interval");
     }
     getIntValue(_time_priority, u"timestamp-priority", _default_time_priority);
     return true;
@@ -148,15 +111,14 @@ bool ts::AbstractDatagramInputPlugin::start()
 
 ts::BitRate ts::AbstractDatagramInputPlugin::getBitrate()
 {
-    if (!_real_time || _eval_time <= 0 || _start_0 == _start_1) {
+    if (!_real_time || _eval_time <= cn::milliseconds::zero() || _start_0 == _start_1) {
         // Input bitrate not evaluated at all or first evaluation period not yet complete
         return 0;
     }
     else {
         // Evaluate bitrate since start of previous evaluation period.
         // The current period may be too short for correct evaluation.
-        const MilliSecond ms = Time::CurrentUTC() - _start_0;
-        return ms == 0 ? 0 : BitRate(_packets_0 * PKT_SIZE_BITS * MilliSecPerSec) / ms;
+        return PacketBitRate(_packets_0, Time::CurrentUTC() - _start_0);
     }
 }
 
@@ -173,7 +135,8 @@ ts::BitRateConfidence ts::AbstractDatagramInputPlugin::getBitrateConfidence()
 
 size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetadata* pkt_data, size_t max_packets)
 {
-    MicroSecond timestamp = -1;
+    cn::microseconds timestamp = cn::microseconds(-1);
+    TimeSource timesource = TimeSource::UNDEFINED;
 
     // Check if we receive new packets or process remain of previous buffer.
     bool new_packets = false;
@@ -184,7 +147,7 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
 
         // Wait for a datagram message
         size_t insize = 0;
-        if (!receiveDatagram(_inbuf.data(), _inbuf.size(), insize, timestamp)) {
+        if (!receiveDatagram(_inbuf.data(), _inbuf.size(), insize, timestamp, timesource)) {
             return 0;
         }
 
@@ -196,7 +159,7 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
             // Look for an RTP header before the first packet. There is no clear proof of the presence of the RTP header.
             // We check if the header size is large enough for an RTP header and if the "RTP payload type" is MPEG-2 TS.
             const bool rtp = _inbuf_next >= RTP_HEADER_SIZE && (_inbuf[1] & 0x7F) == RTP_PT_MP2T;
-            const uint32_t rtp_timestamp = rtp ? GetUInt32(_inbuf.data() + 4) : 0;
+            const ts::rtp_units rtp_timestamp = ts::rtp_units(rtp ? GetUInt32(_inbuf.data() + 4) : 0);
 
             // Use RTP time stamp if there is one and RTP is the preferred choice.
             bool use_rtp = false;
@@ -204,10 +167,10 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
             switch (_time_priority) {
                 case RTP_SYSTEM_TSP:
                     use_rtp = rtp;
-                    use_kernel = !rtp && timestamp >= 0;
+                    use_kernel = !rtp && timestamp >= cn::microseconds::zero();
                     break;
                 case SYSTEM_RTP_TSP:
-                    use_kernel = timestamp >= 0;
+                    use_kernel = timestamp >= cn::microseconds::zero();
                     use_rtp = !use_kernel && rtp;
                     break;
                 case RTP_TSP:
@@ -215,7 +178,7 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
                     use_kernel = false;
                     break;
                 case SYSTEM_TSP:
-                    use_kernel = timestamp >= 0;
+                    use_kernel = timestamp >= cn::microseconds::zero();
                     use_rtp = false;
                     break;
                 case TSP_ONLY:
@@ -229,12 +192,10 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
             _mdata_next = 0;
             for (size_t i = 0; i < _inbuf_count; ++i) {
                 if (use_rtp) {
-                    // RTP time stamp unit is 90 kHz (RTP_RATE_MP2T)
-                    _mdata[i].setInputTimeStamp(rtp_timestamp, RTP_RATE_MP2T, TimeSource::RTP);
+                    _mdata[i].setInputTimeStamp(rtp_timestamp, TimeSource::RTP);
                 }
                 else if (use_kernel) {
-                    // IP time stamp unit is microseconds.
-                    _mdata[i].setInputTimeStamp(uint64_t(timestamp), MicroSecPerSec, TimeSource::KERNEL);
+                    _mdata[i].setInputTimeStamp(timestamp, timesource);
                 }
                 else {
                     _mdata[i].clearInputTimeStamp();
@@ -245,18 +206,18 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
         }
 
         // No TS packet found in UDP message, wait for another one.
-        tsp->debug(u"no TS packet in message, %s bytes", {insize});
+        debug(u"no TS packet in message, %s bytes", insize);
     }
 
     // If new packets were received, we may need to re-evaluate the real-time input bitrate.
-    if (new_packets && _real_time && _eval_time > 0) {
+    if (new_packets && _real_time && _eval_time > cn::milliseconds::zero()) {
 
         const Time now(Time::CurrentUTC());
 
         // Detect start time
         if (_packets == 0) {
             _start = _start_0 = _start_1 = now;
-            if (_display_time > 0) {
+            if (_display_time > cn::milliseconds::zero()) {
                 _next_display = now + _display_time;
             }
         }
@@ -276,15 +237,15 @@ size_t ts::AbstractDatagramInputPlugin::receive(TSPacket* buffer, TSPacketMetada
         }
 
         // Check if evaluated bitrate should be displayed
-        if (_display_time > 0 && now >= _next_display) {
+        if (_display_time > cn::milliseconds::zero() && now >= _next_display) {
             _next_display += _display_time;
-            const MilliSecond ms_current = Time::CurrentUTC() - _start_0;
-            const MilliSecond ms_total = Time::CurrentUTC() - _start;
-            const BitRate br_current = ms_current == 0 ? 0 : BitRate(_packets_0 * PKT_SIZE_BITS * MilliSecPerSec) / ms_current;
-            const BitRate br_average = ms_total == 0 ? 0 : BitRate(_packets * PKT_SIZE_BITS * MilliSecPerSec) / ms_total;
-            tsp->info(u"input bitrate: %s, average: %s", {
-                br_current == 0 ? u"undefined" : br_current.toString() + u" b/s",
-                br_average == 0 ? u"undefined" : br_average.toString() + u" b/s"});
+            const cn::milliseconds ms_current = Time::CurrentUTC() - _start_0;
+            const cn::milliseconds ms_total = Time::CurrentUTC() - _start;
+            const BitRate br_current = PacketBitRate(_packets_0, ms_current);
+            const BitRate br_average = PacketBitRate(_packets, ms_total);
+            info(u"input bitrate: %s, average: %s",
+                 br_current == 0 ? u"undefined" : br_current.toString() + u" b/s",
+                 br_average == 0 ? u"undefined" : br_average.toString() + u" b/s");
         }
     }
 

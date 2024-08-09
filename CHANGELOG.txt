@@ -2,7 +2,235 @@ TSDUCK CHANGE LOG AND RELEASE NOTES
 
 -------------------------------------------------------------------------------
 
-VERSION 3.32-2803
+VERSION 3.38-3794
+
+[IMP] Improvements on existing commands and plugins:
+
+  * The documentation has been reorganized and is now built from asciidoc
+    format. The user guide is now installed in HTML format. A new developer's
+    guide is also available in HTML format and installed with the development
+    environment. The PDF versions are available online.
+  * New options in existing commands and plugins:
+    - Option --pid in plugin "eitinject".
+    - Option --joint-termination in plugin "tables".
+    - Options --json-buffer-size, --json-interval, --json-line, --json-tcp,
+     --json-tcp-keep --json-udp, --json-udp-local, --json-udp-ttl to input
+     plugin "dvb".
+
+[BUG] Bug fixes:
+
+  * In plugin "eitinject", fixed duplicated events when an event was reloaded
+    with same id but different content.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.37-3656
+
+[NEW] New commands and plugins:
+
+  * Added "tsfuzz" and plugin "fuzz": introduce random corruptions in transport
+    streams. Can be used to run fuzzing attacks on receivers or TSDuck itself.
+
+[IMP] Improvements on existing commands and plugins:
+
+  * Standard crypto operations (AES, DES, SHA) are now delegated to a system
+    library, OpenSSL on Unix, BCrypt on Windows. Previously, TSDuck included
+    old code from LibTomCrypt. Using a system-provided library increases the
+    probability to take advantage of accelerated instruction on the current
+    platform.
+  * TSDuck is now supported on 64-bit RISC-V, 64-bit PowerPC, and IBM s390x
+    (big endian). On s390x, use clang (gcc has a code generation bug).
+  * New options in existing commands and plugins:
+    - Options --meta-sections, --time-stamp in plugin "splicemonitor".
+    - Option --meta-sections in "tstables", plugin "tables".
+    - Option --clear-period in plugin "scrambler".
+    - Option --plp0-tsrate in output plugin "dektec".
+    - Option --input-timestamp in plugin "pcrextract".
+    - Option --ignore-rist-timestamps in input plugin "rist".
+
+[BUG] Bug fixes:
+
+  * Fixed issue #1389: Because of a recent regression, the plugin "mpe" crashed
+    when analyzing its command line options.
+  * PR #1397: In plugin "eitinject", events still running were discarded from
+    EIT schedule when they started in a previous segment.
+  * Fixed issue #1398: A corrupted sync byte in a TS packet caused "tsp" to
+    loop forever.
+  * Fixed issue #1400: A corrupted PES packet crashed plugin "teletext".
+  * Fixed issue #1401: A corrupted PES packet crashed plugin "pes".
+  * Fixed issues #1405 and #1407: A corrupted HEVC sequence caused memory
+    allocation failures in various tools and plugins ("analyze", "pes", etc.)
+  * Fixed issue #1416: Using plugin `pcrcopy` without `--reference-label`,
+    when label 0 was set by prevous plugins, the reference PID could be
+    incorrectly switched.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.36-3527
+
+[NEW] New commands and plugins:
+
+  * Added output plugin "http", acting as a server.
+
+[IMP] Improvements on existing commands and plugins:
+
+  * TSDuck now requires C++17. Building TSDuck consequently requires at least
+    GCC 11, LLVM / clang 5 or Visual Studio 2017 15.8.
+  * Improved the precision of plugin "regulate" when based on bitrate.
+  * Improved the measurement precision in plugin "bitrate_monitor".
+  * Renamed FlexMux-related descriptors and fields as M4Mux to comply with
+    ISO/IEC 13818-1 9th edition.
+  * Added support for many new descriptors (contribution from Paul Higgs).
+  * In "tsanalyze" and plugin "analyze", the LCN and hidden flag of services
+    are now reported in all formats, text, normalized, JSON.
+  * New options in existing commands and plugins:
+    - Options --json-line, --summary in plugin "bitrate_monitor".
+    - Option --buffer-size in output and packet processing plugins "ip"
+      (already existed in input plugin "ip" but was missing in the two others).
+    - Option --random in plugin "pcredit".
+    - Options --actual-pf, --actual-schedule, --other-pf, --other-schedule,
+      --no-actual-pf, --no-actual-schedule, --other-pf, --other-schedule in
+      command in "set" command of "tseit".
+    - Options --actual-pf, --actual-schedule, --other-pf, --other-schedule in
+      "tspacketize", "tstabcomp", plugins "inject", "eitinject".
+    - Option --flush-last-unbounded-pes in plugin "pes".
+    - Option --http to input plugin "pcap'.
+    - Option --output-tcp-stream to "tspcap".
+    - Options --compressed, --headers in input plugins "http" and "hls".
+    - Option --nostdcpp in "tsconfig".
+    - Option --t2mi-file in plugin "t2mi".
+
+[BUG] Bug fixes:
+
+  * In "srt" plugins, in --listener mode, after a first caller successfully
+    connects, any other attempt to connect is properly rejected. Previously,
+    due to an artefact in the SRT library, the second caller appeared to be
+    connected but the packets were dropped. The third and next callers were
+    properly rejected.
+  * Fixed issue #996: Restarting plugin "tables" failed with JSON output.
+  * Fixed issue #1293: In plugin "zap", the options --subtitles-pid and
+    --audio-pid were broken and no longer selected the specified PID's.
+  * In "fork" packet processing plugin, in option --buffered-packets, the
+    value zero (no buffering at all) was not allowed.
+  * Fixed issue #1321: In input plugin "dektec", read what is available in the
+    input FIFO only, instead of trying to fill the complete buffer.
+  * Fixed issue #1334: Incorrect service type names in JSON report of
+    "tsanalyze" and plugin "analyze".
+  * Fixed issue #1340: Restarting plugin "tables" with option --psi-si failed
+    with to collect PMT's again.
+  * Fixed issue #1369: Incorrect display in rare cases of HEVC sequence
+    parameter set.
+  * Fixed issue #1377: Incorrect display of stream types (PMT) in the context
+    of HDMV streams (BluRay disks).
+  * Fixed issue #1383: plugin "history" always failed with input plugin "ip"
+    because it was not possible to determine the initial bitrate.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.35-3252
+
+[NEW] New commands and plugins:
+
+  * Added plugin "dump" to dump TS packets (similar to command "tsdump").
+  * Added packet processing "ip" (similar to output plugin "ip").
+  * Added experimental plugin "feed" to extract an encapsulated transport
+    stream from a feed.
+
+[IMP] Improvements on existing commands and plugins:
+
+  * Improvements in syntax of XML patch files:
+    - Match elements with an attribute value being different from something.
+      Example: <PAT transport_stream_id="!1">
+    - Delete a higher-level parent on a structure match.
+      Example: <PMT> <component stream_type="0x06" x-node="delete(PMT)"/>
+  * In plugins "spliceinject", "scrambler", "descrambler", if the service
+    name is an empty string or "-", the first service in the PAT is used.
+  * New options in existing commands and plugins:
+    - Option --adaptation-field in "tsdump".
+    - Option --support in "tsversion".
+    - Unix: Option --disable-multicast-loop in output plugin "ip".
+    - Windows: Option --disable-multicast-loop in "tstabdump", input plugin
+      "ip", plugins "cutoff" and "mpeinject".
+
+[BUG] Bug fixes:
+
+  * Fixed issues #1203 and #1205: On Arm64 Linux system with CPU below Armv8.2
+    (typical example: Raspberry Pi 4), all executables crashed with "illegal
+    instruction" error.
+  * Fixed issue #1219: On Windows, tuning to a DVB-S tuner without specifying
+    the modulation (QPKS by default), crashed "tsp" and "tsscan".
+  * Fixed issue #1227: When garbage input was interpreted as a DVB service
+    prominence descriptor, an infinite loop could occur.
+  * Fixed issue #1234: Option --linger did not work with plugins "srt".
+  * In "dektec" input and output plugins, several options and modes were
+    defined but did not support MPEG-TS format. Trying to use them resulted
+    in various errors from the Dektec library. All these options were removed
+    (tracked in issue #550).
+
+-------------------------------------------------------------------------------
+
+VERSION 3.34-3194
+
+[NEW] New commands and plugins:
+
+  * Added command "tslatencymonitor" to monitor the latency between two input
+    sources (code contribution from Amos Cheung).
+
+[IMP] Improvements on existing commands and plugins:
+
+  * On Arm64 platforms, Linux and macOS, improved performances on data
+    serialization, CRC32 for all MPEG sections, AES, SHA-1, SHA-256
+    (when the corresponding accelerated instructions are available).
+  * Using "-P tables --log", without "--output", the logged lines are reported
+    through the general logger of "tsp" instead of being output to stdout.
+  * The plugin "pes", with option --trace-packets, detects and reports invalid
+    PES packets (e.g. truncated).
+  * New options in existing commands and plugins:
+    - Option --no-deep-duplicate in "tstables" and plugin "tables".
+    - Option --accelerated in "tscrc32".
+    - Option --ignore-crc32 in "tstabdump".
+    - Option --patch-xml and --section-number in plugin "sections".
+    - Options --lazy-schedule-update, --synchronous-versions in plugin
+      "eitinject".
+
+[BUG] Bug fixes:
+
+  * In plugin "eitinject", when a event was 64 days or more in the future,
+    invalid EIT schedule sections were generated. Now, these events are
+    discarded (an EPG can be only 64 days deep).
+  * Fixed issue #1191: Incorrect display of some HEVC sequence parameter
+    set analysis in plugin "pes".
+
+-------------------------------------------------------------------------------
+
+VERSION 3.33-3131
+
+[NEW] New commands and plugins:
+
+  * Added command "tscrc32" to manually compute CRC32 as used in MPEG sections.
+  * Added command "tstestecmg" to create an artificial load on an ECMG.
+
+[IMP] Improvements on existing commands and plugins:
+
+  * Ported TSDuck to FreeBSD, OpenBSD, NetBSD, DragonFlyBSD.
+  * New options in existing commands and plugins:
+    - The packet processing plugin "file" now supports all options of the
+      output plugin "file".
+    - Option --max-files in output and packet processing plugin "file".
+    - Option --set-label on plugin 'svresync".
+    - Options --custom-tag, --live-extra-segments, --slice-only in output
+      plugin "hls".
+    - Options --log-message-count, --synchronous-log, --timed-log to "tsecmg".
+    - Option --cumulative in plugin "analyze".
+
+[BUG] Bug fixes:
+
+  * When an invalid / truncated section had a very large declared length,
+    intermediate valid sections were ignored.
+
+-------------------------------------------------------------------------------
+
+VERSION 3.32-2973
 
 [NEW] New commands and plugins:
 
@@ -13,9 +241,21 @@ VERSION 3.32-2803
 
   * In "mpeinject" plugin, it is now possible to multiplex several input UDP
     stream into one single output MPE PID.
+  * Added support for VVC, EVC, LCEVC, AVS3 and other new codecs descriptors
+    (code contribution from Paul Higgs).
   * New options in existing commands and plugins:
     - Options --alt-group-id, --alt-language, --alt-name, --alt-type in input
       plugin "hls".
+    - Options --merge, --attributes-merge, --sort, --uncomment in "tsxml".
+    - Options --sort-languages, --sort-pids in plugin "pmt".
+    - Options --eit-actual, --eit-other, --eit-pf, --eit-schedule in
+      "tspacketize", "tstabcomp", plugin "inject".
+
+[BUG] Bug fixes:
+
+  * Fixed issue #1070: In the plugin "scrambler", do not fail at startup if
+    the bitrate is not immediately known. Simply wait for the bitrate to be
+    known before scheduling crypto-periods and ECM's.
 
 -------------------------------------------------------------------------------
 
@@ -44,6 +284,7 @@ VERSION 3.31-2754
     - Options --byte-offset, --packet-offset in "tsdump".
     - Options --search-reorder, --min-reorder in "tscmp".
     - Option --rs204 in output plugin "ip".
+    - Option --json-line in plugin "continuity".
 
 [BUG] Bug fixes:
 

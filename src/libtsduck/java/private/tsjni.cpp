@@ -1,40 +1,18 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsjni.h"
 #include "tsCerrReport.h"
-#include "tsThreadLocalObjects.h"
 
 #if !defined(TS_NO_JAVA)
 
 // The global pointer to the Java virtual machine.
-JavaVM* ts::jni::javaVM = nullptr;
+JavaVM* volatile ts::jni::javaVM = nullptr;
 
 //----------------------------------------------------------------------------
 // Convert between Java string and ts::UString.
@@ -244,29 +222,26 @@ bool ts::jni::GetPluginOptionsVector(JNIEnv* env, jobjectArray strings, PluginOp
 namespace {
 
     // Class declaration, one instance per thread.
-    class LocalThreadJNI : public ts::Object
+    class LocalThreadJNI
     {
+        TS_NOCOPY(LocalThreadJNI);
     public:
         // The constructor attaches to the JVM when necessary.
         LocalThreadJNI();
-        LocalThreadJNI(const LocalThreadJNI&) = default;
-        LocalThreadJNI& operator=(const LocalThreadJNI&) = default;
 
         // The destructor detaches from the JVM when necessary.
-        virtual ~LocalThreadJNI() override;
+        ~LocalThreadJNI();
 
         // Get the JNIEnv point for the curren thread.
         JNIEnv* env() const { return _env; }
 
     private:
-        JNIEnv* _env;         // The JNI environment pointer for this thread.
-        bool    _detach_jvm;  // The current thread shall detach from the JVM before exit.
+        JNIEnv* _env = nullptr;       // The JNI environment pointer for this thread.
+        bool    _detach_jvm = false;  // The current thread shall detach from the JVM before exit.
     };
 
     // The constructor attaches to the JVM when necessary.
-    LocalThreadJNI::LocalThreadJNI() :
-        _env(nullptr),
-        _detach_jvm(false)
+    LocalThreadJNI::LocalThreadJNI()
     {
         if (ts::jni::javaVM != nullptr) {
             void* penv = nullptr;
@@ -280,13 +255,13 @@ namespace {
                 _env = reinterpret_cast<JNIEnv*>(penv);
             }
         }
-        CERR.debug(u"start of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", {ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm});
+        CERR.debug(u"start of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm);
     }
 
     // The destructor detaches from the JVM when necessary.
     LocalThreadJNI::~LocalThreadJNI()
     {
-        CERR.debug(u"end of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", {ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm});
+        CERR.debug(u"end of JNI thread: jvm: 0x%X, env: 0x%X, detach: %s", ptrdiff_t(ts::jni::javaVM), ptrdiff_t(_env), _detach_jvm);
         _env = nullptr;
         if (_detach_jvm && ts::jni::javaVM != nullptr) {
             _detach_jvm = false;
@@ -302,17 +277,8 @@ namespace {
 
 JNIEnv* ts::jni::JNIEnvForCurrentThead()
 {
-    // Get the thread-specific LocalThreadJNI.
-    ts::ObjectPtr obj(ThreadLocalObjects::Instance()->getLocalObject(u"LocalThreadJNI"));
-    LocalThreadJNI* lobj = dynamic_cast<LocalThreadJNI*>(obj.pointer());
-    if (lobj == nullptr) {
-        // First time we use this thread, create the thread-specific LocalThreadJNI.
-        obj = lobj = new LocalThreadJNI;
-        CheckNonNull(lobj);
-        CheckNonNull(lobj->env());
-        ThreadLocalObjects::Instance()->setLocalObject(u"LocalThreadJNI", obj);
-    }
-    return lobj->env();
+    thread_local LocalThreadJNI lobj;
+    return lobj.env();
 }
 
 #endif // TS_NO_JAVA

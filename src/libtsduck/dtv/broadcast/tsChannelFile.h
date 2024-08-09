@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -38,9 +17,6 @@
 #include "tsxmlDocument.h"
 #include "tsxmlTweaks.h"
 #include "tsCerrReport.h"
-#include "tsSafePtr.h"
-#include "tsMutex.h"
-#include "tsVariable.h"
 
 namespace ts {
     //!
@@ -61,7 +37,7 @@ namespace ts {
         //!
         //! Default constructor.
         //!
-        ChannelFile();
+        ChannelFile() = default;
 
         //!
         //! Set new parsing and formatting tweaks for XML files.
@@ -139,26 +115,26 @@ namespace ts {
         class TSDUCKDLL Service
         {
         public:
-            uint16_t           id;          //!< Service Id.
-            UString            name;        //!< Service Name.
-            UString            provider;    //!< Provider Name.
-            Variable<uint16_t> lcn;         //!< Logical Channel Number (optional).
-            Variable<PID>      pmtPID;      //!< PMT PID (optional).
-            Variable<uint8_t>  type;        //!< DVB service type as declared in service_descriptor (optional).
-            Variable<bool>     cas;         //!< CA-controlled as declared in the SDT (optional).
-            Variable<uint8_t>  atscType;    //!< ATSC service type as declared in TVCT or CVCT (6 bits, optional).
-            Variable<uint16_t> atscMajorId; //!< ATSC service major id as declared in TVCT or CVCT (10 bits, optional).
-            Variable<uint16_t> atscMinorId; //!< ATSC service minor id as declared in TVCT or CVCT (10 bits, optional).
+            uint16_t                id = 0;         //!< Service Id.
+            UString                 name {};        //!< Service Name.
+            UString                 provider {};    //!< Provider Name.
+            std::optional<uint16_t> lcn {};         //!< Logical Channel Number (optional).
+            std::optional<PID>      pmtPID {};      //!< PMT PID (optional).
+            std::optional<uint8_t>  type {};        //!< DVB service type as declared in service_descriptor (optional).
+            std::optional<bool>     cas {};         //!< CA-controlled as declared in the SDT (optional).
+            std::optional<uint8_t>  atscType {};    //!< ATSC service type as declared in TVCT or CVCT (6 bits, optional).
+            std::optional<uint16_t> atscMajorId {}; //!< ATSC service major id as declared in TVCT or CVCT (10 bits, optional).
+            std::optional<uint16_t> atscMinorId {}; //!< ATSC service minor id as declared in TVCT or CVCT (10 bits, optional).
 
             //!
             //! Default constructor.
-            //! @param [in] id Service Id.
+            //! @param [in] sid Service Id.
             //!
-            Service(uint16_t id = 0);
+            Service(uint16_t sid = 0) : id(sid) {}
         };
 
-        typedef SafePtr<Service,Mutex>  ServicePtr;     //!< Safe pointer to a Service object (thread-safe).
-        typedef std::vector<ServicePtr> ServiceVector;  //!< Vector of safe pointers to Service objects.
+        using ServicePtr = std::shared_ptr<Service>;  //!< Safe pointer to a Service object (thread-safe).
+        using ServiceVector = std::vector<ServicePtr>;            //!< Vector of safe pointers to Service objects.
 
         //!
         //! Description of one transport stream.
@@ -166,16 +142,16 @@ namespace ts {
         class TSDUCKDLL TransportStream
         {
         public:
-            uint16_t       id;    //!< Transport Stream Id.
-            uint16_t       onid;  //!< Original Network Id.
-            ModulationArgs tune;  //!< Tuner parameters for the transport stream.
+            uint16_t       id = 0;    //!< Transport Stream Id.
+            uint16_t       onid = 0;  //!< Original Network Id.
+            ModulationArgs tune {};   //!< Tuner parameters for the transport stream.
 
             //!
             //! Default constructor.
-            //! @param [in] id Transport Stream Id.
-            //! @param [in] onid Original Network Id.
+            //! @param [in] ts Transport Stream Id.
+            //! @param [in] on Original Network Id.
             //!
-            TransportStream(uint16_t id = 0, uint16_t onid = 0);
+            TransportStream(uint16_t ts = 0, uint16_t on = 0) : id(ts), onid(on) {}
 
             //!
             //! Clear all services.
@@ -236,11 +212,11 @@ namespace ts {
             void addServices(const ServiceList& list);
 
         private:
-            ServiceVector _services;  // Services in the transport stream.
+            ServiceVector _services {};  // Services in the transport stream.
         };
 
-        typedef SafePtr<TransportStream,Mutex>  TransportStreamPtr;     //!< Safe pointer to a TransportStream object (thread-safe).
-        typedef std::vector<TransportStreamPtr> TransportStreamVector;  //!< Vector of safe pointers to TransportStream objects.
+        using TransportStreamPtr = std::shared_ptr<TransportStream>;  //!< Safe pointer to a TransportStream object (thread-safe).
+        using TransportStreamVector = std::vector<TransportStreamPtr>;            //!< Vector of safe pointers to TransportStream objects.
 
         //!
         //! Description of one network.
@@ -253,10 +229,10 @@ namespace ts {
 
             //!
             //! Default constructor.
-            //! @param [in] id Network Id.
+            //! @param [in] net Network Id.
             //! @param [in] typ Tuner type.
             //!
-            Network(uint16_t id = 0, TunerType typ = TT_UNDEFINED);
+            Network(uint16_t net = 0, TunerType typ = TT_UNDEFINED) : id(net), type(typ) {}
 
             //!
             //! Clear all transport streams.
@@ -291,11 +267,11 @@ namespace ts {
             TransportStreamPtr tsGetOrCreate(uint16_t id);
 
         private:
-            TransportStreamVector _ts;  // Transport streams in the network.
+            TransportStreamVector _ts {};  // Transport streams in the network.
         };
 
-        typedef SafePtr<Network,Mutex>  NetworkPtr;     //!< Safe pointer to a Network object (thread-safe).
-        typedef std::vector<NetworkPtr> NetworkVector;  //!< Vector of safe pointers to Network objects.
+        using NetworkPtr = std::shared_ptr<Network>;  //!< Safe pointer to a Network object (thread-safe).
+        using NetworkVector = std::vector<NetworkPtr>;            //!< Vector of safe pointers to Network objects.
 
         //!
         //! Get the number of networks in the file.
@@ -398,9 +374,9 @@ namespace ts {
         bool serviceToTuning(ModulationArgs& tune, const DeliverySystemSet& delsys, const UString& name, bool strict = true, Report& report = CERR) const;
 
     private:
-        NetworkVector _networks;    // List of networks in the configuration.
-        xml::Tweaks   _xmlTweaks;   // XML formatting and parsing tweaks.
-        UString       _fileName;    // Name of loaded file.
+        NetworkVector _networks {};    // List of networks in the configuration.
+        xml::Tweaks   _xmlTweaks {};   // XML formatting and parsing tweaks.
+        UString       _fileName {};    // Name of loaded file.
 
         // Parse an XML document and load the content into this object.
         bool parseDocument(const xml::Document& doc);

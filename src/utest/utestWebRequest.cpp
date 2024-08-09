@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -39,6 +18,7 @@
 #include "tsCerrReport.h"
 #include "tsReportBuffer.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
 #include "tsunit.h"
 
 
@@ -48,30 +28,19 @@
 
 class WebRequestTest: public tsunit::Test
 {
-public:
-    WebRequestTest();
+    TSUNIT_DECLARE_TEST(GitHub);
+    TSUNIT_DECLARE_TEST(Google);
+    TSUNIT_DECLARE_TEST(ReadMeFile);
+    TSUNIT_DECLARE_TEST(NoRedirection);
+    TSUNIT_DECLARE_TEST(NonExistentHost);
+    TSUNIT_DECLARE_TEST(InvalidURL);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testGitHub();
-    void testGoogle();
-    void testReadMeFile();
-    void testNoRedirection();
-    void testNonExistentHost();
-    void testInvalidURL();
-
-    TSUNIT_TEST_BEGIN(WebRequestTest);
-    TSUNIT_TEST(testGitHub);
-    TSUNIT_TEST(testGoogle);
-    TSUNIT_TEST(testReadMeFile);
-    TSUNIT_TEST(testNoRedirection);
-    TSUNIT_TEST(testNonExistentHost);
-    TSUNIT_TEST(testInvalidURL);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFileName;
+    fs::path _tempFileName {};
     ts::Report& report();
     void testURL(const ts::UString& url, bool expectRedirection, bool expectSSL, bool expectTextContent, bool expectInvariant);
 };
@@ -83,25 +52,19 @@ TSUNIT_REGISTER(WebRequestTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-WebRequestTest::WebRequestTest() :
-    _tempFileName()
-{
-}
-
 // Test suite initialization method.
 void WebRequestTest::beforeTest()
 {
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile();
     }
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void WebRequestTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 ts::Report& WebRequestTest::report()
@@ -165,9 +128,9 @@ void WebRequestTest::testURL(const ts::UString& url, bool expectRedirection, boo
     }
 
     // Test file download
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(request.downloadFile(url, _tempFileName));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
     TSUNIT_EQUAL(url, request.originalURL());
     TSUNIT_ASSERT(!request.finalURL().empty());
     if (expectRedirection) {
@@ -192,7 +155,7 @@ void WebRequestTest::testURL(const ts::UString& url, bool expectRedirection, boo
 // Test cases
 //----------------------------------------------------------------------------
 
-void WebRequestTest::testGitHub()
+TSUNIT_DEFINE_TEST(GitHub)
 {
     testURL(u"http://www.github.com/",
             true,     // expectRedirection
@@ -201,7 +164,7 @@ void WebRequestTest::testGitHub()
             false);   // expectInvariant
 }
 
-void WebRequestTest::testGoogle()
+TSUNIT_DEFINE_TEST(Google)
 {
     testURL(u"http://www.google.com/",
             false,    // expectRedirection
@@ -210,7 +173,7 @@ void WebRequestTest::testGoogle()
             false);   // expectInvariant
 }
 
-void WebRequestTest::testReadMeFile()
+TSUNIT_DEFINE_TEST(ReadMeFile)
 {
     testURL(u"https://raw.githubusercontent.com/tsduck/tsduck/master/README.md",
             false,    // expectRedirection
@@ -219,7 +182,7 @@ void WebRequestTest::testReadMeFile()
             true);    // expectInvariant
 }
 
-void WebRequestTest::testNoRedirection()
+TSUNIT_DEFINE_TEST(NoRedirection)
 {
     ts::WebRequest request(report());
     request.setAutoRedirect(false);
@@ -238,24 +201,24 @@ void WebRequestTest::testNoRedirection()
     TSUNIT_ASSERT(request.finalURL() != request.originalURL());
 }
 
-void WebRequestTest::testNonExistentHost()
+TSUNIT_DEFINE_TEST(NonExistentHost)
 {
-    ts::ReportBuffer<> rep;
+    ts::ReportBuffer<ts::ThreadSafety::None> rep;
     ts::WebRequest request(rep);
 
     ts::ByteBlock data;
     TSUNIT_ASSERT(!request.downloadBinaryContent(u"http://non.existent.fake-domain/", data));
 
-    debug() << "WebRequestTest::testNonExistentHost: " << rep.getMessages() << std::endl;
+    debug() << "WebRequestTest::testNonExistentHost: " << rep.messages() << std::endl;
 }
 
-void WebRequestTest::testInvalidURL()
+TSUNIT_DEFINE_TEST(InvalidURL)
 {
-    ts::ReportBuffer<> rep;
+    ts::ReportBuffer<ts::ThreadSafety::None> rep;
     ts::WebRequest request(rep);
 
     ts::ByteBlock data;
     TSUNIT_ASSERT(!request.downloadBinaryContent(u"pouette://tagada/tsoin/tsoin", data));
 
-    debug() << "WebRequestTest::testInvalidURL: " << rep.getMessages() << std::endl;
+    debug() << "WebRequestTest::testInvalidURL: " << rep.messages() << std::endl;
 }

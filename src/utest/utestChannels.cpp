@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -42,40 +21,17 @@
 
 class ChannelsTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testText();
-
-    TSUNIT_TEST_BEGIN(ChannelsTest);
-    TSUNIT_TEST(testText);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Text);
 };
 
 TSUNIT_REGISTER(ChannelsTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void ChannelsTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void ChannelsTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void ChannelsTest::testText()
+TSUNIT_DEFINE_TEST(Text)
 {
     static const ts::UChar* const document =
         u"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -124,110 +80,110 @@ void ChannelsTest::testText()
 
     TSUNIT_ASSERT(channels.searchService(net, ts, srv, u"foochannel", false));
 
-    TSUNIT_ASSERT(!net.isNull());
+    TSUNIT_ASSERT(net != nullptr);
     TSUNIT_EQUAL(0x1234, net->id);
     TSUNIT_EQUAL(ts::TT_ATSC, net->type);
 
-    TSUNIT_ASSERT(!ts.isNull());
+    TSUNIT_ASSERT(ts != nullptr);
     TSUNIT_EQUAL(0x5678, ts->id);
     TSUNIT_EQUAL(0x9ABC, ts->onid);
     TSUNIT_ASSERT(ts->tune.hasModulationArgs());
-    TSUNIT_ASSERT(ts->tune.frequency.set());
+    TSUNIT_ASSERT(ts->tune.frequency.has_value());
     TSUNIT_EQUAL(123456, ts->tune.frequency.value());
-    TSUNIT_ASSERT(ts->tune.modulation.set());
+    TSUNIT_ASSERT(ts->tune.modulation.has_value());
     TSUNIT_EQUAL(ts::VSB_16, ts->tune.modulation.value());
 
-    TSUNIT_ASSERT(!srv.isNull());
+    TSUNIT_ASSERT(srv != nullptr);
     TSUNIT_EQUAL(2, srv->id);
     TSUNIT_EQUAL(u"Foo Channel", srv->name);
     TSUNIT_EQUAL(u"Foo Provider", srv->provider);
-    TSUNIT_ASSERT(srv->lcn.set());
+    TSUNIT_ASSERT(srv->lcn.has_value());
     TSUNIT_EQUAL(23, srv->lcn.value());
-    TSUNIT_ASSERT(srv->pmtPID.set());
+    TSUNIT_ASSERT(srv->pmtPID.has_value());
     TSUNIT_EQUAL(0x0789, srv->pmtPID.value());
-    TSUNIT_ASSERT(srv->type.set());
+    TSUNIT_ASSERT(srv->type.has_value());
     TSUNIT_EQUAL(0x12, srv->type.value());
-    TSUNIT_ASSERT(srv->cas.set());
+    TSUNIT_ASSERT(srv->cas.has_value());
     TSUNIT_ASSERT(srv->cas.value());
 
     TSUNIT_ASSERT(channels.searchService(net, ts, srv, ts::DeliverySystemSet({ts::DS_DVB_S, ts::DS_DVB_S2}), u"foochannel", false));
 
-    TSUNIT_ASSERT(!net.isNull());
+    TSUNIT_ASSERT(net != nullptr);
     TSUNIT_EQUAL(0x8753, net->id);
     TSUNIT_EQUAL(ts::TT_DVB_S, net->type);
 
-    TSUNIT_ASSERT(!ts.isNull());
+    TSUNIT_ASSERT(ts != nullptr);
     TSUNIT_EQUAL(0x8793, ts->id);
     TSUNIT_EQUAL(0x5896, ts->onid);
     TSUNIT_ASSERT(ts->tune.hasModulationArgs());
-    TSUNIT_ASSERT(ts->tune.frequency.set());
+    TSUNIT_ASSERT(ts->tune.frequency.has_value());
     TSUNIT_EQUAL(8523698, ts->tune.frequency.value());
-    TSUNIT_ASSERT(ts->tune.symbol_rate.set());
+    TSUNIT_ASSERT(ts->tune.symbol_rate.has_value());
     TSUNIT_EQUAL(1237418, ts->tune.symbol_rate.value());
-    TSUNIT_ASSERT(ts->tune.modulation.set());
+    TSUNIT_ASSERT(ts->tune.modulation.has_value());
     TSUNIT_EQUAL(ts::PSK_8, ts->tune.modulation.value());
-    TSUNIT_ASSERT(ts->tune.delivery_system.set());
+    TSUNIT_ASSERT(ts->tune.delivery_system.has_value());
     TSUNIT_EQUAL(ts::DS_DVB_S2, ts->tune.delivery_system.value());
-    TSUNIT_ASSERT(ts->tune.polarity.set());
+    TSUNIT_ASSERT(ts->tune.polarity.has_value());
     TSUNIT_EQUAL(ts::POL_HORIZONTAL, ts->tune.polarity.value());
-    TSUNIT_ASSERT(ts->tune.inner_fec.set());
+    TSUNIT_ASSERT(ts->tune.inner_fec.has_value());
     TSUNIT_EQUAL(ts::FEC_7_8, ts->tune.inner_fec.value());
-    TSUNIT_ASSERT(ts->tune.pilots.set());
+    TSUNIT_ASSERT(ts->tune.pilots.has_value());
     TSUNIT_EQUAL(ts::PILOT_ON, ts->tune.pilots.value());
-    TSUNIT_ASSERT(ts->tune.roll_off.set());
+    TSUNIT_ASSERT(ts->tune.roll_off.has_value());
     TSUNIT_EQUAL(ts::ROLLOFF_35, ts->tune.roll_off.value());
 
-    TSUNIT_ASSERT(!srv.isNull());
+    TSUNIT_ASSERT(srv != nullptr);
     TSUNIT_EQUAL(0x4591, srv->id);
     TSUNIT_EQUAL(u"Foo Channel", srv->name);
     TSUNIT_EQUAL(u"", srv->provider);
-    TSUNIT_ASSERT(!srv->lcn.set());
-    TSUNIT_ASSERT(!srv->pmtPID.set());
-    TSUNIT_ASSERT(!srv->type.set());
-    TSUNIT_ASSERT(!srv->cas.set());
+    TSUNIT_ASSERT(!srv->lcn.has_value());
+    TSUNIT_ASSERT(!srv->pmtPID.has_value());
+    TSUNIT_ASSERT(!srv->type.has_value());
+    TSUNIT_ASSERT(!srv->cas.has_value());
 
     TSUNIT_ASSERT(!channels.searchService(net, ts, srv, u"foo", false, NULLREP));
-    TSUNIT_ASSERT(net.isNull());
-    TSUNIT_ASSERT(ts.isNull());
-    TSUNIT_ASSERT(srv.isNull());
+    TSUNIT_ASSERT(net == nullptr);
+    TSUNIT_ASSERT(ts == nullptr);
+    TSUNIT_ASSERT(srv == nullptr);
 
     // Search by ATSC major.minor
     TSUNIT_ASSERT(channels.searchService(net, ts, srv, u"1.4", false));
 
-    TSUNIT_ASSERT(!net.isNull());
+    TSUNIT_ASSERT(net != nullptr);
     TSUNIT_EQUAL(0x1234, net->id);
     TSUNIT_EQUAL(ts::TT_ATSC, net->type);
 
-    TSUNIT_ASSERT(!ts.isNull());
+    TSUNIT_ASSERT(ts != nullptr);
     TSUNIT_EQUAL(0x5678, ts->id);
     TSUNIT_EQUAL(0x9ABC, ts->onid);
     TSUNIT_ASSERT(ts->tune.hasModulationArgs());
-    TSUNIT_ASSERT(ts->tune.frequency.set());
+    TSUNIT_ASSERT(ts->tune.frequency.has_value());
     TSUNIT_EQUAL(123456, ts->tune.frequency.value());
-    TSUNIT_ASSERT(ts->tune.modulation.set());
+    TSUNIT_ASSERT(ts->tune.modulation.has_value());
     TSUNIT_EQUAL(ts::VSB_16, ts->tune.modulation.value());
 
-    TSUNIT_ASSERT(!srv.isNull());
+    TSUNIT_ASSERT(srv != nullptr);
     TSUNIT_EQUAL(2, srv->id);
     TSUNIT_EQUAL(u"Foo Channel", srv->name);
     TSUNIT_EQUAL(u"Foo Provider", srv->provider);
-    TSUNIT_ASSERT(srv->lcn.set());
+    TSUNIT_ASSERT(srv->lcn.has_value());
     TSUNIT_EQUAL(23, srv->lcn.value());
-    TSUNIT_ASSERT(srv->pmtPID.set());
+    TSUNIT_ASSERT(srv->pmtPID.has_value());
     TSUNIT_EQUAL(ts::PID(0x0789), srv->pmtPID.value());
-    TSUNIT_ASSERT(srv->type.set());
+    TSUNIT_ASSERT(srv->type.has_value());
     TSUNIT_EQUAL(0x12, srv->type.value());
-    TSUNIT_ASSERT(srv->cas.set());
+    TSUNIT_ASSERT(srv->cas.has_value());
     TSUNIT_ASSERT(srv->cas.value());
-    TSUNIT_ASSERT(srv->atscMajorId.set());
+    TSUNIT_ASSERT(srv->atscMajorId.has_value());
     TSUNIT_EQUAL(1, srv->atscMajorId.value());
-    TSUNIT_ASSERT(srv->atscMinorId.set());
+    TSUNIT_ASSERT(srv->atscMinorId.has_value());
     TSUNIT_EQUAL(4, srv->atscMinorId.value());
 
     TSUNIT_ASSERT(!channels.searchService(net, ts, srv, u"1.5", false, NULLREP));
-    TSUNIT_ASSERT(net.isNull());
-    TSUNIT_ASSERT(ts.isNull());
-    TSUNIT_ASSERT(srv.isNull());
+    TSUNIT_ASSERT(net == nullptr);
+    TSUNIT_ASSERT(ts == nullptr);
+    TSUNIT_ASSERT(srv == nullptr);
 
     TSUNIT_EQUAL(document, channels.toXML());
 }

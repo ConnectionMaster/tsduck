@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,37 +13,38 @@
 
 #pragma once
 #include "tsReport.h"
-#include "tsNullMutex.h"
+#include "tsUString.h"
 
 namespace ts {
     //!
     //! A subclass of ts::Report which logs all messages in an internal buffer.
     //! @ingroup log
     //!
-    //! Reentrancy is supported though the template parameter @a MUTEX.
+    //! Reentrancy is supported though the template parameter @a SAFETY.
     //!
-    //! @tparam MUTEX A subclass of ts::MutexInterface which is used to
-    //! serialize access to the buffer. By default, the class ts::NullMutex
-    //! is used, meaning that there is no synchronization on the file.
-    //! Multi-threaded applications must use an appropriate mutex class,
-    //! typically ts::Mutex.
+    //! @tparam SAFETY The required type of thread-safety.
     //!
-    template <class MUTEX = NullMutex>
+    template <ThreadSafety SAFETY>
     class ReportBuffer: public Report
     {
+        TS_NOCOPY(ReportBuffer);
     public:
+        //!
+        //! Generic definition of the mutex for this class.
+        //!
+        using MutexType = typename ThreadSafetyMutex<SAFETY>::type;
 
         //!
         //! Constructor.
         //!
         //! @param [in] max_severity Maximum debug level to display. None by default.
         //!
-        ReportBuffer(int max_severity = Severity::Info);
+        ReportBuffer(int max_severity = Severity::Info) : Report(max_severity) {}
 
         //!
         //! Reset the content of the internal buffer.
         //!
-        void resetMessages();
+        void clear();
 
         //!
         //! Get the content of the internal buffer.
@@ -73,21 +53,21 @@ namespace ts {
         //! are separated by a newline character ('\n') but there is no
         //! newline after the last line.
         //!
-        UString getMessages() const;
+        UString messages() const;
 
         //!
         //! Check if the content of the internal buffer is empty.
         //!
         //! @return True if no message was logged, false otherwise.
         //!
-        bool emptyMessages() const;
+        bool empty() const;
 
     protected:
         virtual void writeLog(int severity, const UString& message) override;
 
     private:
-        mutable MUTEX _mutex;
-        UString       _buffer;
+        mutable MutexType _mutex {};
+        UString _buffer {};
     };
 }
 
@@ -97,10 +77,49 @@ namespace ts {
 //! @param [in] log A @link ts::ReportBuffer @endlink object.
 //! @return A reference to the @a strm object.
 //!
-template <class MUTEX>
-inline std::ostream& operator<< (std::ostream& strm, const ts::ReportBuffer<MUTEX>& log)
+template <ts::ThreadSafety SAFETY>
+inline std::ostream& operator<< (std::ostream& strm, const ts::ReportBuffer<SAFETY>& log)
 {
-    return strm << log.getMessages();
+    return strm << log.messages();
 }
 
-#include "tsReportBufferTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Reset the content of the internal buffer.
+template <ts::ThreadSafety SAFETY>
+void ts::ReportBuffer<SAFETY>::clear()
+{
+    std::lock_guard<MutexType> lock(_mutex);
+    _buffer.clear();
+}
+
+// Check if the content of the internal buffer is empty.
+template <ts::ThreadSafety SAFETY>
+bool ts::ReportBuffer<SAFETY>::empty() const
+{
+    std::lock_guard<MutexType> lock(_mutex);
+    return _buffer.empty();
+}
+
+// Get the content of the internal buffer.
+template <ts::ThreadSafety SAFETY>
+ts::UString ts::ReportBuffer<SAFETY>::messages() const
+{
+    std::lock_guard<MutexType> lock(_mutex);
+    return _buffer;
+}
+
+// Message processing handler, add the message in the buffer.
+template <ts::ThreadSafety SAFETY>
+void ts::ReportBuffer<SAFETY>::writeLog(int severity, const UString& message)
+{
+    std::lock_guard<MutexType> lock(_mutex);
+    if (!_buffer.empty()) {
+        _buffer.append(u'\n');
+    }
+    _buffer.append(Severity::Header(severity));
+    _buffer.append(message);
+}

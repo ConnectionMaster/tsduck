@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,78 +14,54 @@
 
 #pragma once
 #include "tsUString.h"
-#include "tsEnumUtils.h"
+#include "tsEnvironment.h"
+#include "tsMemory.h"
 #include "tsTime.h"
-#include "tsCerrReport.h"
-
-//!
-//! Executable file suffix.
-//!
-#if defined(DOXYGEN)
-    #define TS_EXECUTABLE_SUFFIX platform-specific (".exe", "") // for doc only
-#elif defined(TS_WINDOWS)
-    #define TS_EXECUTABLE_SUFFIX u".exe"
-#else
-    #define TS_EXECUTABLE_SUFFIX u""
-#endif
-
-//!
-//! File name extension of shared library file names (".so" on Linux, '.dylib" on macOS, ".dll" on Windows).
-//!
-#if defined(DOXYGEN)
-#define TS_SHARED_LIB_SUFFIX platform-specific (".dll", ".so", ".dylib") // for doc only
-#elif defined(TS_WINDOWS)
-    #define TS_SHARED_LIB_SUFFIX u".dll"
-#elif defined(TS_MAC)
-    #define TS_SHARED_LIB_SUFFIX u".dylib"
-#else
-    #define TS_SHARED_LIB_SUFFIX u".so"
-#endif
-
-//!
-//! Environment variable containing the command search path.
-//!
-#if defined(DOXYGEN)
-    #define TS_COMMAND_PATH platform-specific ("PATH", "Path") // for doc only
-#elif defined(TS_WINDOWS)
-    #define TS_COMMAND_PATH u"Path"
-#elif defined(TS_UNIX)
-    #define TS_COMMAND_PATH u"PATH"
-#else
-    #error "Unimplemented operating system"
-#endif
-
-//!
-//! Name of the environment variable which contains a list of paths for plugins.
-//!
-#define TS_PLUGINS_PATH u"TSPLUGINS_PATH"
+#include "tsErrCodeReport.h"
 
 namespace ts {
     //!
-    //! Directory separator character in file paths.
+    //! Executable file suffix.
     //!
 #if defined(DOXYGEN)
-    const UChar PathSeparator = platform-specific ('/', '\\'); // for doc only
+    constexpr const UChar* EXECUTABLE_FILE_SUFFIX = platform - specific(".exe", "");  // for doc only
 #elif defined(TS_WINDOWS)
-    const UChar PathSeparator = u'\\';
-#elif defined(TS_UNIX)
-    const UChar PathSeparator = u'/';
+    constexpr const UChar* EXECUTABLE_FILE_SUFFIX = u".exe";
 #else
-    #error "Unimplemented operating system"
+    constexpr const UChar* EXECUTABLE_FILE_SUFFIX = u"";
+#endif
+
+    //!
+    //! File name extension of shared library file names (".so" on Linux, '.dylib" on macOS, ".dll" on Windows).
+    //!
+#if defined(DOXYGEN)
+    constexpr const UChar* SHARED_LIBRARY_SUFFIX = platform - specific(".dll", ".so", ".dylib");  // for doc only
+#elif defined(TS_WINDOWS)
+    constexpr const UChar* SHARED_LIBRARY_SUFFIX = u".dll";
+#elif defined(TS_MAC)
+    constexpr const UChar* SHARED_LIBRARY_SUFFIX = u".dylib";
+#else
+    constexpr const UChar* SHARED_LIBRARY_SUFFIX = u".so";
 #endif
 
     //!
     //! Case-sensitivity of the names in the file system.
     //!
 #if defined(DOXYGEN)
-    const CaseSensitivity FileSystemCaseSensitivity = platform-specific;
+    constexpr CaseSensitivity FILE_SYSTEM_CASE_SENSITVITY = platform-specific;
 #elif defined(TS_WINDOWS)
-    const CaseSensitivity FileSystemCaseSensitivity = CASE_INSENSITIVE;
+    constexpr CaseSensitivity FILE_SYSTEM_CASE_SENSITVITY = CASE_INSENSITIVE;
 #elif defined(TS_UNIX)
-    const CaseSensitivity FileSystemCaseSensitivity = CASE_SENSITIVE;
+    constexpr CaseSensitivity FILE_SYSTEM_CASE_SENSITVITY = CASE_SENSITIVE;
 #else
 #error "Unimplemented operating system"
 #endif
+
+    //!
+    //! Default separator in CSV (comma-separated values) format.
+    //! CSV files are suitable for analysis using tools such as Microsoft Excel.
+    //!
+    constexpr const UChar* DEFAULT_CSV_SEPARATOR = u",";
 
     //!
     //! Return a "vernacular" version of a file path.
@@ -149,7 +104,7 @@ namespace ts {
     //!
     TSDUCKDLL UString RelativeFilePath(const UString& path,
                                        const UString& base = UString(),
-                                       CaseSensitivity caseSensitivity = FileSystemCaseSensitivity,
+                                       CaseSensitivity caseSensitivity = FILE_SYSTEM_CASE_SENSITVITY,
                                        bool portableSlashes = false);
 
     //!
@@ -180,103 +135,19 @@ namespace ts {
     TSDUCKDLL UString BaseName(const UString& path, const UString& suffix = UString());
 
     //!
-    //! Return the suffix of a file path ("dir/foo.bar" => ".bar").
-    //!
-    //! @param [in] path A file path.
-    //! @return The suffix of @a path ("dir/foo.bar" => ".bar").
-    //!
-    TSDUCKDLL UString PathSuffix(const UString& path);
-
-    //!
-    //! Conditionally add a suffix to a file path.
-    //!
-    //! If the file path does not contain a suffix, add the specified one.
-    //! Otherwise, return the name unchanged.
-    //!
-    //! @param [in] path A file path.
-    //! @param [in] suffix The suffix to conditionally add.
-    //! @return The @a path with a suffix (for conditional suffix ".bar",
-    //! "dir/foo" => "dir/foo.bar" and "dir/foo.too" => "dir/foo.too").
-    //!
-    TSDUCKDLL UString AddPathSuffix(const UString& path, const UString& suffix);
-
-    //!
-    //! Return the prefix of a file path ("dir/foo.bar" => "dir/foo").
-    //!
-    //! @param [in] path A file path.
-    //! @return The prefix of @a path ("dir/foo.bar" => "dir/foo").
-    //!
-    TSDUCKDLL UString PathPrefix(const UString& path);
-
-    //!
     //! Get the current user's home directory.
     //!
     //! @return The full path of the current user's home directory.
     //! @throw ts::Exception In case of operating system error.
     //!
-    TSDUCKDLL UString UserHomeDirectory();
-
-    //!
-    //! Check if a file path is a symbolic link.
-    //! @param [in] path A file path.
-    //! @return True if @a path is a symbolic link.
-    //!
-    TSDUCKDLL bool IsSymbolicLink(const UString& path);
-
-    //!
-    //! Flags for ResolveSymbolicLinks().
-    //!
-    enum ResolveSymbolicLinksFlags {
-        LINK_SINGLE   = 0x0000,  //!< Default: simply single name resolution.
-        LINK_RECURSE  = 0x0001,  //!< Resolve symbolic recursively.
-        LINK_ABSOLUTE = 0x0002,  //!< Rebuild absolute path.
-    };
-
-    //!
-    //! Resolve symbolic links.
-    //! On Unix systems, resolve symbolic links and return the corresponding link.
-    //! On Windows and systems without symbolic links, return @a path.
-    //! @param [in] path A file path.
-    //! @param [in] flags Option flags, bit mask of ResolveSymbolicLinksFlags values.
-    //! @return The fully resolved path.
-    //!
-    TSDUCKDLL UString ResolveSymbolicLinks(const UString& path, ResolveSymbolicLinksFlags flags = LINK_SINGLE);
-
-    //!
-    //! Get the current working directory.
-    //! @return The current working directory.
-    //!
-    TSDUCKDLL UString CurrentWorkingDirectory();
-
-    //!
-    //! Create a directory
-    //! @param [in] path A directory path.
-    //! @param [in] intermediate When true, also create intermediate directories.
-    //! @param [in,out] report Where to report errors.
-    //! @return True on success, false on error.
-    //!
-    TSDUCKDLL bool CreateDirectory(const UString& path, bool intermediate = false, Report& report = CERR);
-
-    //!
-    //! Return the name of a directory for temporary files.
-    //! @return A system-dependent location where temporary files can be created.
-    //!
-    TSDUCKDLL UString TempDirectory();
+    TSDUCKDLL fs::path UserHomeDirectory();
 
     //!
     //! Return the name of a unique temporary file.
     //! @param [in] suffix An optional suffix to add to the file name.
     //! @return A unique temporary file name.
     //!
-    TSDUCKDLL UString TempFile(const UString& suffix = u".tmp");
-
-    //!
-    //! Get the size in bytes of a file.
-    //!
-    //! @param [in] path A file path.
-    //! @return Size in bytes of the file or -1 in case of error.
-    //!
-    TSDUCKDLL int64_t GetFileSize(const UString& path);
+    TSDUCKDLL fs::path TempFile(const UString& suffix = u".tmp");
 
     //!
     //! Get the local time of the last modification of a file.
@@ -292,58 +163,6 @@ namespace ts {
     //! @return Last modification time or Time::Epoch in case of error.
     //!
     TSDUCKDLL Time GetFileModificationTimeUTC(const UString& path);
-
-    //!
-    //! Check if a file or directory exists
-    //! @param [in] path A file path.
-    //! @return True if a file or directory exists with that name, false otherwise.
-    //!
-    TSDUCKDLL bool FileExists(const UString& path);
-
-    //!
-    //! Check if a path exists and is a directory.
-    //! @param [in] path A directory path.
-    //! @return True if a directory exists with that name, false otherwise.
-    //!
-    TSDUCKDLL bool IsDirectory(const UString& path);
-
-    //!
-    //! Delete a file or directory.
-    //!
-    //! If the specified path is a directory, it must be empty.
-    //! Otherwise, an error is returned.
-    //!
-    //! @param [in] path A file or directory path.
-    //! @param [in,out] report Where to report errors.
-    //! @return True on success, false on error.
-    //!
-    TSDUCKDLL bool DeleteFile(const UString& path, Report& report = CERR);
-
-    //!
-    //! Truncate a file to the specified size.
-    //!
-    //! @param [in] path A file path.
-    //! @param [in] size Size in bytes after which the file shall be truncated.
-    //! @param [in,out] report Where to report errors.
-    //! @return True on success, false on error.
-    //!
-    TSDUCKDLL bool TruncateFile(const UString& path, uint64_t size, Report& report = CERR);
-
-    //!
-    //! Rename / move a file or directory.
-    //!
-    //! If the path specifies a directory, all files in the directory
-    //! are moved as well.
-    //!
-    //! This method is not guaranteed to work when the new and old names
-    //! are on distinct volumes or file systems.
-    //!
-    //! @param [in] old_path The file path of an existing file or directory.
-    //! @param [in] new_path The new name for the file or directory.
-    //! @param [in,out] report Where to report errors.
-    //! @return True on success, false on error.
-    //!
-    TSDUCKDLL bool RenameFile(const UString& old_path, const UString& new_path, Report& report = CERR);
 
     //!
     //! Get all files matching a specified wildcard pattern and append them into a container.
@@ -418,6 +237,14 @@ namespace ts {
     }
 
     //!
+    //! Search an executable file.
+    //! @param [in] fileName Name of the file to search.
+    //! @param [in] pathName Name of the seach path environment variable.
+    //! @return The path to an existing file or an empty path if not found.
+    //!
+    TSDUCKDLL UString SearchExecutableFile(const UString& fileName, const UString& pathName = PATH_ENVIRONMENT_VARIABLE);
+
+    //!
     //! Search a configuration file.
     //! @param [in] fileName Name of the file to search.
     //! If @a fileName is not found and does not contain any directory part, search this file
@@ -447,5 +274,89 @@ namespace ts {
     TSDUCKDLL UString UserConfigurationFileName(const UString& fileName, const UString& winFileName = UString());
 }
 
-TS_ENABLE_BITMASK_OPERATORS(ts::ResolveSymbolicLinksFlags);
-#include "tsFileUtilsTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Get all files matching a specified wildcard pattern and append them into a container.
+template <class CONTAINER>
+bool ts::ExpandWildcardAndAppend(CONTAINER& container, const UString& pattern)
+{
+#if defined(TS_WINDOWS)
+
+    // On Win32, FindFirstFile / FindNextFile return the file name without directory.
+    // We keep the directory part in the pattern to add it later to all file names.
+    const UString::size_type pos = pattern.rfind(fs::path::preferred_separator);
+    const UString dir(pos == NPOS ? u"" : pattern.substr(0, pos + 1));
+
+    ::WIN32_FIND_DATAW fdata;
+
+    // Initiate the search
+    ::HANDLE handle = ::FindFirstFileW(pattern.wc_str(), &fdata);
+    if (handle == INVALID_HANDLE_VALUE) {
+        // No file matching the pattern is not an error
+        const ::DWORD status = ::GetLastError();
+        return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
+    }
+
+    // Loop on all file matching the pattern
+    do {
+        // Get next file name.
+        fdata.cFileName[sizeof(fdata.cFileName) / sizeof(fdata.cFileName[0]) - 1] = 0;
+        const UString file(reinterpret_cast<const UChar*>(fdata.cFileName));
+
+        // Filter out . and ..
+        if (file != u"." && file != u"..") {
+            container.push_back(dir + file);
+        }
+    } while (::FindNextFileW(handle, &fdata) != 0);
+    const ::DWORD status = ::GetLastError(); // FindNextFile status
+
+    // Cleanup the search context
+    ::FindClose(handle);
+    return status == ERROR_SUCCESS || status == ERROR_NO_MORE_FILES; // normal end of search
+
+#elif defined(TS_UNIX)
+
+    ::glob_t gl;
+    TS_ZERO(gl);
+    int status = ::glob(pattern.toUTF8().c_str(), 0, nullptr, &gl);
+    if (status == 0) {
+        for (size_t n = 0; n < gl.gl_pathc; n++) {
+            const UString file(UString::FromUTF8(gl.gl_pathv[n]));
+            // Filter out . and ..
+            if (file != u"." && file != u"..") {
+                container.push_back(file);
+            }
+        }
+    }
+    ::globfree(&gl);
+    return status == 0 || status == GLOB_NOMATCH;
+
+#else
+    #error "Unimplemented operating system"
+#endif
+}
+
+// Search all files matching a specified wildcard pattern in a directory tree.
+template <class CONTAINER>
+bool ts::SearchWildcardAndAppend(CONTAINER& container, const UString& root, const UString& pattern, size_t max_levels, bool skip_symlinks)
+{
+    // Append all files directly matching the wildcard in root directory.
+    bool status = ExpandWildcardAndAppend(container, root + fs::path::preferred_separator + pattern);
+
+    // If the maximum number of recursion levels is not reached, recurse in all subdirectories.
+    if (max_levels > 0) {
+        // Search all files under root and will select directories only.
+        UStringList locals;
+        ExpandWildcard(locals, root + fs::path::preferred_separator + u"*");
+        for (const auto& loc : locals) {
+            if (fs::is_directory(loc) && (!skip_symlinks || !fs::is_symlink(loc, &ErrCodeReport()))) {
+                status = SearchWildcardAndAppend(container, loc, pattern, max_levels - 1) && status;
+            }
+        }
+    }
+
+    return status;
+}

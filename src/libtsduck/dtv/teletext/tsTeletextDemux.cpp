@@ -1,36 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
 // Parts of this module are inspired from Telxcc, a free open-source Teletext
 // extractor from Petr Kutalek (https://github.com/petrkutalek/telxcc).
 // Copyright: (c) 2011-2014 Forers, s. r. o.: telxcc
-// If you do not want this code included, define TS_NO_TELETEXT.
 //
 //----------------------------------------------------------------------------
 //
@@ -49,7 +27,6 @@
 #include "tsTeletextDemux.h"
 #include "tsTeletextFrame.h"
 #include "tsMemory.h"
-#if !defined(TS_NO_TELETEXT)
 
 
 //-----------------------------------------------------------------------------
@@ -163,9 +140,7 @@ int ts::TeletextDemux::pageBinaryToBcd(int bin)
 
 ts::TeletextDemux::TeletextDemux(DuckContext& duck, TeletextHandlerInterface* handler, const PIDSet& pidFilter) :
     SuperClass(duck, nullptr, pidFilter),
-    _txtHandler(handler),
-    _pids(),
-    _addColors(false)
+    _txtHandler(handler)
 {
 }
 
@@ -174,30 +149,12 @@ ts::TeletextDemux::~TeletextDemux()
     flushTeletext();
 }
 
-ts::TeletextDemux::TeletextPage::TeletextPage() :
-    frameCount(0),
-    showTimestamp(0),
-    hideTimestamp(0),
-    tainted(false),
-    charset()
-{
-    TS_ZERO(text);
-}
-
-void ts::TeletextDemux::TeletextPage::reset(MilliSecond timestamp)
+void ts::TeletextDemux::TeletextPage::reset(const cn::milliseconds& timestamp)
 {
     showTimestamp = timestamp;
-    hideTimestamp = 0;
+    hideTimestamp = cn::milliseconds::zero();
     tainted = false;
     TS_ZERO(text);
-}
-
-ts::TeletextDemux::PIDContext::PIDContext() :
-    receivingData(false),
-    transMode(TRANSMODE_SERIAL),
-    currentPage(0),
-    pages()
-{
 }
 
 
@@ -252,12 +209,12 @@ void ts::TeletextDemux::handlePESPacket(const PESPacket& packet)
         plSize -= 2;
         pl += 2;
 
-        // Filter Teletext packets.
-        if (unitSize <= plSize &&
-            unitSize == TELETEXT_PACKET_SIZE &&
-            (unitId == TeletextDataUnitId::NON_SUBTITLE || unitId == TeletextDataUnitId::SUBTITLE))
-        {
-            // Reverse bitwise endianess of each data byte via lookup table, ETS 300 706, chapter 7.1.
+        if (unitSize > plSize) {
+            // Invalid length, drop end of PES packet.
+            break;
+        }
+        else if (unitSize == TELETEXT_PACKET_SIZE && (unitId == TeletextDataUnitId::NON_SUBTITLE || unitId == TeletextDataUnitId::SUBTITLE)) {
+            // Teletext packet. Reverse bitwise endianess of each data byte via lookup table, ETS 300 706, chapter 7.1.
             uint8_t pkt[TELETEXT_PACKET_SIZE];
             for (int i = 0; i < unitSize; ++i) {
                 pkt[i] = REVERSE_8[pl[i]];
@@ -331,7 +288,7 @@ void ts::TeletextDemux::processTeletextPacket(PID pid, PIDContext& pc, TeletextD
         TeletextPage& page(pc.pages[pageNumber]);
         if (page.tainted) {
             // It would not be nice if subtitle hides previous video frame, so we contract 40 ms (1 frame @25 fps)
-            page.hideTimestamp = pidDuration(pid) - 40;
+            page.hideTimestamp = pidDuration(pid) - cn::milliseconds(40);
             processTeletextPage(pid, pc, pageNumber);
         }
 
@@ -616,7 +573,7 @@ void ts::TeletextDemux::flushTeletext()
         for (auto& itPage : itPid.second.pages) {
             if (itPage.second.tainted) {
                 // Use the last timestamp (ms) for end of message.
-                const MilliSecond ms = pidDuration(itPid.first);
+                const cn::milliseconds ms = pidDuration(itPid.first);
 
                 // This time, we do not subtract any frames, there will be no more frames.
                 itPage.second.hideTimestamp = ms;
@@ -663,5 +620,3 @@ int ts::TeletextDemux::frameCount(int page, PID pid) const
     }
     return 0;
 }
-
-#endif // TS_NO_TELETEXT

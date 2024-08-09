@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,7 +14,6 @@
 #include "tsInputRedirector.h"
 #include "tsOutputRedirector.h"
 #include "tsByteBlock.h"
-#include "tsFatal.h"
 #include "tsTS.h"
 TS_MAIN(MainCode);
 
@@ -59,27 +37,19 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        size_t      sync_size;   // number of initial bytes to analyze for resync
-        size_t      contig_size; // required size of contiguous packets to accept a stream slice
-        size_t      packet_size; // specific non-standard input packet size (zero means use standard sizes)
-        size_t      header_size; // header size (when packet_size > 0)
-        bool        cont_sync;   // continuous synchronization (default: stop on error)
-        bool        keep;        // keep packet size (default: reduce to 188 bytes)
-        ts::UString infile;      // Input file name
-        ts::UString outfile;     // Output file name
+        size_t   sync_size = 0;      // number of initial bytes to analyze for resync
+        size_t   contig_size = 0;    // required size of contiguous packets to accept a stream slice
+        size_t   packet_size = 0;    // specific non-standard input packet size (zero means use standard sizes)
+        size_t   header_size = 0;    // header size (when packet_size > 0)
+        bool     cont_sync = false;  // continuous synchronization (default: stop on error)
+        bool     keep = false;       // keep packet size (default: reduce to 188 bytes)
+        fs::path infile {};          // Input file name
+        fs::path outfile {};         // Output file name
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"Resynchronize a non-standard or corrupted MPEG transport stream", u"[options] [filename]"),
-    sync_size(0),
-    contig_size(0),
-    packet_size(0),
-    header_size(0),
-    cont_sync(false),
-    keep(false),
-    infile(),
-    outfile()
+    Args(u"Resynchronize a non-standard or corrupted MPEG transport stream", u"[options] [filename]")
 {
     option(u"", 0, FILENAME, 0, 1);
     help(u"", u"Input MPEG transport stream file (standard input if omitted).");
@@ -123,12 +93,12 @@ Options::Options(int argc, char *argv[]) :
 
     analyze(argc, argv);
 
-    infile = value(u"");
-    outfile = value(u"output");
-    sync_size = intValue<size_t>(u"sync-size", DEFAULT_SYNC_SIZE);
-    contig_size = intValue<size_t>(u"min-contiguous", DEFAULT_CONTIG_SIZE);
-    header_size = intValue<size_t>(u"header-size", 0);
-    packet_size = intValue<size_t>(u"packet-size", 0);
+    getPathValue(infile, u"");
+    getPathValue(outfile, u"output");
+    getIntValue(sync_size, u"sync-size", DEFAULT_SYNC_SIZE);
+    getIntValue(contig_size, u"min-contiguous", DEFAULT_CONTIG_SIZE);
+    getIntValue(header_size, u"header-size", 0);
+    getIntValue(packet_size, u"packet-size", 0);
     keep = present(u"keep");
     cont_sync = present(u"continue");
 
@@ -215,7 +185,7 @@ size_t Resynchronizer::readData(uint8_t* buf, size_t size)
     std::streamsize got = 0;
     std::streamsize remain = std::streamsize(size);
     while (remain > 0) {
-        if (std::cin.read(reinterpret_cast <char*> (buf + got), remain)) {
+        if (std::cin.read(reinterpret_cast<char*>(buf + got), remain)) {
             const std::streamsize count = std::cin.gcount();
             got += count;
             remain -= count;
@@ -370,7 +340,7 @@ int MainCode(int argc, char *argv[])
         }
         else {
             sync_pre_size = sync_end - start;
-            ::memmove(sync_buf, start, sync_pre_size);
+            ts::MemCopy(sync_buf, start, sync_pre_size);
         }
 
         // If more than one packet left, out of sync
@@ -387,8 +357,8 @@ int MainCode(int argc, char *argv[])
                 resync.setStatus(RS_EOF);
             }
             else if (sync_buf[resync.inputHeaderSize()] != ts::SYNC_BYTE) {
-                std::cerr << ts::UString::Format(u"*** Synchronization lost after %'d TS packets", {resync.outputFilePackets()}) << std::endl
-                          << ts::UString::Format(u"*** Got 0x%X instead of 0x%X at start of TS packet", {sync_buf[resync.inputHeaderSize()], ts::SYNC_BYTE}) << std::endl;
+                std::cerr << ts::UString::Format(u"*** Synchronization lost after %'d TS packets", resync.outputFilePackets()) << std::endl
+                          << ts::UString::Format(u"*** Got 0x%X instead of 0x%X at start of TS packet", sync_buf[resync.inputHeaderSize()], ts::SYNC_BYTE) << std::endl;
                 resync.setStatus(RS_SYNC_LOST);
                 // Will resynchronize with sync buffer pre-loaded
                 sync_pre_size = resync.inputPacketSize();
@@ -402,7 +372,7 @@ int MainCode(int argc, char *argv[])
     } while (resync.status() == RS_OK || (resync.status() == RS_SYNC_LOST && opt.cont_sync));
 
     if (opt.verbose()) {
-        std::cerr << ts::UString::Format(u"* Output %'d bytes, %'d %d-byte packets", {resync.outputFileBytes(), resync.outputFilePackets(), resync.outputPacketSize()})
+        std::cerr << ts::UString::Format(u"* Output %'d bytes, %'d %d-byte packets", resync.outputFileBytes(), resync.outputFilePackets(), resync.outputPacketSize())
                   << std::endl;
     }
 

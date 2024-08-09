@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,7 +10,6 @@
 #include "tsTablesDisplay.h"
 #include "tsDuckContext.h"
 #include "tsTS.h"
-#include "tsNames.h"
 #include "tsxmlElement.h"
 
 #define MY_XML_NAME u"splice_schedule"
@@ -43,24 +21,7 @@
 //----------------------------------------------------------------------------
 
 ts::SpliceSchedule::SpliceSchedule() :
-    AbstractSignalization(MY_XML_NAME, MY_STD),
-    events()
-{
-}
-
-ts::SpliceSchedule::Event::Event() :
-    event_id(0),
-    canceled(false),
-    splice_out(false),
-    program_splice(false),
-    use_duration(false),
-    program_utc(0),
-    components_utc(),
-    duration_pts(0),
-    auto_return(false),
-    program_id(0),
-    avail_num(0),
-    avails_expected(0)
+    AbstractSignalization(MY_XML_NAME, MY_STD)
 {
 }
 
@@ -81,7 +42,7 @@ void ts::SpliceSchedule::clearContent()
 
 ts::UString ts::SpliceSchedule::DumpSpliceTime(const DuckContext& duck, uint32_t value)
 {
-    return UString::Format(u"0x%X (%s, leap seconds %s)", {value, ToUTCTime(duck, value).format(Time::DATETIME), duck.useLeapSeconds() ? u"included" : u"ignored"});
+    return UString::Format(u"0x%X (%s, leap seconds %s)", value, ToUTCTime(duck, value).format(Time::DATETIME), duck.useLeapSeconds() ? u"included" : u"ignored");
 }
 
 
@@ -92,7 +53,7 @@ ts::UString ts::SpliceSchedule::DumpSpliceTime(const DuckContext& duck, uint32_t
 void ts::SpliceSchedule::display(TablesDisplay& disp, const UString& margin) const
 {
     for (auto& ev : events) {
-        disp << margin << UString::Format(u"- Splice event id: 0x%X (%<d), cancel: %d", {ev.event_id, ev.canceled}) << std::endl;
+        disp << margin << UString::Format(u"- Splice event id: %n, cancel: %d", ev.event_id, ev.canceled) << std::endl;
 
         if (!ev.canceled) {
             disp << margin
@@ -109,14 +70,14 @@ void ts::SpliceSchedule::display(TablesDisplay& disp, const UString& margin) con
                 // Program components switch individually.
                 disp << margin << "  Number of components: " << ev.components_utc.size() << std::endl;
                 for (auto& it : ev.components_utc) {
-                    disp << margin << UString::Format(u"    Component tag: 0x%X (%<d)", {it.first})
+                    disp << margin << UString::Format(u"    Component tag: %n", it.first)
                          << ", UTC: " << DumpSpliceTime(disp.duck(), it.second) << std::endl;
                 }
             }
             if (ev.use_duration) {
                 disp << margin << "  Duration PTS: " << PTSToString(ev.duration_pts) << ", auto return: " << UString::YesNo(ev.auto_return) << std::endl;
             }
-            disp << margin << UString::Format(u"  Unique program id: 0x%X (%<d), avail: 0x%X (%<d), avails expected: %d", {ev.program_id, ev.avail_num, ev.avails_expected}) << std::endl;
+            disp << margin << UString::Format(u"  Unique program id: %n, avail: %n, avails expected: %d", ev.program_id, ev.avail_num, ev.avails_expected) << std::endl;
         }
     }
 }
@@ -371,9 +332,9 @@ bool ts::SpliceSchedule::analyzeXML(DuckContext& duck, const xml::Element* eleme
 
 ts::Time ts::SpliceSchedule::ToUTCTime(const DuckContext& duck, uint32_t value)
 {
-    Time utc(Time::GPSEpoch + Second(value) * MilliSecPerSec);
+    Time utc(Time::GPSEpoch + cn::seconds(value));
     if (duck.useLeapSeconds()) {
-        utc -= Time::GPSEpoch.leapSecondsTo(utc) * MilliSecPerSec;
+        utc -= Time::GPSEpoch.leapSecondsTo(utc);
     }
     return utc;
 }
@@ -383,9 +344,9 @@ uint32_t ts::SpliceSchedule::FromUTCTime(const DuckContext& duck, const Time& va
     if (value < Time::GPSEpoch) {
         return 0;
     }
-    Second utc = (value - Time::GPSEpoch) / MilliSecPerSec;
+    cn::seconds utc = cn::duration_cast<cn::seconds>(value - Time::GPSEpoch);
     if (duck.useLeapSeconds()) {
         utc += Time::GPSEpoch.leapSecondsTo(value);
     }
-    return uint32_t(utc);
+    return uint32_t(utc.count());
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -41,18 +20,17 @@ ts::Charset::Charset(const UChar* name) :
 {
     // Character sets with non empty names are registered.
     if (name != nullptr && *name != CHAR_NULL) {
-        Repository::Instance()->add(name, this);
+        Repository::Instance().add(name, this);
     }
 }
 
-ts::Charset::Charset(std::initializer_list<const UChar*> names) :
-    _name()
+ts::Charset::Charset(std::initializer_list<const UChar*> names)
 {
-    for (auto it = names.begin(); it != names.end(); ++it) {
-        if (*it != nullptr && **it != CHAR_NULL) {
-            Repository::Instance()->add(*it, this);
+    for (auto it : names) {
+        if (it != nullptr && *it != CHAR_NULL) {
+            Repository::Instance().add(it, this);
             if (_name.empty()) {
-                _name = *it;
+                _name = it;
             }
         }
     }
@@ -71,8 +49,7 @@ ts::Charset::~Charset()
 
 TS_DEFINE_SINGLETON(ts::Charset::Repository);
 
-ts::Charset::Repository::Repository() :
-    _map()
+ts::Charset::Repository::Repository()
 {
 }
 
@@ -84,7 +61,7 @@ const ts::Charset* ts::Charset::Repository::get(const UString& name) const
 
 ts::UStringList ts::Charset::Repository::getAllNames() const
 {
-    return MapKeys(_map);
+    return MapKeysList(_map);
 }
 
 void ts::Charset::Repository::add(const UString& name, const Charset* charset)
@@ -119,17 +96,17 @@ void ts::Charset::Repository::remove(const Charset* charset)
 
 const ts::Charset* ts::Charset::GetCharset(const UString& name)
 {
-    return Repository::Instance()->get(name);
+    return Repository::Instance().get(name);
 }
 
 ts::UStringList ts::Charset::GetAllNames()
 {
-    return Repository::Instance()->getAllNames();
+    return Repository::Instance().getAllNames();
 }
 
 void ts::Charset::unregister() const
 {
-    Repository::Instance()->remove(this);
+    Repository::Instance().remove(this);
 }
 
 

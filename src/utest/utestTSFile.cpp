@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,8 +14,8 @@
 #include "tsTSPacket.h"
 #include "tsTSPacketMetadata.h"
 #include "tsCerrReport.h"
-#include "tsNullReport.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
 #include "tsunit.h"
 
 
@@ -46,28 +25,18 @@
 
 class TSFileTest: public tsunit::Test
 {
-public:
-    TSFileTest();
+    TSUNIT_DECLARE_TEST(TS);
+    TSUNIT_DECLARE_TEST(M2TS);
+    TSUNIT_DECLARE_TEST(Duck);
+    TSUNIT_DECLARE_TEST(StuffingRead);
+    TSUNIT_DECLARE_TEST(StuffingWrite);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testTS();
-    void testM2TS();
-    void testDuck();
-    void testStuffingRead();
-    void testStuffingWrite();
-
-    TSUNIT_TEST_BEGIN(TSFileTest);
-    TSUNIT_TEST(testTS);
-    TSUNIT_TEST(testM2TS);
-    TSUNIT_TEST(testDuck);
-    TSUNIT_TEST(testStuffingRead);
-    TSUNIT_TEST(testStuffingWrite);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFileName;
+    fs::path _tempFileName {};
 };
 
 TSUNIT_REGISTER(TSFileTest);
@@ -77,25 +46,19 @@ TSUNIT_REGISTER(TSFileTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-TSFileTest::TSFileTest() :
-    _tempFileName()
-{
-}
-
 // Test suite initialization method.
 void TSFileTest::beforeTest()
 {
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".ts");
     }
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void TSFileTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 
@@ -103,12 +66,12 @@ void TSFileTest::afterTest()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void TSFileTest::testTS()
+TSUNIT_DEFINE_TEST(TS)
 {
     ts::TSFile file;
     ts::TSPacketVector packets(100);
 
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(!file.isOpen());
     TSUNIT_ASSERT(file.open(_tempFileName, ts::TSFile::READ | ts::TSFile::WRITE, CERR));
     TSUNIT_ASSERT(file.isOpen());
@@ -134,31 +97,31 @@ void TSFileTest::testTS()
     TSUNIT_EQUAL(100, file.writePacketsCount());
     TSUNIT_EQUAL(100, file.readPacketsCount());
     TSUNIT_ASSERT(file.close(CERR));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
-    TSUNIT_EQUAL(18800, ts::GetFileSize(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
+    TSUNIT_EQUAL(18800, fs::file_size(_tempFileName, &ts::ErrCodeReport(CERR)));
     TSUNIT_ASSERT(!file.isOpen());
 }
 
-void TSFileTest::testM2TS()
+TSUNIT_DEFINE_TEST(M2TS)
 {
     ts::TSFile file;
     ts::TSPacket packet;
     ts::TSPacketMetadata mdata;
 
     debug() << "TSFileTest::testM2TS: TS file: " << _tempFileName << std::endl;
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(file.open(_tempFileName, ts::TSFile::WRITE, CERR, ts::TSPacketFormat::M2TS));
 
     packet = ts::NullPacket;
     for (size_t i = 0; i < 5; ++i) {
         packet.setPID(ts::PID(200 + i));
-        mdata.setInputTimeStamp(i, ts::SYSTEM_CLOCK_FREQ / 2, ts::TimeSource::UNDEFINED);
+        mdata.setInputTimeStamp(ts::PCR(2 * i), ts::TimeSource::UNDEFINED);
         TSUNIT_ASSERT(file.writePackets(&packet, &mdata, 1, CERR));
     }
     TSUNIT_EQUAL(5, file.writePacketsCount());
     TSUNIT_ASSERT(file.close(CERR));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
-    TSUNIT_EQUAL(960, ts::GetFileSize(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
+    TSUNIT_EQUAL(960, fs::file_size(_tempFileName, &ts::ErrCodeReport(CERR)));
 
     TSUNIT_ASSERT(!file.isOpen());
     TSUNIT_ASSERT(file.openRead(_tempFileName, 2 * (4 + ts::PKT_SIZE), CERR));
@@ -168,20 +131,20 @@ void TSFileTest::testM2TS()
     TSUNIT_EQUAL(1, file.readPackets(&packet, &mdata, 1, CERR));
     TSUNIT_EQUAL(202, packet.getPID());
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(4, mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(4, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::M2TS, mdata.getInputTimeSource());
     TSUNIT_EQUAL(ts::TSPacketFormat::M2TS, file.packetFormat());
 
     TSUNIT_EQUAL(1, file.readPackets(&packet, &mdata, 1, CERR));
     TSUNIT_EQUAL(203, packet.getPID());
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(6, mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(6, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::M2TS, mdata.getInputTimeSource());
 
     TSUNIT_EQUAL(1, file.readPackets(&packet, &mdata, 1, CERR));
     TSUNIT_EQUAL(204, packet.getPID());
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(8, mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(8, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::M2TS, mdata.getInputTimeSource());
 
     TSUNIT_EQUAL(0, file.readPackets(&packet, &mdata, 1, CERR));
@@ -191,34 +154,34 @@ void TSFileTest::testM2TS()
     TSUNIT_ASSERT(file.close(CERR));
 }
 
-void TSFileTest::testDuck()
+TSUNIT_DEFINE_TEST(Duck)
 {
     ts::TSFile file;
     ts::TSPacket packet;
     ts::TSPacketMetadata mdata;
 
-    debug() << "TSFileTest::testM2TS: TS file: " << _tempFileName << std::endl;
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    debug() << "TSFileTest::testDuck: TS file: " << _tempFileName << std::endl;
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(file.open(_tempFileName, ts::TSFile::WRITE, CERR, ts::TSPacketFormat::DUCK));
 
     packet = ts::NullPacket;
     packet.setPID(ts::PID(300));
     mdata.setLabel(1);
     mdata.setLabel(3);
-    mdata.setInputTimeStamp(TS_UCONST64(0x212345678), ts::SYSTEM_CLOCK_FREQ, ts::TimeSource::KERNEL);
+    mdata.setInputTimeStamp(ts::PCR(0x212345678), ts::TimeSource::KERNEL);
     TSUNIT_ASSERT(file.writePackets(&packet, &mdata, 1, CERR));
 
     packet.setPID(ts::PID(400));
     mdata.reset();
     mdata.setLabel(2);
     mdata.setLabel(4);
-    mdata.setInputTimeStamp(TS_UCONST64(0x223456789), ts::SYSTEM_CLOCK_FREQ, ts::TimeSource::PCR);
+    mdata.setInputTimeStamp(ts::PCR(0x223456789), ts::TimeSource::PCR);
     TSUNIT_ASSERT(file.writePackets(&packet, &mdata, 1, CERR));
 
     TSUNIT_EQUAL(2, file.writePacketsCount());
     TSUNIT_ASSERT(file.close(CERR));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
-    TSUNIT_EQUAL(404, ts::GetFileSize(_tempFileName)); // 2 packets, header size = 14 bytes
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
+    TSUNIT_EQUAL(404, fs::file_size(_tempFileName, &ts::ErrCodeReport(CERR)));  // 2 packets, header size = 14 bytes
 
     TSUNIT_ASSERT(!file.isOpen());
     TSUNIT_ASSERT(file.openRead(_tempFileName, 2, 0, CERR));
@@ -233,7 +196,7 @@ void TSFileTest::testDuck()
     TSUNIT_ASSERT(mdata.hasLabel(3));
     TSUNIT_ASSERT(!mdata.hasLabel(4));
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(TS_UCONST64(0x212345678), mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(0x212345678, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::KERNEL, mdata.getInputTimeSource());
     TSUNIT_EQUAL(ts::TSPacketFormat::DUCK, file.packetFormat());
 
@@ -245,7 +208,7 @@ void TSFileTest::testDuck()
     TSUNIT_ASSERT(!mdata.hasLabel(3));
     TSUNIT_ASSERT(mdata.hasLabel(4));
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(TS_UCONST64(0x223456789), mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(0x223456789, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::PCR, mdata.getInputTimeSource());
 
     TSUNIT_EQUAL(1, file.readPackets(&packet, &mdata, 1, CERR));
@@ -256,7 +219,7 @@ void TSFileTest::testDuck()
     TSUNIT_ASSERT(mdata.hasLabel(3));
     TSUNIT_ASSERT(!mdata.hasLabel(4));
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(TS_UCONST64(0x212345678), mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(0x212345678, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::KERNEL, mdata.getInputTimeSource());
 
     TSUNIT_EQUAL(1, file.readPackets(&packet, &mdata, 1, CERR));
@@ -267,7 +230,7 @@ void TSFileTest::testDuck()
     TSUNIT_ASSERT(!mdata.hasLabel(3));
     TSUNIT_ASSERT(mdata.hasLabel(4));
     TSUNIT_ASSERT(mdata.hasInputTimeStamp());
-    TSUNIT_EQUAL(TS_UCONST64(0x223456789), mdata.getInputTimeStamp());
+    TSUNIT_EQUAL(0x223456789, mdata.getInputTimeStamp().count());
     TSUNIT_EQUAL(ts::TimeSource::PCR, mdata.getInputTimeSource());
 
     TSUNIT_EQUAL(0, file.readPackets(&packet, &mdata, 1, CERR));
@@ -277,13 +240,13 @@ void TSFileTest::testDuck()
     TSUNIT_ASSERT(file.close(CERR));
 }
 
-void TSFileTest::testStuffingRead()
+TSUNIT_DEFINE_TEST(StuffingRead)
 {
     ts::TSFile file;
     ts::TSPacket pkt;
     ts::TSPacketVector packets(20);
 
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(!file.isOpen());
 
     // Create a file with one packet.
@@ -296,8 +259,8 @@ void TSFileTest::testStuffingRead()
     TSUNIT_EQUAL(0, file.readPacketsCount());
     TSUNIT_ASSERT(!file.isOpen());
 
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
-    TSUNIT_EQUAL(188, ts::GetFileSize(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
+    TSUNIT_EQUAL(188, fs::file_size(_tempFileName, &ts::ErrCodeReport(CERR)));
 
     // Read it with artificial stuffing.
     file.setStuffing(2, 3);
@@ -334,13 +297,13 @@ void TSFileTest::testStuffingRead()
     TSUNIT_EQUAL(0xFF, packets[5].getPayload()[0]);
 }
 
-void TSFileTest::testStuffingWrite()
+TSUNIT_DEFINE_TEST(StuffingWrite)
 {
     ts::TSFile file;
     ts::TSPacket pkt;
     ts::TSPacketVector packets(20);
 
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(!file.isOpen());
 
     // Create a file with one packet plus stuffing.
@@ -358,8 +321,8 @@ void TSFileTest::testStuffingWrite()
     TSUNIT_EQUAL(0, file.readPacketsCount());
     TSUNIT_ASSERT(!file.isOpen());
 
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
-    TSUNIT_EQUAL(6 * 188, ts::GetFileSize(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
+    TSUNIT_EQUAL(6 * 188, fs::file_size(_tempFileName, &ts::ErrCodeReport(CERR)));
 
     // Read it without artificial stuffing.
     ts::TSFile file2;

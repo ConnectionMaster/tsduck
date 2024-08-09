@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -33,8 +12,8 @@
 #include "tsDVBCharTableUTF8.h"
 #include "tsARIBCharset.h"
 #include "tsHFBand.h"
-#include "tsTime.h"
 #include "tsCerrReport.h"
+#include "tsTime.h"
 #include "tsArgs.h"
 
 
@@ -43,21 +22,12 @@
 //----------------------------------------------------------------------------
 
 ts::DuckContext::DuckContext(Report* report, std::ostream* output) :
-    _report(report != nullptr ? report : CerrReport::Instance()),
+    _report(report != nullptr ? report : &CERR),
     _initial_out(output != nullptr ? output : &std::cout),
     _out(_initial_out),
-    _outFile(),
     _charsetIn(&DVBCharTableSingleByte::DVB_ISO_6937),  // default DVB charset
     _charsetOut(&DVBCharTableSingleByte::DVB_ISO_6937),
-    _casId(CASID_NULL),
-    _defaultPDS(0),
-    _useLeapSeconds(true),
-    _cmdStandards(Standards::NONE),
-    _accStandards(Standards::NONE),
-    _hfDefaultRegion(),
-    _timeReference(0),
-    _timeRefConfig(DuckConfigFile::Instance()->value(u"default.time")),
-    _definedCmdOptions(0),
+    _timeRefConfig(DuckConfigFile::Instance().value(u"default.time")),
     _predefined_cas{{CASID_CONAX_MIN,      u"conax"},
                     {CASID_IRDETO_MIN,     u"irdeto"},
                     {CASID_MEDIAGUARD_MIN, u"mediaguard"},
@@ -69,14 +39,14 @@ ts::DuckContext::DuckContext(Report* report, std::ostream* output) :
 {
     // Initialize time reference from configuration file. Ignore errors.
     if (!_timeRefConfig.empty() && !setTimeReference(_timeRefConfig)) {
-        CERR.verbose(u"invalid default.time '%s' in %s", {_timeRefConfig, DuckConfigFile::Instance()->fileName()});
+        CERR.verbose(u"invalid default.time '%s' in %s", _timeRefConfig, DuckConfigFile::Instance().fileName());
     }
 
     // Get leap.seconds initial value from configuration file. Default value is true.
-    const UString ls(DuckConfigFile::Instance()->value(u"leap.seconds"));
+    const UString ls(DuckConfigFile::Instance().value(u"leap.seconds"));
     if (!ls.empty() && !ls.toBool(_useLeapSeconds)) {
         _useLeapSeconds = true;
-        CERR.verbose(u"invalid leap.seconds '%s' in %s", {ls, DuckConfigFile::Instance()->fileName()});
+        CERR.verbose(u"invalid leap.seconds '%s' in %s", ls, DuckConfigFile::Instance().fileName());
     }
 }
 
@@ -97,7 +67,7 @@ void ts::DuckContext::reset()
     _defaultPDS = 0;
     _cmdStandards = _accStandards = Standards::NONE;
     _hfDefaultRegion.clear();
-    _timeReference = 0;
+    _timeReference = cn::milliseconds::zero();
 }
 
 
@@ -107,7 +77,7 @@ void ts::DuckContext::reset()
 
 void ts::DuckContext::setReport(Report* report)
 {
-    _report = report != nullptr ? report : CerrReport::Instance();
+    _report = report != nullptr ? report : &CERR;
 }
 
 
@@ -133,7 +103,7 @@ void ts::DuckContext::setDefaultCharsetOut(const Charset* charset)
 void ts::DuckContext::addStandards(Standards mask)
 {
     if (_report->debug() && (_accStandards | mask) != _accStandards) {
-        _report->debug(u"adding standards %s to %s", {StandardsNames(mask), StandardsNames(_accStandards)});
+        _report->debug(u"adding standards %s to %s", StandardsNames(mask), StandardsNames(_accStandards));
     }
     _accStandards |= mask;
 }
@@ -143,7 +113,7 @@ void ts::DuckContext::resetStandards(Standards mask)
     _accStandards = _cmdStandards | mask;
 
     if (_report->debug()) {
-        _report->debug(u"resetting standards to %s", {StandardsNames(_accStandards)});
+        _report->debug(u"resetting standards to %s", StandardsNames(_accStandards));
     }
 }
 
@@ -199,6 +169,25 @@ ts::PDS ts::DuckContext::actualPDS(PDS pds) const
 
 
 //----------------------------------------------------------------------------
+// Registration ids (from MPEG-defined registration_descriptor).
+//----------------------------------------------------------------------------
+
+void ts::DuckContext::addRegistrationId(uint32_t regid)
+{
+    if (regid != REGID_NULL) {
+        _lastRegistrationId = regid;
+        _registrationIds.insert(regid);
+    }
+}
+
+void ts::DuckContext::resetRegistrationIds()
+{
+    _lastRegistrationId = REGID_NULL;
+    _registrationIds.clear();
+}
+
+
+//----------------------------------------------------------------------------
 // Name of the default region for UVH and VHF band frequency layout.
 //----------------------------------------------------------------------------
 
@@ -214,7 +203,7 @@ ts::UString ts::DuckContext::defaultHFRegion() const
         return _hfDefaultRegion;
     }
     else {
-        return DuckConfigFile::Instance()->value(u"default.region", u"europe");
+        return DuckConfigFile::Instance().value(u"default.region", u"europe");
     }
 }
 
@@ -245,11 +234,11 @@ bool ts::DuckContext::setTimeReference(const UString& name)
     str.convertToUpper();
     str.remove(SPACE);
 
-    if (str == u"UTC") {
-        _timeReference = 0;
+    if (str.similar(u"UTC")) {
+        _timeReference = cn::milliseconds::zero();
         return true;
     }
-    else if (str == u"JST") {
+    else if (str.similar(u"JST")) {
         _timeReference = Time::JSTOffset;
         return true;
     }
@@ -257,17 +246,17 @@ bool ts::DuckContext::setTimeReference(const UString& name)
     size_t count = 0;
     size_t last = 0;
     UChar sign = CHAR_NULL;
-    SubSecond hours = 0;
-    SubSecond minutes = 0;
+    cn::hours::rep hours = 0;
+    cn::minutes::rep minutes = 0;
 
-    str.scan(count, last, u"UTC%c%d:%d", {&sign, &hours, &minutes});
+    str.scan(count, last, u"UTC%c%d:%d", &sign, &hours, &minutes);
     if ((count == 2 || count == 3) &&
         last == str.size() &&
         (sign == u'+' || sign == u'-') &&
         hours >= 0 && hours <= 12 &&
         minutes >= 0 && minutes <= 59)
     {
-        _timeReference = (sign == u'+' ? +1 : -1) * (hours * MilliSecPerHour + minutes * MilliSecPerMin);
+        _timeReference = (sign == u'+' ? +1 : -1) * (cn::hours(hours) + cn::minutes(minutes));
         return true;
     }
     else {
@@ -283,21 +272,20 @@ bool ts::DuckContext::setTimeReference(const UString& name)
 
 ts::UString ts::DuckContext::timeReferenceName() const
 {
-    if (_timeReference == 0) {
+    if (_timeReference == cn::minutes::zero()) {
         return u"UTC";  // no offset
     }
     else if (_timeReference == Time::JSTOffset) {
         return u"JST";
     }
     else {
-        const UChar sign = _timeReference < 0 ? u'-' : u'+';
-        const SubSecond hours = std::abs(_timeReference) / MilliSecPerHour;
-        const SubSecond minutes = (std::abs(_timeReference) / MilliSecPerMin) % 60;
-        if (minutes == 0) {
-            return UString::Format(u"UTC%c%d", {sign, hours});
+        const UChar sign = _timeReference < cn::minutes::zero() ? u'-' : u'+';
+        const cn::minutes::rep minutes = std::abs(cn::duration_cast<cn::minutes>(_timeReference).count());
+        if (minutes % 60 == 0) {
+            return UString::Format(u"UTC%c%d", sign, minutes / 60);
         }
         else {
-            return UString::Format(u"UTC%c%d:%02d", {sign, hours, minutes});
+            return UString::Format(u"UTC%c%d:%02d", sign, minutes / 60, minutes % 60);
         }
     }
 }
@@ -332,7 +320,7 @@ void ts::DuckContext::flush()
 
 void ts::DuckContext::setOutput(std::ostream* stream, bool override)
 {
-    // Do not override output is not standard output (or explicit override).
+    // Do not override output if not standard output (or explicit override).
     if (override || _out == &std::cout) {
         if (_out == &_outFile) {
             _outFile.close();
@@ -341,9 +329,9 @@ void ts::DuckContext::setOutput(std::ostream* stream, bool override)
     }
 }
 
-bool ts::DuckContext::setOutput(const UString& fileName, bool override)
+bool ts::DuckContext::setOutput(const fs::path& fileName, bool override)
 {
-    // Do not override output is not standard output (or explicit override).
+    // Do not override output if not standard output (or explicit override).
     if (override || _out == &std::cout) {
         // Close previous file, if any.
         if (_out == &_outFile) {
@@ -353,11 +341,10 @@ bool ts::DuckContext::setOutput(const UString& fileName, bool override)
 
         // Open new file if any.
         if (!fileName.empty() && fileName != u"-") {
-            _report->verbose(u"creating %s", {fileName});
-            const std::string nameUTF8(fileName.toUTF8());
-            _outFile.open(nameUTF8.c_str(), std::ios::out);
+            _report->verbose(u"creating %s", fileName);
+            _outFile.open(fileName, std::ios::out);
             if (!_outFile) {
-                _report->error(u"cannot create %s", {fileName});
+                _report->error(u"cannot create %s", fileName);
                 return false;
             }
             _out = &_outFile;
@@ -398,7 +385,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
                   u"The available table names are " +
                   UString::Join(DVBCharset::GetAllNames()) + u".");
 
-        args.option(u"europe", 0);
+        args.option(u"europe");
         args.help(u"europe",
                   u"A synonym for '--default-charset ISO-8859-15'. This is a handy shortcut "
                   u"for commonly incorrect signalization on some European satellites. In that "
@@ -413,14 +400,14 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
     // Options relating to default standards.
     if (cmdOptionsMask & CMD_STANDARDS) {
 
-        args.option(u"abnt", 0);
+        args.option(u"abnt");
         args.help(u"abnt",
                   u"Assume that the transport stream is an ISDB one with ABNT-defined variants. "
                   u"ISDB streams are normally automatically detected from their signalization but "
                   u"there is no way to determine if this is an original ARIB-defined ISDB or "
                   u"an ABNT-defined variant.");
 
-        args.option(u"atsc", 0);
+        args.option(u"atsc");
         args.help(u"atsc",
                   u"Assume that the transport stream is an ATSC one. ATSC streams are normally "
                   u"automatically detected from their signalization. This option is only "
@@ -428,14 +415,14 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
                   u"ATSC-specific table. For instance, when a PMT with ATSC-specific "
                   u"descriptors is found before the first ATSC MGT or VCT.");
 
-        args.option(u"isdb", 0);
+        args.option(u"isdb");
         args.help(u"isdb",
                   u"Assume that the transport stream is an ISDB one. ISDB streams are normally "
                   u"automatically detected from their signalization. This option is only "
                   u"useful when ISDB-related stuff are found in the TS before the first "
                   u"ISDB-specific table.");
 
-        args.option(u"ignore-leap-seconds", 0);
+        args.option(u"ignore-leap-seconds");
         args.help(u"ignore-leap-seconds",
                   u"Do not include explicit leap seconds in some UTC computations. "
                   u"Currently, this applies to SCTE 35 splice_schedule() commands only.");
@@ -463,9 +450,9 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
                   u"CAT or PMT to correctly identify the CA PID's.");
 
         // Predefined CAS options:
-        for (auto cas = _predefined_cas.begin(); cas != _predefined_cas.end(); ++cas) {
-            args.option(cas->second);
-            args.help(cas->second, UString::Format(u"Equivalent to --default-cas-id 0x%04X.", {cas->first}));
+        for (const auto& cas : _predefined_cas) {
+            args.option(cas.second);
+            args.help(cas.second, UString::Format(u"Equivalent to --default-cas-id 0x%04X.", cas.first));
         }
     }
 
@@ -498,7 +485,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
         if (_definedCmdOptions & CMD_TIMEREF) {
             options.push_back(u"--time-reference JST");
         }
-        args.option(u"japan", 0);
+        args.option(u"japan");
         args.help(u"japan",
                   u"A synonym for '" + UString::Join(options, u" ") + u"'. "
                   u"This is a handy shortcut when working on Japanese transport streams.");
@@ -522,7 +509,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
         if (_definedCmdOptions & CMD_TIMEREF) {
             options.push_back(u"--time-reference UTC+8");
         }
-        args.option(u"philippines", 0);
+        args.option(u"philippines");
         args.help(u"philippines",
                   u"A synonym for '" + UString::Join(options, u" ") + u"'. "
                   u"This is a handy shortcut when working on Philippines transport streams.");
@@ -546,7 +533,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
         if (_definedCmdOptions & CMD_TIMEREF) {
             options.push_back(u"--time-reference UTC-3");
         }
-        args.option(u"brazil", 0);
+        args.option(u"brazil");
         args.help(u"brazil",
                   u"A synonym for '" + UString::Join(options, u" ") + u"'. "
                   u"This is a handy shortcut when working on South American ISDB-Tb transport streams.");
@@ -563,7 +550,7 @@ void ts::DuckContext::defineOptions(Args& args, int cmdOptionsMask)
         if (_definedCmdOptions & CMD_HF_REGION) {
             options.push_back(u"--hf-band-region usa");
         }
-        args.option(u"usa", 0);
+        args.option(u"usa");
         args.help(u"usa",
                   u"A synonym for '" + UString::Join(options, u" ") + u"'. "
                   u"This is a handy shortcut when working on North American transport streams.");
@@ -592,7 +579,7 @@ bool ts::DuckContext::loadArgs(Args& args)
         if (!name.empty()) {
             const Charset* cset = DVBCharTable::GetCharset(name);
             if (cset == nullptr) {
-                args.error(u"invalid character set name '%s'", {name});
+                args.error(u"invalid character set name '%s'", name);
             }
             else {
                 _charsetIn = _charsetOut = cset;
@@ -653,9 +640,9 @@ bool ts::DuckContext::loadArgs(Args& args)
             count++;
         }
         // Predefined CAS options:
-        for (auto cas = _predefined_cas.begin(); cas != _predefined_cas.end(); ++cas) {
-            if (args.present(cas->second)) {
-                _casId = cas->first;
+        for (const auto& cas : _predefined_cas) {
+            if (args.present(cas.second)) {
+                _casId = cas.first;
                 count++;
             }
         }
@@ -669,17 +656,17 @@ bool ts::DuckContext::loadArgs(Args& args)
         if (args.present(u"time-reference")) {
             const UString name(args.value(u"time-reference"));
             if (!setTimeReference(name)) {
-                args.error(u"invalid time reference '%s'", {name});
+                args.error(u"invalid time reference '%s'", name);
             }
         }
         else if (args.present(u"japan")) {
             _timeReference = Time::JSTOffset;
         }
         else if (args.present(u"brazil")) {
-            _timeReference = -3 * MilliSecPerHour; // UTC-3
+            _timeReference = cn::hours(-3); // UTC-3
         }
         else if (args.present(u"philippines")) {
-            _timeReference = 8 * MilliSecPerHour; // UTC+8
+            _timeReference = cn::hours(+8); // UTC+8
         }
     }
 
@@ -693,18 +680,6 @@ bool ts::DuckContext::loadArgs(Args& args)
 //----------------------------------------------------------------------------
 // An opaque class to save all command line options, as loaded by loadArgs().
 //----------------------------------------------------------------------------
-
-ts::DuckContext::SavedArgs::SavedArgs() :
-    _definedCmdOptions(0),
-    _cmdStandards(Standards::NONE),
-    _charsetInName(),
-    _charsetOutName(),
-    _casId(CASID_NULL),
-    _defaultPDS(0),
-    _hfDefaultRegion(),
-    _timeReference(0)
-{
-}
 
 void ts::DuckContext::saveArgs(SavedArgs& args) const
 {

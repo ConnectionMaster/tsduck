@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -36,6 +15,7 @@
 #include "tsSection.h"
 #include "tsTime.h"
 #include "tsPSI.h"
+#include "tsEIT.h"
 
 namespace ts {
     //!
@@ -94,13 +74,13 @@ namespace ts {
         //! EIT schedule for events in the prime period (i.e. the next few days)
         //! are repeated more often than for later events.
         //!
-        size_t prime_days;
+        cn::days prime_days = EIT::TOTAL_DAYS;
 
         //!
         //! Cycle time in seconds of each EIT sections repetition profile.
         //! The array is indexed by EITProfile.
         //!
-        std::array <size_t, PROFILE_COUNT> cycle_seconds;
+        std::array <cn::seconds, PROFILE_COUNT> cycle_seconds {};
 
         //!
         //! Standard EIT repetition profile for satellite and cable networks.
@@ -120,7 +100,7 @@ namespace ts {
         //! @param [in] cycles Up to 6 cycles in seconds. Missing values are replaced by the
         //! last value in the list. If the list is empty, all cycles are 10 seconds long.
         //!
-        EITRepetitionProfile(size_t days = 1, std::initializer_list<size_t> cycles = std::initializer_list<size_t>());
+        EITRepetitionProfile(cn::days days = cn::days(1), std::initializer_list<cn::seconds> cycles = std::initializer_list<cn::seconds>());
 
         //!
         //! Compute the starting date of the "later" period.
@@ -159,6 +139,6 @@ namespace ts {
         //! @return The repetition cycle in seconds of @a section.
         //! Undefined if the section is not a valid EIT.
         //!
-        size_t repetitionSeconds(const Section& section);
+        cn::seconds repetitionSeconds(const Section& section);
     };
 }

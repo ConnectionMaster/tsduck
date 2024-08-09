@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPlatform.h"
 #include "tsByteSwap.h"
 
 //!
@@ -42,7 +20,7 @@
 //! Do not use with instances of C++ classes.
 //! @param [out] var Name of a variable.
 //!
-#define TS_ZERO(var) ts::Zero(&(var), sizeof(var))
+#define TS_ZERO(var) ts::MemZero(&(var), sizeof(var))
 
 namespace ts {
     //!
@@ -50,13 +28,80 @@ namespace ts {
     //! @param [out] addr Address of a memory area to fill with zeroes.
     //! @param [in] size Size in bytes of the memory area.
     //!
-    TSDUCKDLL inline void Zero(void* addr, size_t size) {
+    TSDUCKDLL inline void MemZero(void* addr, size_t size)
+    {
+        if (size > 0) {
 #if defined(TS_WINDOWS)
-        ::SecureZeroMemory(addr, size);
+            ::SecureZeroMemory(addr, size);
 #else
-        ::memset(addr, 0, size);
+            std::memset(addr, 0, size);
 #endif
+        }
     }
+
+    //!
+    //! Setting a memory area.
+    //! Similar to std::memset() but explicitly does nothing on zero size.
+    //! @param [out] addr Address of a memory area to fill with @a value.
+    //! @param [in] value Byte value to set in all area.
+    //! @param [in] size Size in bytes of the memory area.
+    //!
+    TSDUCKDLL inline void MemSet(void* addr, uint8_t value, size_t size)
+    {
+        if (size > 0) {
+            std::memset(addr, value, size);
+        }
+    }
+
+    //!
+    //! Copying a memory area.
+    //! Similar to std::memcpy() and std::memmove() but explicitly does nothing on zero size.
+    //! Overlapping source and destination are allowed, as with std::memmove().
+    //! @param [out] dest Base address of destination area.
+    //! @param [in] src Base address of source area.
+    //! @param [in] size Size in bytes of the memory area.
+    //!
+    TSDUCKDLL inline void MemCopy(void* dest, const void* src, size_t size)
+    {
+        if (size > 0) {
+            std::memmove(dest, src, size);
+        }
+    }
+
+    //!
+    //! Comparing two memory areas.
+    //! Similar to std::memcmp() but explicitly does nothing on zero size.
+    //! @param [in] addr1 Base address of first area.
+    //! @param [in] addr2 Base address of second area.
+    //! @param [in] size Size in bytes of the memory area.
+    //! @return Same as std::memcmp(). Zero when the twa areas are equal or @a size is zero.
+    //!
+    TSDUCKDLL inline int MemCompare(const void* addr1, const void* addr2, size_t size)
+    {
+        return size == 0 ? 0 : std::memcmp(addr1, addr2, size);
+    }
+
+    //!
+    //! Check if two memory areas are identical.
+    //! @param [in] addr1 Base address of first area.
+    //! @param [in] addr2 Base address of second area.
+    //! @param [in] size Size in bytes of the memory area.
+    //! @return True if the twa areas are equal or @a size is zero, false otherwise.
+    //!
+    TSDUCKDLL inline bool MemEqual(const void* addr1, const void* addr2, size_t size)
+    {
+        return size == 0 || std::memcmp(addr1, addr2, size) == 0;
+    }
+
+    //!
+    //! Compute an exclusive or over memory areas.
+    //! The input and output areas can overlap only if they start at the same address.
+    //! @param [out] dest Destination start address.
+    //! @param [in] src1 Start address of the first area.
+    //! @param [in] src2 Start address of the second area.
+    //! @param [in] size Size in bytes of the memory areas.
+    //!
+    TSDUCKDLL void MemXor(void* dest, const void* src1, const void* src2, size_t size);
 
     //!
     //! Check if a memory area starts with the specified prefix.
@@ -74,9 +119,19 @@ namespace ts {
     //! @param [in] area_size Size in bytes of the memory area.
     //! @param [in] pattern Address of the content of the pattern to check.
     //! @param [in] pattern_size Size in bytes of the pattern.
-    //! @return Address of the first occurence of @a pattern in @a area or zero if not found.
+    //! @return Address of the first occurence of @a pattern in @a area or the null pointer if not found.
     //!
     TSDUCKDLL const uint8_t* LocatePattern(const void* area, size_t area_size, const void* pattern, size_t pattern_size);
+
+    //!
+    //! Locate a 3-byte pattern 00 00 XY into a memory area.
+    //! This is a specialized version of LocatePattern().
+    //! @param [in] area Address of a memory area to check.
+    //! @param [in] area_size Size in bytes of the memory area.
+    //! @param [in] third Third byte of the pattern, after 00 00.
+    //! @return Address of the first occurence of the 3-byte pattern in @a area or the null pointer if not found.
+    //!
+    TSDUCKDLL const uint8_t* LocateZeroZero(const void* area, size_t area_size, uint8_t third);
 
     //!
     //! Check if a memory area contains all identical byte values.
@@ -85,78 +140,6 @@ namespace ts {
     //! @return True if @a area_size is greater than 1 and all bytes in @a area are identical.
     //!
     TSDUCKDLL bool IdenticalBytes(const void* area, size_t area_size);
-
-
-    //----------------------------------------------------------------------------
-    // Cross-platforms portable definitions for memory barrier.
-    //----------------------------------------------------------------------------
-
-    #if defined(TS_MSC)
-        #pragma intrinsic(_ReadWriteBarrier)
-    #endif
-
-    #if defined(DOXYGEN) /* documentation only */
-        //!
-        //! To be defined to implement memory barrier as a no-operation.
-        //!
-        //! This symbol shall be defined by the developer on the command line
-        //! to ensure that no specific memory barrier instruction is generated.
-        //!
-        //! This can be useful in some environments (for instance using valgrind
-        //! on the ARM architecture) when the memory barrier causes some trouble.
-        //!
-        //! Note that not using memory barrier instructions can cause some extremely
-        //! rare race conditions.
-        //!
-        #define TS_NO_MEMORY_BARRIER
-    #endif
-
-    //!
-    //! Inlined C function performing a CPU/compiler-dependent memory barrier.
-    //!
-    TSDUCKDLL inline void MemoryBarrier()
-    {
-        #if defined(TS_NO_MEMORY_BARRIER)
-
-            // Nothing to do
-
-        #elif defined(TS_GCC) && (defined(TS_I386) || defined(TS_X86_64))
-
-            // "mfence" is SSE2, not supported on all x86 cpus but supported on all x86_64 cpus.
-            __asm__ __volatile__ ("mfence" : : : "memory");
-
-        #elif defined(TS_GCC) && defined(__ARM_ARCH_5TEJ__)
-
-            // Some flavours of the ARM architecture do not support accessing r15 in user mode.
-            // Simply prevent the compiler from rescheduling instructions (not a true "memory barrier" however).
-            __asm__ __volatile__ ("" : : :  "memory");
-
-        #elif defined(TS_GCC) && defined(TS_ARM)
-
-            // For later reference, not sure this is valid.
-            unsigned dest = 0;
-            __asm__ __volatile__ ("@MemoryBarrier\n mcr p15,0,%0,c7,c10,5\n" : "=&r"(dest) : :  "memory");
-
-        #elif defined(TS_GCC) && defined(TS_ARM64)
-
-            __asm__ __volatile__ ("dmb sy" : : : "memory");
-
-        #elif defined(TS_GCC) && defined(TS_MIPS)
-
-            __asm__ __volatile__ ("sync" : : :"memory");
-
-        #elif defined(TS_MSC)
-
-            // Prevent the compiler from reordering memory access
-            _ReadWriteBarrier();
-            // CPU memory barrier
-            ::MemoryBarrier();
-
-        #else
-            #error "MemoryBarrier is not implemented on this platform"
-        #endif
-    }
-
 
     //------------------------------------------------------------------------
     // Serialization of integer data.
@@ -1281,4 +1264,149 @@ namespace ts {
     }
 }
 
-#include "tsMemoryTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Memory access with strict alignment.
+#if defined(TS_STRICT_MEMORY_ALIGN)
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::GetIntBE(const void* p)
+{
+    switch (sizeof(INT)) {
+        case 1: return static_cast<INT>(GetUInt8(p));
+        case 2: return static_cast<INT>(GetUInt16BE(p));
+        case 4: return static_cast<INT>(GetUInt32BE(p));
+        case 8: return static_cast<INT>(GetUInt64BE(p));
+        default: assert (false); return 0;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::GetIntLE(const void* p)
+{
+    switch (sizeof(INT)) {
+        case 1: return static_cast<INT>(GetUInt8(p));
+        case 2: return static_cast<INT>(GetUInt16LE(p));
+        case 4: return static_cast<INT>(GetUInt32LE(p));
+        case 8: return static_cast<INT>(GetUInt64LE(p));
+        default: assert (false); return 0;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::GetIntBE(const void* p, INT& i)
+{
+    switch (sizeof(INT)) {
+        case 1: i = static_cast<INT>(GetUInt8(p)); break;
+        case 2: i = static_cast<INT>(GetUInt16BE(p)); break;
+        case 4: i = static_cast<INT>(GetUInt32BE(p)); break;
+        case 8: i = static_cast<INT>(GetUInt64BE(p)); break;
+        default: assert(false); i = 0;  break;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::GetIntLE(const void* p, INT& i)
+{
+    switch (sizeof(INT)) {
+        case 1: i = static_cast<INT>(GetUInt8(p)); break;
+        case 2: i = static_cast<INT>(GetUInt16LE(p)); break;
+        case 4: i = static_cast<INT>(GetUInt32LE(p)); break;
+        case 8: i = static_cast<INT>(GetUInt64LE(p)); break;
+        default: assert(false); i = 0;  break;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::PutIntBE(void* p, INT i)
+{
+    switch (sizeof(INT)) {
+        case 1: PutUInt8(p, static_cast<uint8_t>(i)); break;
+        case 2: PutUInt16BE(p, static_cast<uint16_t>(i)); break;
+        case 4: PutUInt32BE(p, static_cast<uint32_t>(i)); break;
+        case 8: PutUInt64BE(p, static_cast<uint64_t>(i)); break;
+        default: assert(false); break;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::PutIntLE(void* p, INT i)
+{
+    switch (sizeof(INT)) {
+        case 1: PutUInt8(p, static_cast<uint8_t>(i)); break;
+        case 2: PutUInt16LE(p, static_cast<uint16_t>(i)); break;
+        case 4: PutUInt32LE(p, static_cast<uint32_t>(i)); break;
+        case 8: PutUInt64LE(p, static_cast<uint64_t>(i)); break;
+        default: assert(false); break;
+    }
+}
+
+#endif
+
+
+//----------------------------------------------------------------------------
+// Variable-length integers serialization.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::GetIntVarBE(const void* p, size_t size)
+{
+    switch (size) {
+        case 1: return static_cast<INT>(GetUInt8(p));
+        case 2: return static_cast<INT>(GetUInt16BE(p));
+        case 3: return static_cast<INT>(GetUInt24BE(p));
+        case 4: return static_cast<INT>(GetUInt32BE(p));
+        case 5: return static_cast<INT>(GetUInt40BE(p));
+        case 6: return static_cast<INT>(GetUInt48BE(p));
+        case 8: return static_cast<INT>(GetUInt64BE(p));
+        default: return static_cast<INT>(0);
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::GetIntVarLE(const void* p, size_t size)
+{
+    switch (size) {
+        case 1: return static_cast<INT>(GetUInt8(p));
+        case 2: return static_cast<INT>(GetUInt16LE(p));
+        case 3: return static_cast<INT>(GetUInt24LE(p));
+        case 4: return static_cast<INT>(GetUInt32LE(p));
+        case 5: return static_cast<INT>(GetUInt40LE(p));
+        case 6: return static_cast<INT>(GetUInt48LE(p));
+        case 8: return static_cast<INT>(GetUInt64LE(p));
+        default: return static_cast<INT>(0);
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::PutIntVarBE(void* p, size_t size, INT i)
+{
+    switch (size) {
+        case 1: PutUInt8(p, static_cast<uint8_t>(i)); break;
+        case 2: PutUInt16BE(p, static_cast<uint16_t>(i)); break;
+        case 3: PutUInt24BE(p, static_cast<uint32_t>(i)); break;
+        case 4: PutUInt32BE(p, static_cast<uint32_t>(i)); break;
+        case 5: PutUInt40BE(p, static_cast<uint64_t>(i)); break;
+        case 6: PutUInt48BE(p, static_cast<uint64_t>(i)); break;
+        case 8: PutUInt64BE(p, static_cast<uint64_t>(i)); break;
+        default: break;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::PutIntVarLE(void* p, size_t size, INT i)
+{
+    switch (size) {
+        case 1: PutUInt8(p, static_cast<uint8_t>(i)); break;
+        case 2: PutUInt16LE(p, static_cast<uint16_t>(i)); break;
+        case 3: PutUInt24LE(p, static_cast<uint32_t>(i)); break;
+        case 4: PutUInt32LE(p, static_cast<uint32_t>(i)); break;
+        case 5: PutUInt40LE(p, static_cast<uint64_t>(i)); break;
+        case 6: PutUInt48LE(p, static_cast<uint64_t>(i)); break;
+        case 8: PutUInt64LE(p, static_cast<uint64_t>(i)); break;
+        default: break;
+    }
+}

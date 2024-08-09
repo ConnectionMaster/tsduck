@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -54,30 +33,29 @@
 namespace ts {
     class SVRemovePlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(SVRemovePlugin);
+        TS_PLUGIN_CONSTRUCTORS(SVRemovePlugin);
     public:
         // Implementation of plugin API
-        SVRemovePlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        bool              _abort;          // Error (service not found, etc)
-        bool              _ready;          // Ready to pass packets
-        bool              _transparent;    // Transparent mode, pass all packets
-        Service           _service;        // Service name & id
-        bool              _ignore_absent;  // Ignore service if absent
-        bool              _ignore_bat;     // Do not modify the BAT
-        bool              _ignore_eit;     // Do not modify the EIT's
-        bool              _ignore_nit;     // Do not modify the NIT
-        Status            _drop_status;    // Status for dropped packets
-        PIDSet            _drop_pids;      // List of PIDs to drop
-        PIDSet            _ref_pids;       // List of other referenced PIDs
-        SectionDemux      _demux;          // Section demux
-        CyclingPacketizer _pzer_pat;       // Packetizer for modified PAT
-        CyclingPacketizer _pzer_sdt_bat;   // Packetizer for modified SDT/BAT
-        CyclingPacketizer _pzer_nit;       // Packetizer for modified NIT
-        EITProcessor      _eit_process;    // Modify EIT's
+        bool              _abort = false;          // Error (service not found, etc)
+        bool              _ready = false;          // Ready to pass packets
+        bool              _transparent = false;    // Transparent mode, pass all packets
+        Service           _service {};             // Service name & id
+        bool              _ignore_absent = false;  // Ignore service if absent
+        bool              _ignore_bat = false;     // Do not modify the BAT
+        bool              _ignore_eit = false;     // Do not modify the EIT's
+        bool              _ignore_nit = false;     // Do not modify the NIT
+        Status            _drop_status = TSP_DROP; // Status for dropped packets
+        PIDSet            _drop_pids {};           // List of PIDs to drop
+        PIDSet            _ref_pids {};            // List of other referenced PIDs
+        SectionDemux      _demux {duck, this};     // Section demux
+        CyclingPacketizer _pzer_pat {duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer _pzer_sdt_bat {duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        CyclingPacketizer _pzer_nit {duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS};
+        EITProcessor      _eit_process {duck, PID_EIT};
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -102,23 +80,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"svremove", ts::SVRemovePlugin);
 //----------------------------------------------------------------------------
 
 ts::SVRemovePlugin::SVRemovePlugin (TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Remove a service", u"[options] service"),
-    _abort(false),
-    _ready(false),
-    _transparent(false),
-    _service(),
-    _ignore_absent(false),
-    _ignore_bat(false),
-    _ignore_eit(false),
-    _ignore_nit(false),
-    _drop_status(TSP_DROP),
-    _drop_pids(),
-    _ref_pids(),
-    _demux(duck, this),
-    _pzer_pat(duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_sdt_bat(duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _pzer_nit(duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _eit_process(duck, PID_EIT)
+    ProcessorPlugin(tsp_, u"Remove a service", u"[options] service")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -223,11 +185,10 @@ bool ts::SVRemovePlugin::start()
 
 void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 {
-    if (tsp->debug()) {
-        tsp->debug(u"Got %s v%d, PID %d (0x%X), TIDext %d (0x%X)",
-                   {names::TID(duck, table.tableId()), table.version(),
-                    table.sourcePID(), table.sourcePID(),
-                    table.tableIdExtension(), table.tableIdExtension()});
+    if (debug()) {
+        debug(u"Got %s v%d, PID %n, TIDext %n",
+              names::TID(duck, table.tableId()), table.version(),
+              table.sourcePID(), table.tableIdExtension());
     }
 
     switch (table.tableId()) {
@@ -346,7 +307,7 @@ void ts::SVRemovePlugin::processSDT(SDT& sdt)
         found = Contains(sdt.services, _service.getId());
         if (!found) {
             // Informational only, SDT entry is not mandatory.
-            tsp->info(u"service %d (0x%X) not found in SDT, ignoring it", {_service.getId(), _service.getId()});
+            info(u"service %n not found in SDT, ignoring it", _service.getId());
         }
     }
     else {
@@ -355,11 +316,11 @@ void ts::SVRemovePlugin::processSDT(SDT& sdt)
         if (!found) {
             // Here, this is an error. A service can be searched by name only in current TS
             if (_ignore_absent) {
-                tsp->warning(u"service \"%s\" not found in SDT, ignoring it", {_service.getName()});
+                warning(u"service \"%s\" not found in SDT, ignoring it", _service.getName());
                 _transparent = true;
             }
             else {
-                tsp->error(u"service \"%s\" not found in SDT", {_service.getName()});
+                error(u"service \"%s\" not found in SDT", _service.getName());
                 _abort = true;
             }
             return;
@@ -369,7 +330,7 @@ void ts::SVRemovePlugin::processSDT(SDT& sdt)
         if (!_ignore_nit) {
             _demux.addPID(PID_NIT);
         }
-        tsp->verbose(u"found service \"%s\", service id is 0x%X", {_service.getName(), _service.getId()});
+        verbose(u"found service \"%s\", service id is 0x%X", _service.getName(), _service.getId());
     }
 
     // Remove service description in the SDT
@@ -408,7 +369,7 @@ void ts::SVRemovePlugin::processPAT(PAT& pat)
         if (it.first == _service.getId()) {
             found = true;
             _service.setPMTPID(it.second);
-            tsp->verbose(u"found service id 0x%X (%<d), PMT PID is 0x%X (%<d)", {_service.getId(), _service.getPMTPID()});
+            verbose(u"found service id %n, PMT PID is %n", _service.getId(), _service.getPMTPID());
             // Drop PMT of the service
             _drop_pids.set(it.second);
         }
@@ -424,12 +385,12 @@ void ts::SVRemovePlugin::processPAT(PAT& pat)
     }
     else if (_ignore_absent || !_ignore_nit || !_ignore_bat) {
         // Service is not present in current TS, but continue
-        tsp->info(u"service id 0x%X not found in PAT, ignoring it", {_service.getId()});
+        info(u"service id 0x%X not found in PAT, ignoring it", _service.getId());
         _ready = true;
     }
     else {
         // If service is not found and no need to modify to NIT or BAT, abort
-        tsp->error(u"service id 0x%X not found in PAT", {_service.getId()});
+        error(u"service id 0x%X not found in PAT", _service.getId());
         _abort = true;
     }
 

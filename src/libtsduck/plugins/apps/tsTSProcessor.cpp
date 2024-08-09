@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,8 +11,7 @@
 #include "tstspOutputExecutor.h"
 #include "tstspProcessorExecutor.h"
 #include "tstspControlServer.h"
-#include "tsMonotonic.h"
-#include "tsGuardMutex.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -41,16 +19,7 @@
 //----------------------------------------------------------------------------
 
 ts::TSProcessor::TSProcessor(Report& report) :
-    PluginEventHandlerRegistry(),
-    _report(report),
-    _mutex(),
-    _terminating(false),
-    _args(),
-    _input(nullptr),
-    _output(nullptr),
-    _control(nullptr),
-    _packet_buffer(nullptr),
-    _metadata_buffer(nullptr)
+    _report(report)
 {
 }
 
@@ -116,7 +85,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
 {
     // Initial sequence under mutex protection.
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_global_mutex);
 
         // Check if we are already started.
         if (_input != nullptr || _terminating) {
@@ -140,10 +109,10 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
         // plugin has a hight priority to make room in the buffer, but not as
         // high as the input which must remain the top-most priority?
 
-        _input = new tsp::InputExecutor(_args, *this, _args.input, ThreadAttributes().setPriority(ts::ThreadAttributes::GetMaximumPriority()), _mutex, &_report);
+        _input = new tsp::InputExecutor(_args, *this, _args.input, ThreadAttributes().setPriority(ts::ThreadAttributes::GetMaximumPriority()), _global_mutex, &_report);
         CheckNonNull(_input);
 
-        _output = new tsp::OutputExecutor(_args, *this, _args.output, ThreadAttributes().setPriority(ts::ThreadAttributes::GetHighPriority()), _mutex, &_report);
+        _output = new tsp::OutputExecutor(_args, *this, _args.output, ThreadAttributes().setPriority(ts::ThreadAttributes::GetHighPriority()), _global_mutex, &_report);
         CheckNonNull(_output);
 
         _output->ringInsertAfter(_input);
@@ -152,7 +121,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
         bool realtime = _args.realtime == Tristate::True || _input->isRealTime() || _output->isRealTime();
 
         for (size_t i = 0; i < _args.plugins.size(); ++i) {
-            tsp::PluginExecutor* p = new tsp::ProcessorExecutor(_args, *this, i, ThreadAttributes(), _mutex, &_report);
+            tsp::PluginExecutor* p = new tsp::ProcessorExecutor(_args, *this, i, ThreadAttributes(), _global_mutex, &_report);
             CheckNonNull(p);
             p->ringInsertBefore(_output);
             realtime = realtime || p->isRealTime();
@@ -181,7 +150,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
             proc->setRealTimeForAll(realtime);
             // Decode command line parameters for the plugin.
             if (!proc->plugin()->getOptions()) {
-                _report.debug(u"getOptions() error in plugin %s", {proc->pluginName()});
+                _report.debug(u"getOptions() error in plugin %s", proc->pluginName());
                 cleanupInternal();
                 return false;
             }
@@ -192,9 +161,9 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
         CheckNonNull(_packet_buffer);
         if (!_packet_buffer->isLocked()) {
             _report.debug(u"tsp: buffer failed to lock into physical memory (%d: %s), risk of real-time issue",
-                          {_packet_buffer->lockErrorCode(), ts::SysErrorCodeMessage(_packet_buffer->lockErrorCode())});
+                          _packet_buffer->lockErrorCode().value(), _packet_buffer->lockErrorCode().message());
         }
-        _report.debug(u"tsp: buffer size: %'d TS packets, %'d bytes", {_packet_buffer->count(), _packet_buffer->count() * ts::PKT_SIZE});
+        _report.debug(u"tsp: buffer size: %'d TS packets, %'d bytes", _packet_buffer->count(), _packet_buffer->count() * ts::PKT_SIZE);
 
         // Buffer for the packet metadata.
         // A packet and its metadata have the same index in their respective buffer.
@@ -208,7 +177,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
     // Exit application in case of error.
     for (tsp::PluginExecutor* proc = _output->ringPrevious<tsp::PluginExecutor>(); proc != _output; proc = proc->ringPrevious<tsp::PluginExecutor>()) {
         if (!proc->plugin()->start()) {
-            _report.debug(u"start() error in plugin %s", {proc->pluginName()});
+            _report.debug(u"start() error in plugin %s", proc->pluginName());
             cleanupInternal();
             return false;
         }
@@ -225,7 +194,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
     // Start the output device (we now have an idea of the bitrate).
     // Exit application in case of error.
     if (!_output->plugin()->start()) {
-        _report.debug(u"start() error in output plugin %s", {_output->pluginName()});
+        _report.debug(u"start() error in output plugin %s", _output->pluginName());
         cleanupInternal();
         return false;
     }
@@ -237,7 +206,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
     } while ((proc = proc->ringNext<tsp::PluginExecutor>()) != _input);
 
     // Create a control server thread. Display but ignore errors (not a fatal error).
-    _control = new tsp::ControlServer(_args, _report, _mutex, _input);
+    _control = new tsp::ControlServer(_args, _report, _global_mutex, _input);
     CheckNonNull(_control);
     _control->open();
 
@@ -251,7 +220,7 @@ bool ts::TSProcessor::start(const TSProcessorArgs& args)
 
 bool ts::TSProcessor::isStarted()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_global_mutex);
     return _input != nullptr && !_terminating;
 }
 
@@ -264,14 +233,14 @@ void ts::TSProcessor::abort()
 {
     _report.debug(u"aborting all plugins...");
 
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_global_mutex);
 
     if (_input != nullptr) {
         // Place all threads in "aborted" state so that each thread will see its
         // successor as aborted. Notify all threads that something happened.
         tsp::PluginExecutor* proc = _input;
         do {
-            _report.debug(u"aborting plugin %s", {proc->pluginName()});
+            _report.debug(u"aborting plugin %s", proc->pluginName());
             proc->setAbort();
         } while ((proc = proc->ringNext<tsp::PluginExecutor>()) != _input);
     }

@@ -1,34 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPluginThread.h"
 #include "tsPluginRepository.h"
+#include "tsEnvironment.h"
 
 
 //----------------------------------------------------------------------------
@@ -37,10 +17,8 @@
 
 ts::PluginThread::PluginThread(Report* report, const UString& appName, PluginType type, const PluginOptions& options, const ThreadAttributes& attributes) :
     Thread(),
-    TSP(report->maxSeverity()),
-    _report(report),
+    TSP(report->maxSeverity(), options.name + u": ", report),
     _name(options.name),
-    _logname(),
     _shlib(nullptr)
 {
     const UChar* shellOpt = nullptr;
@@ -48,7 +26,7 @@ ts::PluginThread::PluginThread(Report* report, const UString& appName, PluginTyp
     // Create the plugin instance object
     switch (type) {
         case PluginType::INPUT: {
-            PluginRepository::InputPluginFactory allocator = PluginRepository::Instance()->getInput(_name, *report);
+            PluginRepository::InputPluginFactory allocator = PluginRepository::Instance().getInput(_name, *report);
             if (allocator != nullptr) {
                 _shlib = allocator(this);
                 shellOpt = u" -I";
@@ -56,7 +34,7 @@ ts::PluginThread::PluginThread(Report* report, const UString& appName, PluginTyp
             break;
         }
         case PluginType::OUTPUT: {
-            PluginRepository::OutputPluginFactory allocator = PluginRepository::Instance()->getOutput(_name, *report);
+            PluginRepository::OutputPluginFactory allocator = PluginRepository::Instance().getOutput(_name, *report);
             if (allocator != nullptr) {
                 _shlib = allocator(this);
                 shellOpt = u" -O";
@@ -64,7 +42,7 @@ ts::PluginThread::PluginThread(Report* report, const UString& appName, PluginTyp
             break;
         }
         case PluginType::PROCESSOR: {
-            PluginRepository::ProcessorPluginFactory allocator = PluginRepository::Instance()->getProcessor(_name, *report);
+            PluginRepository::ProcessorPluginFactory allocator = PluginRepository::Instance().getProcessor(_name, *report);
             if (allocator != nullptr) {
                 _shlib = allocator(this);
                shellOpt = u" -P";
@@ -99,9 +77,12 @@ ts::PluginThread::PluginThread(Report* report, const UString& appName, PluginTyp
     }
 
     // Define thread name and stack size.
+    // Exit application when a thread terminates on an exception. This is required because
+    // a dead plugin thread will block the processing chain and the application will hang.
     ThreadAttributes attr(attributes);
     attr.setName(_name);
     attr.setStackSize(stackSize);
+    attr.setExitOnException(true);
     Thread::setAttributes(attr);
 }
 
@@ -134,13 +115,11 @@ ts::Plugin* ts::PluginThread::plugin() const
     return _shlib;
 }
 
-
 //----------------------------------------------------------------------------
-// Invoked by the plugin shared library to log messages.
-// Inherited from Report via TSP.
+// Set the plugin name as displayed in log messages.
 //----------------------------------------------------------------------------
 
-void ts::PluginThread::writeLog(int severity, const UString& msg)
+void ts::PluginThread::setLogName(const UString& name)
 {
-    _report->log(severity, u"%s: %s", {_logname.empty() ? _name : _logname, msg});
+    setReportPrefix((name.empty() ? _name : name) + u": ");
 }

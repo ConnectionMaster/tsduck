@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -39,6 +18,13 @@
 #include "tsAbortInterface.h"
 #include "tsReport.h"
 #include "tsMemory.h"
+
+#if defined(DOXYGEN) || defined(TS_OPENBSD) || defined(TS_NETBSD) || defined(TS_DRAGONFLYBSD)
+    //!
+    //! Defined when the operating system does not support UDP/IP source-specific multicast (SSM).
+    //!
+    #define TS_NO_SSM 1
+#endif
 
 namespace ts {
     //!
@@ -188,6 +174,18 @@ namespace ts {
         bool setTOS(int tos, Report& report = CERR);
 
         //!
+        //! Set the multicast loop option.
+        //!
+        //! By default, the multicast packets are looped back on local interfaces.
+        //! Use this to disable multicast loopback.
+        //!
+        //! @param [in] on It true, multicast loopback is on. When false, it is off.
+        //! @param [in,out] report Where to report error.
+        //! @return True on success, false on error.
+        //!
+        bool setMulticastLoop(bool on, Report& report = CERR);
+
+        //!
         //! Enable or disable the generation of receive timestamps.
         //!
         //! When enabled, each received UDP packets comes with a time stamp (see receive()).
@@ -328,7 +326,7 @@ namespace ts {
                              IPv4SocketAddress& destination,
                              const AbortInterface* abort = nullptr,
                              Report& report = CERR,
-                             MicroSecond* timestamp = nullptr);
+                             cn::microseconds* timestamp = nullptr);
 
         // Implementation of Socket interface.
         virtual bool open(Report& report = CERR) override;
@@ -351,14 +349,14 @@ namespace ts {
             // Comparator for containers, no real semantic
             bool operator<(const POCS<STRUCT>& other) const
             {
-                return ::memcmp(&data, &other.data, sizeof(data)) < 0;
+                return MemCompare(&data, &other.data, sizeof(data)) < 0;
             }
         };
 
         // Encapsulate an ip_mreq
         struct MReq : public POCS<::ip_mreq>
         {
-            typedef POCS<::ip_mreq> SuperClass;
+            using SuperClass = POCS<::ip_mreq>;
             MReq() = default;
             MReq(const IPv4Address& multicast_, const IPv4Address& interface_) : SuperClass()
             {
@@ -366,11 +364,13 @@ namespace ts {
                 interface_.copy(data.imr_interface);
             }
         };
+        using MReqSet = std::set<MReq>;
 
         // Encapsulate an ip_mreq_source
+#if !defined(TS_NO_SSM)
         struct SSMReq : public POCS<::ip_mreq_source>
         {
-            typedef POCS<::ip_mreq_source> SuperClass;
+            using SuperClass = POCS<::ip_mreq_source>;
             SSMReq() = default;
             SSMReq(const IPv4Address& multicast_, const IPv4Address& interface_, const IPv4Address& source_) : SuperClass()
             {
@@ -379,19 +379,19 @@ namespace ts {
                 source_.copy(data.imr_sourceaddr);
             }
         };
-
-        // Set of established multicast groups.
-        typedef std::set<MReq> MReqSet;
-        typedef std::set<SSMReq> SSMReqSet;
+        using SSMReqSet = std::set<SSMReq>;
+#endif
 
         // Private members
-        IPv4SocketAddress _local_address;
-        IPv4SocketAddress _default_destination;
-        MReqSet           _mcast;    // Current set of multicast memberships
-        SSMReqSet         _ssmcast;  // Current set of source-specific multicast memberships
+        IPv4SocketAddress _local_address {};
+        IPv4SocketAddress _default_destination {};
+#if !defined(TS_NO_SSM)
+        SSMReqSet         _ssmcast {};  // Current set of source-specific multicast memberships
+#endif
+        MReqSet           _mcast {};    // Current set of multicast memberships
 
-        // Perform one receive operation. Hide the system mud.
-        SysSocketErrorCode receiveOne(void* data, size_t max_size, size_t& ret_size, IPv4SocketAddress& sender, IPv4SocketAddress& destination, Report& report, MicroSecond* timestamp);
+        // Perform one receive operation. Hide the system mud. Return a system socket error code.
+        int receiveOne(void* data, size_t max_size, size_t& ret_size, IPv4SocketAddress& sender, IPv4SocketAddress& destination, Report& report, cn::microseconds* timestamp);
 
         // Furiously idiotic Windows feature, see comment in receiveOne()
 #if defined(TS_WINDOWS)

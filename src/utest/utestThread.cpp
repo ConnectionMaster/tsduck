@@ -1,46 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
 //  TSUnit test suite for class ts::Thread
 //
-//  This is also a test suite for classes ts::Mutex and ts::Condition
-//  which are difficult to test independently of threads.
-//
 //----------------------------------------------------------------------------
 
 #include "tsThread.h"
-#include "tsMutex.h"
-#include "tsCondition.h"
-#include "tsGuardCondition.h"
-#include "tsGuardMutex.h"
 #include "tsTime.h"
-#include "tsMonotonic.h"
 #include "tsSysUtils.h"
 #include "utestTSUnitThread.h"
 #include "tsunit.h"
@@ -52,30 +23,17 @@
 
 class ThreadTest: public tsunit::Test
 {
+    TSUNIT_DECLARE_TEST(Attributes);
+    TSUNIT_DECLARE_TEST(Termination);
+    TSUNIT_DECLARE_TEST(DeleteWhenTerminated);
+    TSUNIT_DECLARE_TEST(MutexTimeout);
+
 public:
-    ThreadTest();
+    virtual void beforeTestSuite() override;
+    virtual void afterTestSuite() override;
 
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testAttributes();
-    void testTermination();
-    void testDeleteWhenTerminated();
-    void testMutexRecursion();
-    void testMutexTimeout();
-    void testCondition();
-
-    TSUNIT_TEST_BEGIN(ThreadTest);
-    TSUNIT_TEST(testAttributes);
-    TSUNIT_TEST(testTermination);
-    TSUNIT_TEST(testDeleteWhenTerminated);
-    TSUNIT_TEST(testMutexRecursion);
-    TSUNIT_TEST(testMutexTimeout);
-    TSUNIT_TEST(testCondition);
-    TSUNIT_TEST_END();
 private:
-    ts::NanoSecond  _nsPrecision;
-    ts::MilliSecond _msPrecision;
+    cn::milliseconds _precision {};
 };
 
 TSUNIT_REGISTER(ThreadTest);
@@ -85,25 +43,16 @@ TSUNIT_REGISTER(ThreadTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-ThreadTest::ThreadTest() :
-    _nsPrecision(0),
-    _msPrecision(0)
-{
-}
-
 // Test suite initialization method.
-void ThreadTest::beforeTest()
+void ThreadTest::beforeTestSuite()
 {
-    _nsPrecision = ts::Monotonic::SetPrecision(2 * ts::NanoSecPerMilliSec);
-    _msPrecision = (_nsPrecision + ts::NanoSecPerMilliSec - 1) / ts::NanoSecPerMilliSec;
-
-    // Request 2 milliseconds as system time precision.
-    debug() << "ThreadTest: timer precision = " << ts::UString::Decimal(_nsPrecision) << " ns, " << ts::UString::Decimal(_msPrecision) << " ms" << std::endl;
+    _precision = cn::milliseconds(2);
+    ts::SetTimersPrecision(_precision);
+    debug() << "ThreadTest: timer precision = " << ts::UString::Chrono(_precision) << std::endl;
 }
 
 // Test suite cleanup method.
-void ThreadTest::afterTest()
+void ThreadTest::afterTestSuite()
 {
 }
 
@@ -134,7 +83,7 @@ namespace {
     };
 }
 
-void ThreadTest::testAttributes()
+TSUNIT_DEFINE_TEST(Attributes)
 {
     const int prio = ts::ThreadAttributes::GetMinimumPriority();
     ThreadConstructor thread(ts::ThreadAttributes().setStackSize(123456).setPriority(prio));
@@ -155,15 +104,15 @@ namespace {
     class ThreadTermination: public utest::TSUnitThread
     {
     private:
-        volatile bool&  _report;
-        ts::MilliSecond _delay;
-        ts::MilliSecond _msPrecision;
+        volatile bool&   _report;
+        cn::milliseconds _delay;
+        cn::milliseconds _precision;
     public:
-        ThreadTermination (volatile bool& report, ts::MilliSecond delay, ts::MilliSecond msPrecision) :
+        ThreadTermination(volatile bool& report, cn::milliseconds delay, cn::milliseconds precision) :
             utest::TSUnitThread(ts::ThreadAttributes().setStackSize(1000000)),
             _report(report),
             _delay(delay),
-            _msPrecision(msPrecision)
+            _precision(precision)
         {
         }
         virtual ~ThreadTermination() override
@@ -174,26 +123,26 @@ namespace {
         {
             TSUNIT_ASSERT(isCurrentThread());
             const ts::Time before(ts::Time::CurrentUTC());
-            ts::SleepThread(_delay);
+            std::this_thread::sleep_for(_delay);
             const ts::Time after(ts::Time::CurrentUTC());
-            tsunit::Test::debug() << "ThreadTest::ThreadTermination: delay = " << _delay << ", after - before = " << (after - before) << std::endl;
-            TSUNIT_ASSERT(after >= before + _delay - _msPrecision);
+            tsunit::Test::debug() << "ThreadTest::ThreadTermination: delay = " << _delay.count() << ", after - before = " << (after - before).count() << std::endl;
+            TSUNIT_ASSERT(after >= before + _delay - _precision);
             _report = true;
         }
     };
 }
 
-void ThreadTest::testTermination()
+TSUNIT_DEFINE_TEST(Termination)
 {
     volatile bool report = false;
     const ts::Time before(ts::Time::CurrentUTC());
     {
-        ThreadTermination thread(report, 200, _msPrecision);
+        ThreadTermination thread(report, cn::milliseconds(200), _precision);
         TSUNIT_ASSERT(thread.start());
         TSUNIT_ASSERT(!thread.isCurrentThread());
     }
     const ts::Time after(ts::Time::CurrentUTC());
-    TSUNIT_ASSERT(after >= before + 200 - _msPrecision);
+    TSUNIT_ASSERT(after >= before + cn::milliseconds(200) - _precision);
     TSUNIT_ASSERT(report);
 }
 
@@ -206,15 +155,15 @@ namespace {
     class ThreadDeleteWhenTerminated: public utest::TSUnitThread
     {
     private:
-        volatile bool&  _report;
-        ts::MilliSecond _delay;
-        ts::MilliSecond _msPrecision;
+        volatile bool&   _report;
+        cn::milliseconds _delay;
+        cn::milliseconds _precision;
     public:
-        ThreadDeleteWhenTerminated (volatile bool& report, ts::MilliSecond delay, ts::MilliSecond msPrecision) :
+        ThreadDeleteWhenTerminated(volatile bool& report, cn::milliseconds delay, cn::milliseconds precision) :
             utest::TSUnitThread(ts::ThreadAttributes().setStackSize(1000000).setDeleteWhenTerminated(true)),
             _report(report),
             _delay(delay),
-            _msPrecision(msPrecision)
+            _precision(precision)
         {
         }
         virtual ~ThreadDeleteWhenTerminated() override
@@ -226,51 +175,30 @@ namespace {
         virtual void test() override
         {
             const ts::Time before(ts::Time::CurrentUTC());
-            ts::SleepThread(_delay);
+            std::this_thread::sleep_for(_delay);
             const ts::Time after(ts::Time::CurrentUTC());
-            TSUNIT_ASSERT(after >= before + _delay - _msPrecision);
+            TSUNIT_ASSERT(after >= before + _delay - _precision);
         }
     };
 }
 
-void ThreadTest::testDeleteWhenTerminated()
+TSUNIT_DEFINE_TEST(DeleteWhenTerminated)
 {
     volatile bool report = false;
     const ts::Time before(ts::Time::CurrentUTC());
-    ThreadDeleteWhenTerminated* thread = new ThreadDeleteWhenTerminated(report, 100, _msPrecision);
+    ThreadDeleteWhenTerminated* thread = new ThreadDeleteWhenTerminated(report, cn::milliseconds(100), _precision);
     TSUNIT_ASSERT(thread->start());
     int counter = 100;
     while (!report && counter-- > 0) {
-        ts::SleepThread(20);
+        std::this_thread::sleep_for(cn::milliseconds(20));
     }
     const ts::Time after(ts::Time::CurrentUTC());
     if (counter > 0) {
-        debug() << "ThreadTest::testDeleteWhenTerminated: ThreadDeleteWhenTerminated deleted after " << (after - before) << " milliseconds" << std::endl;
+        debug() << "ThreadTest::testDeleteWhenTerminated: ThreadDeleteWhenTerminated deleted after " << (after - before).count() << " milliseconds" << std::endl;
     }
     else {
-        TSUNIT_FAIL(ts::UString::Format(u"Thread with \"delete when terminated\" not deleted after %d milliseconds", {after - before}).toUTF8());
+        TSUNIT_FAIL(ts::UString::Format(u"Thread with \"delete when terminated\" not deleted after %d milliseconds", (after - before).count()).toUTF8());
     }
-}
-
-//
-// Test case: Check mutex recursion
-//
-void ThreadTest::testMutexRecursion()
-{
-    ts::Mutex mutex;
-
-    TSUNIT_ASSERT(!mutex.release());
-
-    TSUNIT_ASSERT(mutex.acquire());
-    TSUNIT_ASSERT(mutex.acquire());
-    TSUNIT_ASSERT(mutex.acquire());
-
-    TSUNIT_ASSERT(mutex.release());
-    TSUNIT_ASSERT(mutex.release());
-    TSUNIT_ASSERT(mutex.release());
-
-    TSUNIT_ASSERT(!mutex.release());
-    TSUNIT_ASSERT(!mutex.release());
 }
 
 //
@@ -280,16 +208,21 @@ namespace {
     class TestThreadMutexTimeout: public utest::TSUnitThread
     {
     private:
-        ts::Mutex& _mutex;
-        ts::Mutex& _mutexSig;
-        ts::Condition& _condSig;
+        std::timed_mutex& _mutex;
+        std::mutex& _mutexSig;
+        std::condition_variable& _condSig;
+        bool _gotMutex = false;
     public:
-        TestThreadMutexTimeout(ts::Mutex& mutex, ts::Mutex& mutexSig, ts::Condition& condSig) :
+        TestThreadMutexTimeout(std::timed_mutex& mutex, std::mutex& mutexSig, std::condition_variable& condSig) :
             utest::TSUnitThread(),
             _mutex(mutex),
             _mutexSig(mutexSig),
             _condSig(condSig)
         {
+        }
+        bool gotMutex() const
+        {
+            return _gotMutex;
         }
         virtual ~TestThreadMutexTimeout() override
         {
@@ -297,117 +230,52 @@ namespace {
         }
         virtual void test() override
         {
-            // Acquire the test mutex.
-            ts::GuardMutex lock1(_mutex, 0);
-            TSUNIT_ASSERT(lock1.isLocked());
+            // Acquire the test mutex immediately, should pass.
+            TSUNIT_ASSERT(_mutex.try_lock());
             // Signal that we have acquired it.
             {
-                ts::GuardCondition lock2(_mutexSig, _condSig);
-                TSUNIT_ASSERT(lock2.isLocked());
-                lock2.signal();
+                std::lock_guard<std::mutex> lock(_mutexSig);
+                _gotMutex = true;
+                _condSig.notify_one();
             }
             // And sleep 100 ms.
-            ts::SleepThread(100);
-            // The test mutex is implicitely released.
+            std::this_thread::sleep_for(cn::milliseconds(100));
+            _mutex.unlock();
         }
     };
 }
 
-void ThreadTest::testMutexTimeout()
+TSUNIT_DEFINE_TEST(MutexTimeout)
 {
-    ts::Mutex mutex;
-    ts::Mutex mutexSig;
-    ts::Condition condSig;
+    std::timed_mutex mutex;
+    std::mutex mutexSig;
+    std::condition_variable condSig;
     TestThreadMutexTimeout thread(mutex, mutexSig, condSig);
 
     // Start thread and wait for it to acquire mutex.
     {
-        ts::GuardCondition lock(mutexSig, condSig);
-        TSUNIT_ASSERT(lock.isLocked());
+        std::unique_lock<std::mutex> lock(mutexSig);
         TSUNIT_ASSERT(thread.start());
-        TSUNIT_ASSERT(lock.waitCondition());
+        condSig.wait(lock, [&thread]() { return thread.gotMutex(); });
     }
 
     // Now, the thread holds the mutex for 100 ms.
     const ts::Time start(ts::Time::CurrentUTC());
-    const ts::Time dueTime1(start + 50 - _msPrecision);
-    const ts::Time dueTime2(start + 100 - _msPrecision);
+    const ts::Time dueTime1(start + cn::milliseconds(50) - _precision);
+    const ts::Time dueTime2(start + cn::milliseconds(100) - _precision);
 
     // Use assumptions instead of assertions for time-dependent checks.
     // Timing can be very weird on virtual machines which are used for unitary tests.
-    TSUNIT_ASSUME(!mutex.acquire(50));
+    const bool locked = mutex.try_lock_for(cn::milliseconds(50));
+    if (locked) {
+        mutex.unlock();
+    }
+    TSUNIT_ASSUME(!locked);
     TSUNIT_ASSERT(ts::Time::CurrentUTC() >= dueTime1);
     TSUNIT_ASSUME(ts::Time::CurrentUTC() < dueTime2);
-    TSUNIT_ASSERT(mutex.acquire(1000));
+    TSUNIT_ASSERT(mutex.try_lock_for(cn::milliseconds(1000)));
     TSUNIT_ASSERT(ts::Time::CurrentUTC() >= dueTime2);
-    TSUNIT_ASSERT(mutex.release());
+    mutex.unlock();
 
     debug() << "ThreadTest::testMutexTimeout: type name: \"" << thread.getTypeName() << "\"" << std::endl;
-}
-
-//
-// Test case: Use mutex and condition
-//
-namespace {
-    class TestThreadCondition: public utest::TSUnitThread
-    {
-    private:
-        ts::Mutex& _mutex;
-        ts::Condition& _condition;
-        int& _data;
-    public:
-        TestThreadCondition(ts::Mutex& mutex, ts::Condition& condition, int& data) :
-            utest::TSUnitThread(),
-            _mutex(mutex),
-            _condition(condition),
-            _data(data)
-        {
-        }
-        virtual ~TestThreadCondition() override
-        {
-            waitForTermination();
-        }
-        // Main: decrement data and signal condition every 100 ms
-        virtual void test() override
-        {
-            {
-                ts::GuardMutex lock(_mutex);
-                TSUNIT_ASSERT(_data == 4);
-            }
-            while (_data > 0) {
-                ts::SleepThread(100);
-                {
-                    ts::GuardCondition lock(_mutex, _condition);
-                    _data--;
-                    lock.signal();
-                }
-            }
-        }
-    };
-}
-
-void ThreadTest::testCondition()
-{
-    int data = 4;
-    int previous = data;
-    ts::Mutex mutex;
-    ts::Condition condition;
-    {
-        TestThreadCondition thread(mutex, condition, data);
-        TSUNIT_ASSERT(thread.start());
-        debug() << "ThreadTest::testCondition: type name: \"" << thread.getTypeName() << "\"" << std::endl;
-
-        ts::GuardCondition lock(mutex, condition);
-        ts::Time dueTime(ts::Time::CurrentUTC() + 100 - _msPrecision);
-        while (data > 0) {
-            // Wait until data is decremented (timeout: 10 seconds)
-            while (data == previous) {
-                TSUNIT_ASSERT(lock.waitCondition(10000));
-            }
-            TSUNIT_ASSERT(ts::Time::CurrentUTC() >= dueTime);
-            dueTime += 100;
-            TSUNIT_ASSERT(data == previous - 1);
-            previous = data;
-        }
-    }
 }

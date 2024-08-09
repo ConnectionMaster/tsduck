@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -50,7 +29,7 @@ namespace ts {
         class RunningDocument;
 
         //!
-        //! Command line arguments for JSON reports (@c -\-json, @c -\-json-line, @c -\-json-udp).
+        //! Command line arguments for JSON reports (@c -\-json, @c -\-json-line, @c -\-json-udp, @c -\-json-tcp).
         //! @ingroup cmd
         //!
         class TSDUCKDLL OutputArgs
@@ -60,7 +39,7 @@ namespace ts {
             //!
             //! Default constructor.
             //!
-            OutputArgs();
+            OutputArgs() = default;
 
             //!
             //! Virtual destructor.
@@ -71,9 +50,13 @@ namespace ts {
             //! Add command line option definitions in an Args.
             //! @param [in,out] args Command line arguments to update.
             //! @param [in] use_short_opt Define @c 'j' as short option for @c -\-json.
-            //! @param [in] help Help text for option @c -\-json.
+            //! Ignored if @a allow_file is false.
+            //! @param [in] description Description of the JSON information. Also used as
+            //! help text for option @c -\-json.
+            //! @param [in] allow_file If false, the option @c -\-json is not defined, only
+            //! log and network options are defined.
             //!
-            void defineArgs(Args& args, bool use_short_opt, const UString& help = UString());
+            void defineArgs(Args& args, bool use_short_opt, const UString& description, bool allow_file = true);
 
             //!
             //! Load arguments from command line.
@@ -114,23 +97,29 @@ namespace ts {
             //!
             bool report(const json::Value& root, json::RunningDocument& doc, Report& rep);
 
-        private:
-            bool              _json_opt;          // Option --json
-            bool              _json_line;         // Option --json-line
-            bool              _json_tcp;          // Option --json-tcp
-            bool              _json_tcp_keep;     // Option --json-tcp-keep
-            bool              _json_udp;          // Option --json-udp
-            UString           _line_prefix;       // Option --json-line="prefix"
-            IPv4SocketAddress _tcp_destination;   // TCP destination.
-            IPv4SocketAddress _udp_destination;   // UDP destination.
-            IPv4Address       _udp_local;         // Name of outgoing local address.
-            int               _udp_ttl;           // Time-to-live socket option.
-            size_t            _sock_buffer_size;  // Socket buffer size (TCP and UDP).
-            UDPSocket         _udp_sock;          // Output UDP socket.
-            TelnetConnection  _tcp_sock;          // Output TCP socket.
+            //!
+            //! Issue a JSON report according to options (assuming @c -\-json is not specified for output files).
+            //! @param [in] root JSON root object.
+            //! @param [in] rep Logger to report errors or output one-line JSON when @c -\-json-line is specified.
+            //! @return True on success, false on error.
+            //!
+            bool report(const json::Value& root, Report& rep);
 
-            // Issue a JSON report, except --json file.
-            bool reportOthers(const json::Value& root, Report& rep);
+        private:
+            bool              _allow_file = true;     // Output to JSON file is allowed (option --json).
+            bool              _json_opt = false;      // Option --json
+            bool              _json_line = false;     // Option --json-line
+            bool              _json_tcp = false;      // Option --json-tcp
+            bool              _json_tcp_keep = false; // Option --json-tcp-keep
+            bool              _json_udp = false;      // Option --json-udp
+            UString           _line_prefix {};        // Option --json-line="prefix"
+            IPv4SocketAddress _tcp_destination {};    // TCP destination.
+            IPv4SocketAddress _udp_destination {};    // UDP destination.
+            IPv4Address       _udp_local {};          // Name of outgoing local address.
+            int               _udp_ttl = 0;           // Time-to-live socket option.
+            size_t            _sock_buffer_size = 0;  // Socket buffer size (TCP and UDP).
+            UDPSocket         _udp_sock {};           // Output UDP socket.
+            TelnetConnection  _tcp_sock {};           // Output TCP socket.
 
             // Open/close the UDP socket.
             bool udpOpen(Report& rep);

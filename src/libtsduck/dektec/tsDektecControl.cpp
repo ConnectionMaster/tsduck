@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -38,9 +17,7 @@
 #if defined(TS_NO_DTAPI)
 
 ts::DektecControl::DektecControl(int argc, char *argv[]) :
-    Args(u"Control Dektec devices (unimplemented)"),
-    _duck(this),
-    _guts(nullptr)
+    Args(u"Control Dektec devices (unimplemented)")
 {
 }
 
@@ -69,8 +46,6 @@ int ts::DektecControl::execute()
 #include "tsjsonOutputArgs.h"
 #include "tsjson.h"
 #include "tsjsonObject.h"
-#include "tsjsonString.h"
-#include "tsjsonNumber.h"
 
 
 //----------------------------------------------------------------------------
@@ -83,20 +58,20 @@ class ts::DektecControl::Guts
 private:
     Report& _report;
 public:
-    bool    _list_all;       // List all Dektec devices
-    bool    _normalized;     // List in "normalized" format
-    json::OutputArgs _json;  // List in JSON format
-    int     _wait_sec;       // Wait time before exit
-    size_t  _devindex;       // Dektec device
-    bool    _reset;          // Reset the device
-    bool    _set_led;        // Change LED state
-    int     _led_state;      // State of the LED (one of DTAPI_LED_*)
-    int     _set_input;      // Port number to set as input, for directional ports
-    int     _set_output;     // Port number to set as output, for directional ports
-    int     _power_mode;     // Power mode to set on DTU-315
+    bool   _list_all = false;    // List all Dektec devices
+    bool   _normalized = false;  // List in "normalized" format
+    size_t _devindex = 0;        // Dektec device
+    bool   _reset = false;       // Reset the device
+    bool   _set_led = false;     // Change LED state
+    int    _led_state = 0;       // State of the LED (one of DTAPI_LED_*)
+    int    _set_input = 0;       // Port number to set as input, for directional ports
+    int    _set_output = 0;      // Port number to set as output, for directional ports
+    int    _power_mode = -1;     // Power mode to set on DTU-315
+    json::OutputArgs _json {};   // List in JSON format
+    cn::seconds _wait_sec {};    // Wait time before exit
 
     // Constructor
-    Guts(Report& report);
+    Guts(Report& report) : _report(report) {}
 
     // Apply commands to one device. Return command status.
     int oneDevice(const DektecDevice& device);
@@ -125,25 +100,8 @@ public:
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::DektecControl::Guts::Guts(Report& report) :
-    _report(report),
-    _list_all(false),
-    _normalized(false),
-    _json(),
-    _wait_sec(0),
-    _devindex(0),
-    _reset(false),
-    _set_led(false),
-    _led_state(0),
-    _set_input(0),
-    _set_output(0),
-    _power_mode(-1)
-{
-}
-
 ts::DektecControl::DektecControl(int argc, char *argv[]) :
     Args(u"Control Dektec devices", u"[options] [device]"),
-    _duck(this),
     _guts(new Guts(*this))
 {
     option(u"", 0, UNSIGNED, 0, 1);
@@ -174,10 +132,10 @@ ts::DektecControl::DektecControl(int argc, char *argv[]) :
          u"option --wait (the led state is automatically returned to "
          u"\"hardware\" after exit).");
 
-    _guts->_json.defineArgs(*this, true, u"With --all, list the Dektec devices in JSON format (useful for automatic analysis).");
+    _guts->_json.defineArgs(*this, true, u"With --all, list the Dektec devices in JSON format.");
 
     option(u"normalized", 'n');
-    help(u"normalized", u"With --all, list the Dektec devices in a normalized output format (useful for automatic analysis).");
+    help(u"normalized", u"With --all, list the Dektec devices in a normalized output format.");
 
     option(u"output", 'o', POSITIVE);
     help(u"output", u"port-number",
@@ -190,23 +148,23 @@ ts::DektecControl::DektecControl(int argc, char *argv[]) :
     option(u"reset", 'r');
     help(u"reset", u"Reset the device.");
 
-    option(u"wait", 'w', UNSIGNED);
-    help(u"wait", u"seconds",
+    option<cn::seconds>(u"wait", 'w');
+    help(u"wait",
          u"Wait the specified number of seconds before exiting. The default "
          u"if 5 seconds if option --led is specified and 0 otherwise.");
 
     analyze(argc, argv);
 
-    _guts->_devindex   = intValue(u"", 0);
-    _guts->_list_all   = present(u"all");
+    getIntValue(_guts->_devindex, u"", 0);
     _guts->_normalized = present(u"normalized");
-    _guts->_reset      = present(u"reset");
-    _guts->_set_led    = present(u"led");
-    _guts->_led_state  = intValue(u"led", DTAPI_LED_OFF);
-    _guts->_set_input  = intValue(u"input", -1);
-    _guts->_set_output = intValue(u"output", -1);
-    _guts->_wait_sec   = intValue(u"wait", _guts->_set_led ? 5 : 0);
-    _guts->_power_mode = intValue(u"power-mode", -1);
+    _guts->_list_all = present(u"all");
+    _guts->_set_led = present(u"led");
+    _guts->_reset = present(u"reset");
+    getIntValue(_guts->_led_state, u"led", DTAPI_LED_OFF);
+    getIntValue(_guts->_set_input, u"input", -1);
+    getIntValue(_guts->_set_output, u"output", -1);
+    getIntValue(_guts->_power_mode,u"power-mode", -1);
+    getChronoValue(_guts->_wait_sec, u"wait", cn::seconds(_guts->_set_led ? 5 : 0));
     _guts->_json.loadArgs(_duck, *this);
 
     if (_guts->_json.useFile() && _guts->_normalized) {
@@ -250,7 +208,7 @@ int ts::DektecControl::execute()
         // List only one device
         if (_guts->_devindex >= devices.size()) {
             // Invalid device index specified
-            error(u"invalid device index: %d", {_guts->_devindex});
+            error(u"invalid device index: %d", _guts->_devindex);
             return EXIT_FAILURE;
         }
         else {
@@ -307,19 +265,19 @@ int ts::DektecControl::Guts::listDevices(const DektecDeviceVector& devices)
                       << "  Channels: input: " << device.input.size()
                       << ", output: " << device.output.size() << std::endl;
             for (size_t i = 0; i < device.input.size(); i++) {
-                wideDisplay(UString::Format(u"  Input %d: %s", {i, DektecDevice::GetPortDescription(device.input[i])}));
+                wideDisplay(UString::Format(u"  Input %d: %s", i, DektecDevice::GetPortDescription(device.input[i])));
             }
             for (size_t i = 0; i < device.output.size(); i++) {
-                wideDisplay(UString::Format(u"  Output %d: %s", {i, DektecDevice::GetPortDescription(device.output[i])}));
+                wideDisplay(UString::Format(u"  Output %d: %s", i, DektecDevice::GetPortDescription(device.output[i])));
             }
-            std::cout << UString::Format(u"  Subsystem id: 0x%04X", {device.desc.m_SubsystemId})
+            std::cout << UString::Format(u"  Subsystem id: 0x%04X", device.desc.m_SubsystemId)
                       << " (" << device.model << ")" << std::endl
-                      << UString::Format(u"  Subsystem vendor id: 0x%04X", {device.desc.m_SubVendorId}) << std::endl
-                      << UString::Format(u"  Device id: 0x%04X", {device.desc.m_DeviceId}) << std::endl
-                      << UString::Format(u"  Vendor id: 0x%04X", {device.desc.m_VendorId}) << std::endl
-                      << UString::Format(u"  Serial number: %016X", {device.desc.m_Serial}) << std::endl
-                      << UString::Format(u"  Firmware version: %d (0x%08X)", {device.desc.m_FirmwareVersion, device.desc.m_FirmwareVersion}) << std::endl
-                      << UString::Format(u"  Firmware variant: %d (0x%08X)", {device.desc.m_FirmwareVariant, device.desc.m_FirmwareVariant}) << std::endl;
+                      << UString::Format(u"  Subsystem vendor id: 0x%04X", device.desc.m_SubVendorId) << std::endl
+                      << UString::Format(u"  Device id: 0x%04X", device.desc.m_DeviceId) << std::endl
+                      << UString::Format(u"  Vendor id: 0x%04X", device.desc.m_VendorId) << std::endl
+                      << UString::Format(u"  Serial number: %016X", device.desc.m_Serial) << std::endl
+                      << UString::Format(u"  Firmware version: %d (0x%08X)", device.desc.m_FirmwareVersion, device.desc.m_FirmwareVersion) << std::endl
+                      << UString::Format(u"  Firmware variant: %d (0x%08X)", device.desc.m_FirmwareVariant, device.desc.m_FirmwareVariant) << std::endl;
 
             switch (device.desc.m_Category) {
                 case DTAPI_CAT_PCI:
@@ -427,11 +385,11 @@ void ts::DektecControl::Guts::listNormalizedCapabilities(size_t device_index, si
 
     if ((hw.m_Flags & DTAPI_CAP_IP) != 0) {
         std::cout << UString::Format(u"ip=%d.%d.%d.%d:mac=%02X-%02X-%02X-%02X-%02X-%02X:",
-                                     {hw.m_Ip[0] & 0xFF, hw.m_Ip[1] & 0xFF,
-                                      hw.m_Ip[2] & 0xFF, hw.m_Ip[3] & 0xFF,
-                                      hw.m_MacAddr[0] & 0xFF, hw.m_MacAddr[1] & 0xFF,
-                                      hw.m_MacAddr[2] & 0xFF, hw.m_MacAddr[3] & 0xFF,
-                                      hw.m_MacAddr[4] & 0xFF, hw.m_MacAddr[5] & 0xFF});
+                                     hw.m_Ip[0] & 0xFF, hw.m_Ip[1] & 0xFF,
+                                     hw.m_Ip[2] & 0xFF, hw.m_Ip[3] & 0xFF,
+                                     hw.m_MacAddr[0] & 0xFF, hw.m_MacAddr[1] & 0xFF,
+                                     hw.m_MacAddr[2] & 0xFF, hw.m_MacAddr[3] & 0xFF,
+                                     hw.m_MacAddr[4] & 0xFF, hw.m_MacAddr[5] & 0xFF);
     }
 
     std::cout << std::endl;
@@ -589,10 +547,10 @@ void ts::DektecControl::Guts::listCapabilitiesJSON(ts::json::Value& jv, size_t d
     jv.add(u"spi-serial-8-bit", json::Bool((hw.m_Flags & DTAPI_CAP_SPISER8B) != 0));
 
     if ((hw.m_Flags & DTAPI_CAP_IP) != 0) {
-        jv.add(u"ip", UString::Format(u"%d.%d.%d.%d", {hw.m_Ip[0] & 0xFF, hw.m_Ip[1] & 0xFF, hw.m_Ip[2] & 0xFF, hw.m_Ip[3] & 0xFF}));
+        jv.add(u"ip", UString::Format(u"%d.%d.%d.%d", hw.m_Ip[0] & 0xFF, hw.m_Ip[1] & 0xFF, hw.m_Ip[2] & 0xFF, hw.m_Ip[3] & 0xFF));
         jv.add(u"mac", UString::Format(u"%02X-%02X-%02X-%02X-%02X-%02X:",
-                                       {hw.m_MacAddr[0] & 0xFF, hw.m_MacAddr[1] & 0xFF, hw.m_MacAddr[2] & 0xFF,
-                                        hw.m_MacAddr[3] & 0xFF, hw.m_MacAddr[4] & 0xFF, hw.m_MacAddr[5] & 0xFF}));
+                                       hw.m_MacAddr[0] & 0xFF, hw.m_MacAddr[1] & 0xFF, hw.m_MacAddr[2] & 0xFF,
+                                       hw.m_MacAddr[3] & 0xFF, hw.m_MacAddr[4] & 0xFF, hw.m_MacAddr[5] & 0xFF));
     }
 }
 
@@ -608,8 +566,8 @@ int ts::DektecControl::Guts::listDevicesJSON(const DektecDeviceVector& devices)
     // Display DTAPI and device drivers versions
     std::map<UString,UString> versions;
     GetDektecVersions(versions);
-    for (auto it = versions.begin(); it != versions.end(); ++it) {
-        root.query(u"versions", true).add(it->first, it->second);
+    for (const auto& it : versions) {
+        root.query(u"versions", true).add(it.first, it.second);
     }
 
     // Display device list
@@ -642,7 +600,7 @@ int ts::DektecControl::Guts::listDevicesJSON(const DektecDeviceVector& devices)
         jdev.add(u"subsys-vendor-id", device.desc.m_SubVendorId);
         jdev.add(u"device-id", device.desc.m_DeviceId);
         jdev.add(u"vendor-id", device.desc.m_VendorId);
-        jdev.add(u"serial", int64_t(device.desc.m_Serial));
+        jdev.add(u"serial", device.desc.m_Serial);
         jdev.add(u"fw-version", device.desc.m_FirmwareVersion);
         jdev.add(u"fw-variant", device.desc.m_FirmwareVariant);
         if (vpd.vpdid[0] != 0) {
@@ -786,7 +744,7 @@ int ts::DektecControl::Guts::oneDevice(const DektecDevice& device)
         }
     }
 
-    SleepThread(MilliSecPerSec * _wait_sec);
+    std::this_thread::sleep_for(_wait_sec);
     dtdev.Detach();
 
     return EXIT_SUCCESS;

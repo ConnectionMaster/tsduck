@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -53,8 +32,7 @@ ts::ArgsWithPlugins::ArgsWithPlugins(size_t min_inputs,
     _min_plugins(min_plugins),
     _max_plugins(max_plugins),
     _min_outputs(min_outputs),
-    _max_outputs(max_outputs),
-    _plugins()
+    _max_outputs(max_outputs)
 {
     setDirectSyntax(syntax);
 
@@ -219,7 +197,7 @@ bool ts::ArgsWithPlugins::analyze(const UString& app_name, const UStringVector& 
 
         // Check that a plugin name is present after the processor option.
         if (plugin_index + 1 >= args.size()) {
-            error(u"missing plugin name for option %s", {args[plugin_index]});
+            error(u"missing plugin name for option %s", args[plugin_index]);
             break;
         }
 
@@ -251,27 +229,27 @@ bool ts::ArgsWithPlugins::analyze(const UString& app_name, const UStringVector& 
 
     // Check min and max number of occurences of each plugin type.
     if (in_count < _min_inputs) {
-        error(u"not enough input plugins, need at least %d", {_min_inputs});
+        error(u"not enough input plugins, need at least %d", _min_inputs);
         return false;
     }
     if (out_count < _min_outputs) {
-        error(u"not enough output plugins, need at least %d", {_min_outputs});
+        error(u"not enough output plugins, need at least %d", _min_outputs);
         return false;
     }
     if (proc_count < _min_plugins) {
-        error(u"not enough packet processor plugins, need at least %d", {_min_plugins});
+        error(u"not enough packet processor plugins, need at least %d", _min_plugins);
         return false;
     }
     if (in_count > _max_inputs) {
-        error(u"too many input plugins, need at most %d", {_max_inputs});
+        error(u"too many input plugins, need at most %d", _max_inputs);
         return false;
     }
     if (out_count > _max_outputs) {
-        error(u"too many output plugins, need at most %d", {_max_outputs});
+        error(u"too many output plugins, need at most %d", _max_outputs);
         return false;
     }
     if (proc_count > _max_plugins) {
-        error(u"too many packet processor plugins, need at most %d", {_max_plugins});
+        error(u"too many packet processor plugins, need at most %d", _max_plugins);
         return false;
     }
 
@@ -317,7 +295,7 @@ void ts::ArgsWithPlugins::loadDefaultPlugins(PluginType type, const ts::UString&
     // Get default plugins only when none where specified for that type.
     if (options.empty()) {
         UStringVector lines;
-        DuckConfigFile::Instance()->getValues(entry, lines);
+        DuckConfigFile::Instance().getValues(entry, lines);
         // Loop on all default plugins for that type.
         for (size_t i = 0; i < lines.size(); ++i) {
             // Got one plugin specification. Parse its arguments.
@@ -355,7 +333,7 @@ void ts::ArgsWithPlugins::processListPlugins()
     }
 
     // Build the list of plugins.
-    const UString text(PluginRepository::Instance()->listPlugins(true, *this, op));
+    const UString text(PluginRepository::Instance().listPlugins(true, *this, op));
 
     // Try to page, raw output otherwise.
     OutputPager pager;
@@ -380,6 +358,6 @@ void ts::ArgsWithPlugins::processListPlugins()
 
     // Exit application, unless specified otherwise.
     if ((getFlags() & NO_EXIT_ON_HELP) == 0) {
-        ::exit(EXIT_SUCCESS);
+        std::exit(EXIT_SUCCESS);
     }
 }

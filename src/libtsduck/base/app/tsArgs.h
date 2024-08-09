@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,12 +13,11 @@
 
 #pragma once
 #include "tsReport.h"
-#include "tsException.h"
 #include "tsEnumeration.h"
 #include "tsByteBlock.h"
-#include "tsVariable.h"
-#include "tsSafePtr.h"
 #include "tsAbstractNumber.h"
+#include "tsCompactBitSet.h"
+#include "tsIPv4SocketAddress.h"
 
 namespace ts {
     //!
@@ -290,11 +268,6 @@ namespace ts {
         TS_NOCOPY(Args);
     public:
         //!
-        //! Internal application error in command line argument handling.
-        //!
-        TS_DECLARE_EXCEPTION(ArgsError);
-
-        //!
         //! Args object flags, used in an or'ed mask.
         //!
         enum Flags {
@@ -318,25 +291,31 @@ namespace ts {
         //! Type of an argument or parameter.
         //!
         enum ArgType {
-            NONE,      //!< Option without argument.
-            STRING,    //!< Uninterpreted string argument.
-            FILENAME,  //!< String argument which will be interpreted as a file name.
-            DIRECTORY, //!< String argument which will be interpreted as a directory name.
-            HEXADATA,  //!< String argument which will be interpreted as a suite of hexadecimal digits.
-            INTEGER,   //!< Integer argument, must set min & max values.
-            UNSIGNED,  //!< Integer 0..unlimited.
-            POSITIVE,  //!< Integer 1..unlimited.
-            UINT8,     //!< Integer 0..0xFF.
-            UINT16,    //!< Integer 0..0xFFFF.
-            UINT32,    //!< Integer 0..0xFFFFFFFF.
-            UINT63,    //!< 63-bit unsigned (cannot represent 2^63 and higher).
-            PIDVAL,    //!< Integer 0..0x1FFF (an MPEG PID value).
-            INT8,      //!< Integer -128..127.
-            INT16,     //!< Integer -32,768..32,767.
-            INT32,     //!< Integer -2,147,483,648..2,147,483,647.
-            INT64,     //!< 64-bit signed.
-            ANUMBER,   //!< A subclass of AbstractNumber.
-            TRISTATE,  //!< Tristate value, ts::Maybe if absent.
+            NONE,           //!< Option without argument.
+            STRING,         //!< Uninterpreted string argument.
+            FILENAME,       //!< String argument which will be interpreted as a file name.
+            DIRECTORY,      //!< String argument which will be interpreted as a directory name.
+            HEXADATA,       //!< String argument which will be interpreted as a suite of hexadecimal digits.
+            INTEGER,        //!< Integer argument, must set min & max values.
+            UNSIGNED,       //!< Integer 0..unlimited.
+            POSITIVE,       //!< Integer 1..unlimited.
+            UINT8,          //!< Integer 0..0xFF.
+            UINT16,         //!< Integer 0..0xFFFF.
+            UINT32,         //!< Integer 0..0xFFFFFFFF.
+            UINT63,         //!< 63-bit unsigned (cannot represent 2^63 and higher).
+            PIDVAL,         //!< Integer 0..0x1FFF (an MPEG PID value).
+            INT8,           //!< Integer -128..127.
+            INT16,          //!< Integer -32,768..32,767.
+            INT32,          //!< Integer -2,147,483,648..2,147,483,647.
+            INT64,          //!< 64-bit signed.
+            ANUMBER,        //!< A subclass of AbstractNumber.
+            CHRONO,         //!< Any instantiation of std::chrono::duration.
+            TRISTATE,       //!< Tristate value, ts::Maybe if absent.
+            IPADDR,         //!< IPv4 address or host name translating to an address.
+            IPSOCKADDR,     //!< IPv4 socket address (or host name) and port, both are mandatory.
+            IPSOCKADDR_OA,  //!< IPv4 socket address (or host name) and port, address is optional.
+            IPSOCKADDR_OP,  //!< IPv4 socket address (or host name) and port, port is optional.
+            IPSOCKADDR_OAP, //!< IPv4 socket address (or host name) and port, address and port are optional.
         };
 
         //!
@@ -378,7 +357,7 @@ namespace ts {
                      bool         optional = false,
                      size_t       decimals = 0)
         {
-            addOption(IOption(name, short_name, type, min_occur, max_occur, min_value, max_value, decimals, optional ? uint32_t(IOPT_OPTVALUE) : 0));
+            addOption(IOption(this, name, short_name, type, min_occur, max_occur, min_value, max_value, decimals, optional ? uint32_t(IOPT_OPTVALUE) : 0));
             return *this;
         }
 
@@ -403,7 +382,7 @@ namespace ts {
                      size_t              max_occur = 0,
                      bool                optional = false)
         {
-            addOption(IOption(name, short_name, enumeration, min_occur, max_occur, optional ? uint32_t(IOPT_OPTVALUE) : 0));
+            addOption(IOption(this, name, short_name, enumeration, min_occur, max_occur, optional ? uint32_t(IOPT_OPTVALUE) : 0));
             return *this;
         }
 
@@ -431,7 +410,35 @@ namespace ts {
                      INT2         max_value = std::numeric_limits<INT1>::max(),
                      bool         optional = false)
         {
-            addOption(IOption(name, short_name, ANUMBER, min_occur, max_occur, int64_t(min_value), int64_t(max_value), 0, optional ? uint32_t(IOPT_OPTVALUE) : 0, new NUMTYPE));
+            addOption(IOption(this, name, short_name, ANUMBER, min_occur, max_occur, int64_t(min_value), int64_t(max_value), 0, optional ? uint32_t(IOPT_OPTVALUE) : 0, new NUMTYPE));
+            return *this;
+        }
+
+        //!
+        //! Add the definition of an option, the value being an instance of std::chrono::duration.
+        //!
+        //! This method is typically invoked in the constructor of a subclass of Args.
+        //! @tparam DURATION An instance of std::chrono::duration.
+        //! @param [in] name Long name of option. 0 or "" means a parameter, not an option.
+        //! @param [in] short_name Optional one letter short name.
+        //! @param [in] min_occur Minimum number of occurences of this option on the command line.
+        //! @param [in] max_occur Maximum number of occurences. 0 means default : 1 for an option, unlimited for a parameters.
+        //! @param [in] min_value Minimum value. Use an integer value, not a @a DURATION value.
+        //! @param [in] max_value Maximum value. Use an integer value, not a @a DURATION value.
+        //! @param [in] optional  When true, the option's value is optional.
+        //! @return A reference to this instance.
+        //!
+        template <class DURATION, typename std::enable_if<std::is_integral<typename DURATION::rep>::value, int>::type = 0>
+        Args& option(const UChar* name,
+                     UChar        short_name = 0,
+                     size_t       min_occur = 0,
+                     size_t       max_occur = 0,
+                     int64_t      min_value = 0,
+                     int64_t      max_value = std::numeric_limits<int64_t>::max(),
+                     bool         optional = false)
+        {
+            addOption(IOption(this, name, short_name, CHRONO, min_occur, max_occur, min_value, max_value, 0,
+                              optional ? uint32_t(IOPT_OPTVALUE) : 0, nullptr, DURATION::period::num, DURATION::period::den));
             return *this;
         }
 
@@ -489,7 +496,7 @@ namespace ts {
         //! Warning: use only for @a max_occur (@c size_t ). Do not use for @a max_value
         //! (@c int64_t ) since @c size_t is @c uint64_t on 64-bit platforms.
         //!
-        static const size_t UNLIMITED_COUNT;
+        static constexpr size_t UNLIMITED_COUNT = std::numeric_limits<size_t>::max();
 
         //!
         //! Unlimited value.
@@ -497,7 +504,7 @@ namespace ts {
         //! To be used as value for parameter @ max_value to indicate that there is no
         //! limit to the parameter integer value.
         //!
-        static const int64_t UNLIMITED_VALUE;
+        static const int64_t UNLIMITED_VALUE = std::numeric_limits<int64_t>::max();
 
         //!
         //! Set the description of the command.
@@ -680,19 +687,19 @@ namespace ts {
         //!
         //! @return True if the last analyze() completed successfully.
         //!
-        bool valid() const {return _is_valid;}
+        bool valid() const { return _is_valid && !gotErrors(); }
 
         //!
         //! Force en error state in this object, as if an error was reported.
         //!
-        void invalidate() {_is_valid = false;}
+        void invalidate() { _is_valid = false; }
 
         //!
         //! Get the application name from the last command line analysis.
         //!
         //! @return The application name from the last command line analysis.
         //!
-        UString appName() const {return _app_name;}
+        UString appName() const { return _app_name; }
 
         //!
         //! Get the application name from a standard argc/argv pair.
@@ -771,25 +778,53 @@ namespace ts {
         //!
         //! Get the value of an option in the last analyzed command line, only if present.
         //!
-        //! @param [in,out] value A variable string receiving the value of the option or parameter.
+        //! @param [in,out] value A std::optional string receiving the value of the option or parameter.
         //! @param [in] name The full name of the option. If the parameter is a null pointer or
         //! an empty string, this specifies a parameter, not an option. If the specified option
         //! was not declared in the syntax of the command, a fatal error is reported.
-        //! @param [in] clear_if_absent When the option is not present, the Variable object
+        //! @param [in] clear_if_absent When the option is not present, the std::optional object
         //! is cleared (set to uninitialized) when @a clear_if_absent it true. Otherwise, it
         //! is left unmodified.
         //!
-        void getOptionalValue(Variable<UString>& value, const UChar* name = nullptr, bool clear_if_absent = false) const;
+        void getOptionalValue(std::optional<UString>& value, const UChar* name = nullptr, bool clear_if_absent = false) const;
 
         //!
         //! Get all occurences of an option in a container of strings.
         //!
+        //! @tparam CONTAINER A container type of UString such as list, vector, etc.
         //! @param [out] values A container of strings receiving all values of the option or parameter.
         //! @param [in] name The full name of the option. If the parameter is a null pointer or
         //! an empty string, this specifies a parameter, not an option. If the specified option
         //! was not declared in the syntax of the command, a fatal error is reported.
         //!
-        void getValues(UStringVector& values, const UChar* name = nullptr) const;
+        template <class CONTAINER, typename std::enable_if<std::is_base_of<UString, typename CONTAINER::value_type>::value>::type* = nullptr>
+        void getValues(CONTAINER& values, const UChar* name = nullptr) const;
+
+        //!
+        //! Get the value of a filesystem path option in the last analyzed command line.
+        //!
+        //! @param [out] value A path receiving the value of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command, a fatal error is reported.
+        //! @param [in] def_value The path to return in @a value if the option or parameter
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! @param [in] index The occurence of the option to return. Zero designates the
+        //! first occurence.
+        //!
+        void getPathValue(fs::path& value, const UChar* name = nullptr, const fs::path& def_value = fs::path(), size_t index = 0) const;
+
+        //!
+        //! Get all occurences of a filesystem path option in a container of path.
+        //!
+        //! @tparam CONTAINER A container type of fs::path such as list, vector, etc.
+        //! @param [out] values A container of fs::path receiving all values of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command, a fatal error is reported.
+        //!
+        template <class CONTAINER, typename std::enable_if<std::is_base_of<fs::path, typename CONTAINER::value_type>::value>::type* = nullptr>
+        void getPathValues(CONTAINER& values, const UChar* name = nullptr) const;
 
         //!
         //! Get the value of an integer option in the last analyzed command line.
@@ -833,16 +868,16 @@ namespace ts {
         //! Get the value of an integer option in the last analyzed command line, only if present.
         //!
         //! @tparam INT An integer or enumeration type for the result.
-        //! @param [in,out] value A variable integer receiving the value of the option or parameter.
+        //! @param [in,out] value A std::optional integer receiving the value of the option or parameter.
         //! @param [in] name The full name of the option. If the parameter is a null pointer or
         //! an empty string, this specifies a parameter, not an option. If the specified option
         //! was not declared in the syntax of the command, a fatal error is reported.
-        //! @param [in] clear_if_absent When the option is not present, the Variable object
+        //! @param [in] clear_if_absent When the option is not present, the std::optional object
         //! is cleared (set to uninitialized) when @a clear_if_absent it true. Otherwise, it
         //! is left unmodified.
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type* = nullptr>
-        void getOptionalIntValue(Variable<INT>& value, const UChar* name = nullptr, bool clear_if_absent = false) const;
+        void getOptionalIntValue(std::optional<INT>& value, const UChar* name = nullptr, bool clear_if_absent = false) const;
 
         //!
         //! Get all occurences of an integer option in a vector of integers.
@@ -869,7 +904,7 @@ namespace ts {
         void getIntValues(std::set<INT>& values, const UChar* name = nullptr) const;
 
         //!
-        //! Get all occurences of an option as a bitmask of values.
+        //! Get all occurences of an option as a bitset of values.
         //!
         //! @param [out] values A bitset receiving all values of the option or parameter.
         //! For each value of the option, the corresponding bit is set. Values which are
@@ -882,6 +917,21 @@ namespace ts {
         //!
         template <std::size_t N>
         void getIntValues(std::bitset<N>& values, const UChar* name = nullptr, bool defValue = false) const;
+
+        //!
+        //! Get all occurences of an option as a compact bitset of values.
+        //!
+        //! @param [out] values A compact bitset receiving all values of the option or parameter.
+        //! For each value of the option, the corresponding bit is set. Values which are
+        //! out of range are ignored.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command, a fatal error is reported.
+        //! @param [in] defValue The boolean to set in all values if the option or parameter
+        //! is not present in the command line.
+        //!
+        template <std::size_t N>
+        void getIntValues(CompactBitSet<N>& values, const UChar* name = nullptr, bool defValue = false) const;
 
         //!
         //! Get an OR'ed of all values of an integer option in the last analyzed command line.
@@ -920,6 +970,50 @@ namespace ts {
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
         void getBitMaskValue(INT& value, const UChar* name = nullptr, const INT& def_value = static_cast<INT>(0)) const;
+
+        //!
+        //! Get the value of an std::chrono::duration option in the last analyzed command line.
+        //!
+        //! If the option has been declared with a std::chrono::duration type in the syntax of the command,
+        //! the validity of the supplied option value has been checked by the analyze() method.
+        //! If analyze() did not fail, the option value is guaranteed to be in the declared range.
+        //!
+        //! @param [out] value A variable receiving the duration value of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] def_value The value to return in @a value if the option or parameter
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! @param [in] index The occurence of the option to return. Zero designates the first occurence.
+        //! Add the definition of an option, the value being an instance of std::chrono::duration.
+        //!
+        template <class Rep1, class Period1, class Rep2, class Period2>
+        void getChronoValue(cn::duration<Rep1, Period1>& value,
+                            const UChar* name = nullptr,
+                            const cn::duration<Rep2, Period2>& def_value = cn::duration<Rep1, Period1>::zero(),
+                            size_t index = 0) const;
+
+        //!
+        //! Get the value of an std::chrono::duration option in the last analyzed command line.
+        //!
+        //! If the option has been declared with a std::chrono::duration type in the syntax of the command,
+        //! the validity of the supplied option value has been checked by the analyze() method.
+        //! If analyze() did not fail, the option value is guaranteed to be in the declared range.
+        //!
+        //! @param [out] value A variable receiving the duration value of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] index The occurence of the option to return. Zero designates the first occurence.
+        //! Add the definition of an option, the value being an instance of std::chrono::duration.
+        //!
+        template <class Rep, class Period>
+        void getChronoValue(cn::duration<Rep, Period>& value, const UChar* name = nullptr, size_t index = 0) const
+        {
+            getChronoValue(value, name, cn::duration<Rep, Period>::zero(), index);
+        }
 
         //!
         //! Get the value of tristate option in the last analyzed command line.
@@ -963,7 +1057,7 @@ namespace ts {
         //! an empty string, this specifies a parameter, not an option. If the specified option
         //! was not declared in the syntax of the command or declared as a non-string type,
         //! a fatal error is reported.
-        //! @param [in] def_value The string to return if the option or parameter
+        //! @param [in] def_value The data to return if the option or parameter
         //! is not present in the command line or with fewer occurences than @a index.
         //! @param [in] index The occurence of the option to return. Zero designates the
         //! first occurence.
@@ -977,13 +1071,77 @@ namespace ts {
         //! an empty string, this specifies a parameter, not an option. If the specified option
         //! was not declared in the syntax of the command or declared as a non-string type,
         //! a fatal error is reported.
-        //! @param [in] def_value The string to return if the option or parameter
+        //! @param [in] def_value The data to return if the option or parameter
         //! is not present in the command line or with fewer occurences than @a index.
         //! @param [in] index The occurence of the option to return. Zero designates the
         //! first occurence.
         //! @return The decoded binary value of the option or parameter.
         //!
         ByteBlock hexaValue(const UChar* name = nullptr, const ByteBlock& def_value = ByteBlock(), size_t index = 0) const;
+
+        //!
+        //! Get the value of an option as an IPv4 address in the last analyzed command line.
+        //!
+        //! @param [out] value A variable receiving the resolved IPv4 address value of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] def_value The IPv4 address to return if the option or parameter
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! @param [in] index The occurence of the option to return. Zero designates the
+        //! first occurence.
+        //!
+        void getIPValue(IPv4Address& value, const UChar* name = nullptr, const IPv4Address& def_value = IPv4Address(), size_t index = 0) const;
+
+        //!
+        //! Get the value of an option as an IPv4 address in the last analyzed command line.
+        //!
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] def_value The IPv4 address to return if the option or parameter
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! @param [in] index The occurence of the option to return. Zero designates the
+        //! first occurence.
+        //! @return The resolved IPv4 address value of the option or parameter.
+        //!
+        IPv4Address ipValue(const UChar* name = nullptr, const IPv4Address& def_value = IPv4Address(), size_t index = 0) const;
+
+        //!
+        //! Get the value of an option as an IPv4 socket address in the last analyzed command line.
+        //!
+        //! @param [out] value A variable receiving the resolved IPv4 socket address value of the option or parameter.
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] def_value The IPv4 address socket to return if the option or parameter
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! If the parameter is present but either address or port is missing, the missing part
+        //! is copied from @a def_value.
+        //! @param [in] index The occurence of the option to return. Zero designates the
+        //! first occurence.
+        //!
+        void getSocketValue(IPv4SocketAddress& value, const UChar* name = nullptr, const IPv4SocketAddress& def_value = IPv4SocketAddress(), size_t index = 0) const;
+
+        //!
+        //! Get the value of an option as an IPv4 socket address in the last analyzed command line.
+        //!
+        //! @param [in] name The full name of the option. If the parameter is a null pointer or
+        //! an empty string, this specifies a parameter, not an option. If the specified option
+        //! was not declared in the syntax of the command or declared as a non-string type,
+        //! a fatal error is reported.
+        //! @param [in] def_value The IPv4 socket address to return if the option or parameter
+        //! If the parameter is present but either address or port is missing, the missing part
+        //! is copied from @a def_value.
+        //! is not present in the command line or with fewer occurences than @a index.
+        //! @param [in] index The occurence of the option to return. Zero designates the
+        //! first occurence.
+        //! @return The resolved IPv4 socket address value of the option or parameter.
+        //!
+        IPv4SocketAddress socketValue(const UChar* name = nullptr, const IPv4SocketAddress& def_value = IPv4SocketAddress(), size_t index = 0) const;
 
         //!
         //! Get the value of an AbstractNumber option in the last analyzed command line.
@@ -1060,17 +1218,6 @@ namespace ts {
         void exitOnError(bool force = false);
 
         //!
-        //! Redirect report logging.
-        //!
-        //! @param [in] report Where to report errors. The redirection is cancelled if zero.
-        //! @return The previous redirected report.
-        //!
-        Report* redirectReport(Report* report);
-
-        // Inherited from Report.
-        virtual void raiseMaxSeverity(int level) override;
-
-        //!
         //! Process argument redirection using @c '\@' on a vector of strings.
         //!
         //! @param [in,out] args A vector of strings. All lines of the form @c '\@filename' are
@@ -1093,16 +1240,14 @@ namespace ts {
         class TSDUCKDLL ArgValue
         {
         public:
-            Variable<UString> string;     // Orginal string value from command line (unset if option is present without value).
-            int64_t           int_base;   // First (or only) integer value.
-            size_t            int_count;  // Number of consecutive integer values.
-
-            // Constructor.
-            ArgValue();
+            std::optional<UString> string {};      // Orginal string value from command line (unset if option is present without value).
+            int64_t                int_base = 0;   // First (or only) integer value.
+            size_t                 int_count = 0;  // Number of consecutive integer values.
+            IPv4SocketAddress      address {};     // IPv4 address or socket address value.
         };
 
         // List of values
-        typedef std::vector<ArgValue> ArgValueVector;
+        using ArgValueVector = std::vector<ArgValue>;
 
         // Flags for IOption.
         enum : uint32_t {
@@ -1112,42 +1257,48 @@ namespace ts {
         };
 
         // For AbstractNumber options, we keep one dummy instance of the actual type as a safe pointer.
-        typedef SafePtr<AbstractNumber> AbstractNumberPtr;
+        using AbstractNumberPtr = std::shared_ptr<AbstractNumber>;
 
         // Internal representation of Option
         class TSDUCKDLL IOption
         {
         public:
-            UString        name;        // Long name (u"verbose" for --verbose)
-            UChar          short_name;  // Short option name (u'v' for -v), 0 if unused
-            ArgType        type;        // Argument type
-            size_t         min_occur;   // Minimum occurence
-            size_t         max_occur;   // Maximum occurence
-            int64_t        min_value;   // Minimum value (for integer args)
-            int64_t        max_value;   // Maximum value (for integer args)
-            size_t         decimals;    // Number of meaningful decimal digits
-            uint32_t       flags;       // Option flags
-            Enumeration    enumeration; // Enumeration values (if not empty)
-            UString        syntax;      // Syntax of value (informational, "address:port" for instance)
-            UString        help;        // Help description
-            ArgValueVector values;      // Set of values after analysis
-            size_t         value_count; // Number of values, can be > values.size() in case of ranges of integers
-            AbstractNumberPtr anumber;  // Dummy instance of AbstractNumber to validate the value, to deallocate
+            UString           name {};         // Long name (u"verbose" for --verbose)
+            UChar             short_name = 0;  // Short option name (u'v' for -v), 0 if unused
+            ArgType           type = NONE;     // Argument type
+            size_t            min_occur = 0;   // Minimum occurence
+            size_t            max_occur = 0;   // Maximum occurence
+            int64_t           min_value = 0;   // Minimum value (for integer args)
+            int64_t           max_value = 0;   // Maximum value (for integer args)
+            size_t            decimals = 0;    // Number of meaningful decimal digits
+            uint32_t          flags = 0;       // Option flags
+            Enumeration       enumeration {};  // Enumeration values (if not empty)
+            UString           syntax {};       // Syntax of value (informational, "address:port" for instance)
+            UString           help {};         // Help description
+            ArgValueVector    values {};       // Set of values after analysis
+            size_t            value_count = 0; // Number of values, can be > values.size() in case of ranges of integers
+            AbstractNumberPtr anumber {};      // Dummy instance of AbstractNumber to validate the value, to deallocate
+            std::intmax_t     num = 0;         // Numerator of ratio (with CHRONO)
+            std::intmax_t     den = 0;         // Denominator of ratio (with CHRONO)
 
             // Constructor:
-            IOption(const UChar* name,
-                    UChar        short_name,
-                    ArgType      type,
-                    size_t       min_occur,
-                    size_t       max_occur,
-                    int64_t      min_value,
-                    int64_t      max_value,
-                    size_t       decimals,
-                    uint32_t     flags,
-                    AbstractNumber* anumber = nullptr);
+            IOption(Args*           parent,
+                    const UChar*    name,
+                    UChar           short_name,
+                    ArgType         type,
+                    size_t          min_occur,
+                    size_t          max_occur,
+                    int64_t         min_value,
+                    int64_t         max_value,
+                    size_t          decimals,
+                    uint32_t        flags,
+                    AbstractNumber* anumber = nullptr,
+                    std::intmax_t   num = 0,
+                    std::intmax_t   den = 0);
 
             // Constructor:
-            IOption(const UChar*       name,
+            IOption(Args*              parent,
+                    const UChar*       name,
                     UChar              short_name,
                     const Enumeration& enumeration,
                     size_t             min_occur,
@@ -1179,21 +1330,19 @@ namespace ts {
         };
 
         // Map of options by name.
-        typedef std::map<UString,IOption> IOptionMap;
+        using IOptionMap = std::map<UString,IOption>;
 
         // Private fields
-        Report*       _subreport;
-        int           _saved_severity;
-        IOptionMap    _iopts;
-        UString       _description;
-        UString       _shell;
-        UString       _syntax;
-        UString       _intro;
-        UString       _tail;
-        UString       _app_name;
-        UStringVector _args;
-        bool          _is_valid;
-        int           _flags;
+        IOptionMap    _iopts {};
+        UString       _description {};
+        UString       _shell {};
+        UString       _syntax {};
+        UString       _intro {};
+        UString       _tail {};
+        UString       _app_name {};
+        UStringVector _args {};
+        bool          _is_valid = false;
+        int           _flags = 0;
 
         // List of characters which are allowed thousands separators and decimal points in integer values
         static const UChar* const THOUSANDS_SEPARATORS;
@@ -1207,7 +1356,7 @@ namespace ts {
 
         // Validate the content of an option, add the value,
         // compute integer values when necessary, return false if not valid.
-        bool validateParameter(IOption& opt, const Variable<UString>& val);
+        bool validateParameter(IOption& opt, const std::optional<UString>& val);
 
         // Process --help and --version predefined options.
         void processHelp();
@@ -1225,11 +1374,312 @@ namespace ts {
         IOption* search(UChar c);
         IOption* search(const UString& name);
 
+        // Get the value of an integer option (internal version), return trueu if found.
+        template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type* = nullptr>
+        bool getIntInternal(INT& value, const UChar* name, size_t index) const;
+
         // Locate an option description. Used by application to get values.
         // Throw exception if not found.
         const IOption& getIOption(const UChar* name) const;
         IOption& getIOption(const UChar* name);
+
+        // Fatal internal error in the application.
+        [[noreturn]] void fatalArgError(const UString& reason) const;
+        [[noreturn]] void fatalArgError(const UString& option, const UString& reason) const;
     };
 }
 
-#include "tsArgsTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Check if an integer value is in range for an option.
+template <typename INT, typename std::enable_if<std::is_same<INT, uint64_t>::value>::type*>
+bool ts::Args::IOption::inRange(INT value) const
+{
+    return value < 0x8000000000000000 && static_cast<int64_t>(value) >= min_value && static_cast<int64_t>(value) <= max_value;
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::Args::IOption::inRange(INT value) const
+{
+    return static_cast<int64_t>(value) >= min_value && static_cast<int64_t>(value) <= max_value;
+}
+
+
+//----------------------------------------------------------------------------
+// Get all occurences of an option in a container of strings.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER, typename std::enable_if<std::is_base_of<ts::UString, typename CONTAINER::value_type>::value>::type*>
+void ts::Args::getValues(CONTAINER& values, const UChar* name) const
+{
+    const IOption& opt(getIOption(name));
+    values.clear();
+    for (const auto& it : opt.values) {
+        if (it.string.has_value()) {
+            values.push_back(it.string.value());
+        }
+    }
+}
+
+template <class CONTAINER, typename std::enable_if<std::is_base_of<fs::path, typename CONTAINER::value_type>::value>::type*>
+void ts::Args::getPathValues(CONTAINER& values, const UChar* name) const
+{
+    const IOption& opt(getIOption(name));
+    values.clear();
+    if (opt.type != FILENAME && opt.type != DIRECTORY) {
+        fatalArgError(opt.name, u"is not a filesystem path");
+    }
+    for (const auto& it : opt.values) {
+        if (it.string.has_value()) {
+            values.push_back(fs::path(it.string.value()));
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get the integer value of an option.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type*>
+bool ts::Args::getIntInternal(INT& value, const UChar* name, size_t index) const
+{
+    const IOption& opt(getIOption(name));
+    if ((opt.type != INTEGER && opt.type != CHRONO) || index >= opt.value_count) {
+        // Invalid type or index.
+        return false;
+    }
+    else if (opt.value_count == opt.values.size()) {
+        // No range, one integer per option, direct lookup.
+        const auto& val(opt.values[index]);
+        if (val.int_count == 0) {
+            // Option present without value.
+            return false;
+        }
+        else {
+            value = static_cast<INT>(val.int_base);
+            return true;
+        }
+    }
+    else {
+        // There is at least one range, iterate.
+        for (const auto& val : opt.values) {
+            if (index > 0 && index >= val.int_count) {
+                // Not in this range.
+                index -= std::max<size_t>(1, val.int_count);
+            }
+            else if (val.int_count == 0) {
+                // Option present without value.
+                return false;
+            }
+            else {
+                value = static_cast<INT>(val.int_base + index);
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+template <typename INT, typename INT2, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type*>
+void ts::Args::getIntValue(INT& value, const UChar* name, const INT2 def_value, size_t index) const
+{
+    if (!getIntInternal(value, name, index)) {
+        value = static_cast<INT>(def_value);
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type*>
+INT ts::Args::intValue(const UChar* name, const INT def_value, size_t index) const
+{
+    INT value = def_value;
+    getIntInternal(value, name, index);
+    return value;
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_enum<INT>::value>::type*>
+void ts::Args::getOptionalIntValue(std::optional<INT>& value, const UChar* name, bool clear_if_absent) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.type == INTEGER && !opt.values.empty()) {
+        value = static_cast<INT>(opt.values[0].int_base);
+    }
+    else if (clear_if_absent) {
+        value.reset();
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get the value of an AbstractNumber option.
+//----------------------------------------------------------------------------
+
+template <class NUMTYPE, typename std::enable_if<std::is_base_of<ts::AbstractNumber, NUMTYPE>::value, int>::type N>
+void ts::Args::getValue(NUMTYPE& val, const UChar* name, const NUMTYPE& def_value, size_t index) const
+{
+    if (!val.fromString(value(name, u"", index))) {
+        val = def_value;
+    }
+}
+
+template <class NUMTYPE, typename std::enable_if<std::is_base_of<ts::AbstractNumber, NUMTYPE>::value, int>::type N>
+NUMTYPE ts::Args::numValue(const UChar* name, const NUMTYPE& def_value, size_t index) const
+{
+    NUMTYPE val;
+    getValue(val, name, def_value, index);
+    return val;
+}
+
+
+//----------------------------------------------------------------------------
+// Return all occurences of this option in a vector of integers.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::Args::getIntValues(std::vector<INT>& values, const UChar* name) const
+{
+    const IOption& opt(getIOption(name));
+    values.clear();
+    values.reserve(opt.value_count);
+    for (const auto& it : opt.values) {
+        for (int64_t v = it.int_base; v < it.int_base + int64_t(it.int_count); ++v) {
+            if (opt.inRange<int64_t>(v)) {
+                values.push_back(static_cast<INT>(v));
+            }
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Return all occurences of this option in a set of integers.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::Args::getIntValues(std::set<INT>& values, const UChar* name) const
+{
+    const IOption& opt(getIOption(name));
+    values.clear();
+    for (const auto& it : opt.values) {
+        for (int64_t v = it.int_base; v < it.int_base + int64_t(it.int_count); ++v) {
+            if (opt.inRange<int64_t>(v)) {
+                values.insert(static_cast<INT>(v));
+            }
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get all occurences of an option as a bitset of values.
+//----------------------------------------------------------------------------
+
+template <std::size_t N>
+void ts::Args::getIntValues(std::bitset<N>& values, const UChar* name, bool defValue) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.value_count > 0) {
+        values.reset();
+        for (const auto& it : opt.values) {
+            for (int64_t v = it.int_base; v < it.int_base + int64_t(it.int_count); ++v) {
+                if (v >= 0 && size_t(v) < values.size()) {
+                    values.set(size_t(v));
+                }
+            }
+        }
+    }
+    else if (defValue) {
+        values.set();
+    }
+    else {
+        values.reset();
+    }
+}
+
+template <std::size_t N>
+void ts::Args::getIntValues(CompactBitSet<N>& values, const UChar* name, bool defValue) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.value_count > 0) {
+        values.reset();
+        for (const auto& it : opt.values) {
+            for (int64_t v = it.int_base; v < it.int_base + int64_t(it.int_count); ++v) {
+                if (v >= 0 && size_t(v) < values.size()) {
+                    values.set(size_t(v));
+                }
+            }
+        }
+    }
+    else if (defValue) {
+        values.set();
+    }
+    else {
+        values.reset();
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get an OR'ed of all values of an integer option.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::Args::getBitMaskValue(INT& value, const UChar* name, const INT& def_value) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.value_count == 0) {
+        value = def_value;
+    }
+    else {
+        value = static_cast<INT>(0);
+        for (const auto& it : opt.values) {
+            for (int64_t v = it.int_base; v < it.int_base + int64_t(it.int_count); ++v) {
+                if (opt.inRange<int64_t>(v)) {
+                    value |= static_cast<INT>(v);
+                }
+            }
+        }
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::Args::bitMaskValue(const UChar* name, const INT& def_value) const
+{
+    INT value(def_value);
+    getBitMaskValue(value, name, def_value);
+    return value;
+}
+
+
+//----------------------------------------------------------------------------
+// Get the value of an std::chrono::duration option.
+//----------------------------------------------------------------------------
+
+template <class Rep1, class Period1, class Rep2, class Period2>
+void ts::Args::getChronoValue(cn::duration<Rep1, Period1>& value,
+                              const UChar* name,
+                              const cn::duration<Rep2, Period2>& def_value,
+                              size_t index) const
+{
+    const IOption& opt(getIOption(name));
+    if (opt.type != CHRONO) {
+        fatalArgError(opt.name, u"is not a chrono::duration type");
+    }
+
+    std::intmax_t ivalue = 0;
+    if (!getIntInternal(ivalue, name, index)) {
+        // Not found. Compile-time conversion on default value if necessary.
+        value = def_value;
+        return;
+    }
+
+    if (Period1::num != opt.num || Period1::den != opt.den) {
+        // Run-time conversion. Potentially subject to integer overflow.
+        ivalue = (ivalue * opt.num * Period1::den) / (opt.den * Period1::num);
+    }
+
+    value = cn::duration<Rep1, Period1>(static_cast<Rep1>(ivalue));
+}

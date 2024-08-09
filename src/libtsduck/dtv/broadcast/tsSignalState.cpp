@@ -1,56 +1,27 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSignalState.h"
 #include "tsFixedPoint.h"
+#include "tsjsonObject.h"
 
 
 //----------------------------------------------------------------------------
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::SignalState::SignalState() :
-    signal_locked(false),
-    signal_strength(),
-    signal_noise_ratio(),
-    bit_error_rate(),
-    packet_error_rate()
-{
-}
-
 void ts::SignalState::clear()
 {
     signal_locked = false;
-    signal_strength.clear();
-    signal_noise_ratio.clear();
-    bit_error_rate.clear();
-    packet_error_rate.clear();
+    signal_strength.reset();
+    signal_noise_ratio.reset();
+    bit_error_rate.reset();
+    packet_error_rate.reset();
 }
 
 
@@ -58,11 +29,11 @@ void ts::SignalState::clear()
 // Set a percentage value from a raw driver value.
 //----------------------------------------------------------------------------
 
-void ts::SignalState::setPercent(Variable<Value> SignalState::* field, int64_t value, int64_t min, int64_t max)
+void ts::SignalState::setPercent(std::optional<Value> SignalState::* field, int64_t value, int64_t min, int64_t max)
 {
     if (max <= min) {
         // Invalid range.
-        (this->*field).clear();
+        (this->*field).reset();
     }
     else {
         this->*field = Value(((value - min) * 100) / (max - min), Unit::PERCENT);
@@ -80,9 +51,9 @@ ts::UString ts::SignalState::Value::toString() const
         case Unit::COUNTER:
             return UString::Decimal(value);
         case Unit::PERCENT:
-            return UString::Format(u"%d%%", {value});
+            return UString::Format(u"%d%%", value);
         case Unit::MDB:
-            return UString::Format(u"%s dB", {FixedPoint<int64_t, 3>(value, true)});
+            return UString::Format(u"%s dB", FixedPoint<int64_t, 3>(value, true));
         default:
             return UString();
     }
@@ -91,18 +62,18 @@ ts::UString ts::SignalState::Value::toString() const
 ts::UString ts::SignalState::toString() const
 {
     UString str;
-    str.format(u"locked: %s", {UString::YesNo(signal_locked)});
-    if (signal_strength.set()) {
-        str.format(u", strength: %s", {signal_strength.value()});
+    str.format(u"locked: %s", UString::YesNo(signal_locked));
+    if (signal_strength.has_value()) {
+        str.format(u", strength: %s", signal_strength.value());
     }
-    if (signal_noise_ratio.set()) {
-        str.format(u", SNR: %s", {signal_noise_ratio.value()});
+    if (signal_noise_ratio.has_value()) {
+        str.format(u", SNR: %s", signal_noise_ratio.value());
     }
-    if (bit_error_rate.set()) {
-        str.format(u", BER: %s", {bit_error_rate.value()});
+    if (bit_error_rate.has_value()) {
+        str.format(u", BER: %s", bit_error_rate.value());
     }
-    if (packet_error_rate.set()) {
-        str.format(u", PER: %s", {packet_error_rate.value()});
+    if (packet_error_rate.has_value()) {
+        str.format(u", PER: %s", packet_error_rate.value());
     }
     return str;
 }
@@ -115,17 +86,39 @@ ts::UString ts::SignalState::toString() const
 std::ostream& ts::SignalState::display(std::ostream& out, const UString& margin, int level) const
 {
     out << margin << "Signal locked: " << UString::YesNo(signal_locked) << std::endl;
-    if (signal_strength.set()) {
+    if (signal_strength.has_value()) {
         out << margin << "Signal strength: " << signal_strength.value() << std::endl;
     }
-    if (signal_noise_ratio.set()) {
+    if (signal_noise_ratio.has_value()) {
         out << margin << "Signal/noise ratio: " << signal_noise_ratio.value() << std::endl;
     }
-    if (bit_error_rate.set()) {
+    if (bit_error_rate.has_value()) {
         out << margin << "Bit error rate: " << bit_error_rate.value() << std::endl;
     }
-    if (packet_error_rate.set()) {
+    if (packet_error_rate.has_value()) {
         out << margin << "Packet error rate: " << packet_error_rate.value() << std::endl;
     }
     return out;
+}
+
+
+//----------------------------------------------------------------------------
+// Build a JSON description of this object.
+//----------------------------------------------------------------------------
+
+void ts::SignalState::toJSON(json::Object& obj) const
+{
+    obj.add(u"signal-locked", json::Bool(signal_locked));
+    if (signal_strength.has_value()) {
+        obj.add(u"strength", signal_strength.value().toString());
+    }
+    if (signal_noise_ratio.has_value()) {
+        obj.add(u"snr", signal_noise_ratio.value().toString());
+    }
+    if (bit_error_rate.has_value()) {
+        obj.add(u"ber", bit_error_rate.value().toString());
+    }
+    if (packet_error_rate.has_value()) {
+        obj.add(u"per", packet_error_rate.value().toString());
+    }
 }

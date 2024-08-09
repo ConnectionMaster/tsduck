@@ -1,62 +1,15 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsMPEG2VideoAttributes.h"
 #include "tsMemory.h"
 #include "tsMPEG2.h"
-
-
-//----------------------------------------------------------------------------
-// Constructor.
-//----------------------------------------------------------------------------
-
-ts::MPEG2VideoAttributes::MPEG2VideoAttributes() :
-    AbstractAudioVideoAttributes(),
-    _hsize(0),
-    _vsize(0),
-    _ar_code(0),
-    _progressive(false),
-    _interlaced(false),
-    _cf_code(0),
-    _fr_num(0),
-    _fr_div(0),
-    _bitrate(0),
-    _vbv_size(0),
-    _waiting(false),
-    _sh_hsize(0),
-    _sh_vsize(0),
-    _sh_ar_code(0),
-    _sh_fr_code(0),
-    _sh_bitrate(0),
-    _sh_vbv_size(0)
-{
-}
+#include "tsNamesFile.h"
 
 
 //----------------------------------------------------------------------------
@@ -69,7 +22,7 @@ ts::UString ts::MPEG2VideoAttributes::toString() const
         return UString();
     }
 
-    UString desc(UString::Format(u"%dx%d", {_hsize, _vsize}));
+    UString desc(UString::Format(u"%dx%d", _hsize, _vsize));
     if (_progressive) {
         desc += u'p';
     }
@@ -99,11 +52,31 @@ ts::UString ts::MPEG2VideoAttributes::frameRateName() const
         return UString();
     }
     else if ((fr100 = frameRate100()) % 100 == 0) {
-        return UString::Format(u"@%d Hz", {fr100 / 100});
+        return UString::Format(u"@%d Hz", fr100 / 100);
     }
     else {
-        return UString::Format(u"@%d.%02d Hz", {fr100 / 100, fr100 % 100});
+        return UString::Format(u"@%d.%02d Hz", fr100 / 100, fr100 % 100);
     }
+}
+
+
+//----------------------------------------------------------------------------
+// Get display aspect ratio name.
+//----------------------------------------------------------------------------
+
+ts::UString ts::MPEG2VideoAttributes::aspectRatioName() const
+{
+    return _is_valid ? NameFromDTV(u"mpeg2.aspect_ratio", _ar_code) : UString();
+}
+
+
+//----------------------------------------------------------------------------
+// Get chroma format name.
+//----------------------------------------------------------------------------
+
+ts::UString ts::MPEG2VideoAttributes::chromaFormatName() const
+{
+    return _is_valid ? NameFromDTV(u"mpeg2.chroma_format", _cf_code) : UString();
 }
 
 
@@ -171,7 +144,7 @@ size_t ts::MPEG2VideoAttributes::FRDiv(uint8_t code)
 
 bool ts::MPEG2VideoAttributes::moreBinaryData(const uint8_t* udata, size_t size)
 {
-    const uint8_t* data = reinterpret_cast <const uint8_t*> (udata);
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(udata);
 
     // Check start code
     if (size < 4 || data[0] != 0 || data[1] != 0 || data[2] != 1) {

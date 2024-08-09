@@ -1,38 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard (PES mode by lars18th)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard (PES mode by lars18th)
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPacketEncapsulation.h"
 #include "tsMemory.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-const size_t ts::PacketEncapsulation::DEFAULT_MAX_BUFFERED_PACKETS;
-#endif
 
 
 //----------------------------------------------------------------------------
@@ -40,27 +15,9 @@ const size_t ts::PacketEncapsulation::DEFAULT_MAX_BUFFERED_PACKETS;
 //----------------------------------------------------------------------------
 
 ts::PacketEncapsulation::PacketEncapsulation(PID pidOutput, const PIDSet& pidInput, PID pcrReference) :
-    _packing(false),
-    _packDistance(NPOS),
-    _pesMode(DISABLED),
-    _pesOffset(0),
     _pidOutput(pidOutput),
     _pidInput(pidInput),
-    _pcrReference(pcrReference),
-    _lastError(),
-    _currentPacket(0),
-    _pcrLastPacket(INVALID_PACKET_COUNTER),
-    _pcrLastValue(INVALID_PCR),
-    _ptsPrevious(INVALID_PCR),
-    _bitrate(0),
-    _insertPCR(false),
-    _ccOutput(0),
-    _ccPES(1),
-    _lastCC(),
-    _lateDistance(0),
-    _lateMaxPackets(DEFAULT_MAX_BUFFERED_PACKETS),
-    _lateIndex(0),
-    _latePackets()
+    _pcrReference(pcrReference)
 {
 }
 
@@ -205,10 +162,8 @@ bool ts::PacketEncapsulation::processPacket(TSPacket& pkt)
         // If previous PCR is known, compute bitrate. Ignore PCR value wrap-up.
         if (_pcrLastValue != INVALID_PCR && _pcrLastValue < pcr) {
             assert(_pcrLastPacket < _currentPacket);
-            // Duration in milliseconds since last PCR.
-            const MilliSecond ms = ((pcr - _pcrLastValue) * MilliSecPerSec) / SYSTEM_CLOCK_FREQ;
             // Compute TS bitrate since last PCR.
-            _bitrate = PacketBitRate(_currentPacket - _pcrLastPacket, ms);
+            _bitrate = PacketBitRate(_currentPacket - _pcrLastPacket, PCR(pcr - _pcrLastValue));
             // Insert PCR in output PID asap after a PCR on reference PID when the bitrate is known.
             _insertPCR = true;
         }
@@ -219,7 +174,7 @@ bool ts::PacketEncapsulation::processPacket(TSPacket& pkt)
 
     // Detect PID conflicts (when the output PID is present on input but not encapsulated).
     if (pid == _pidOutput && !_pidInput.test(pid)) {
-        _lastError.format(u"PID conflict, output PID 0x%X (%d) is present but not encapsulated", {pid, pid});
+        _lastError.format(u"PID conflict, output PID %n is present but not encapsulated", pid);
         status = false;
     }
 
@@ -243,7 +198,7 @@ bool ts::PacketEncapsulation::processPacket(TSPacket& pkt)
         }
         else {
             // Enqueue the packet.
-            _latePackets.push_back(new TSPacket(pkt));
+            _latePackets.push_back(std::make_shared<TSPacket>(pkt));
             // If this is the first packet in the queue, point to the first byte after 0x47.
             if (_latePackets.size() == 1) {
                 _lateIndex = 1;
@@ -432,9 +387,8 @@ bool ts::PacketEncapsulation::processPacket(TSPacket& pkt)
                     pkt.b[pes_pointer-1+13] = uint8_t(PKT_SIZE - pes_pointer - 13); // AU cell data length
 
                     // Calculate the PTS based on PCR + Offset (positive/negative) without wrapping up.
-                    uint64_t pts = (_pcrLastValue + getPCRDistance()) / 300;
-                    if (pts != 0 && _pcrLastValue != INVALID_PCR && _pcrLastValue != 0 &&
-                         getPCRDistance() != 0 && (_pesOffset + pts) > 0) {
+                    uint64_t pts = (_pcrLastValue + getPCRDistance()) / SYSTEM_CLOCK_SUBFACTOR;
+                    if (pts != 0 && _pcrLastValue != INVALID_PCR && _pcrLastValue != 0 && getPCRDistance() != 0 && (_pesOffset + pts) > 0) {
                         pts += _pesOffset;
                     }
                     else {
@@ -504,13 +458,13 @@ bool ts::PacketEncapsulation::processPacket(TSPacket& pkt)
 void ts::PacketEncapsulation::fillPacket(ts::TSPacket& pkt, size_t& pktIndex)
 {
     assert(!_latePackets.empty());
-    assert(!_latePackets.front().isNull());
+    assert(_latePackets.front() != nullptr);
     assert(_lateIndex < PKT_SIZE);
     assert(pktIndex < PKT_SIZE);
 
     // Copy part of output payload from the first queued packet.
     const size_t size = std::min(PKT_SIZE - pktIndex, PKT_SIZE - _lateIndex);
-    ::memcpy(pkt.b + pktIndex, _latePackets.front()->b + _lateIndex, size);
+    MemCopy(pkt.b + pktIndex, _latePackets.front()->b + _lateIndex, size);
     pktIndex += size;
     _lateIndex += size;
 

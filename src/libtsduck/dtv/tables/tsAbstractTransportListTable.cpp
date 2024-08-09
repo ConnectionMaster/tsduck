@@ -1,36 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsAbstractTransportListTable.h"
 #include "tsBinaryTable.h"
 #include "tsSection.h"
-#include "tsTablesDisplay.h"
 #include "tsPSIBuffer.h"
 
 
@@ -66,15 +44,13 @@ ts::AbstractTransportListTable::AbstractTransportListTable(DuckContext& duck,
                                                            const BinaryTable& table) :
     AbstractLongTable(tid, xml_name, standards, 0, true),
     descs(this),
-    transports(this),
-    _tid_ext(0xFFFF)
+    transports(this)
 {
     deserialize(duck, table);
 }
 
 ts::AbstractTransportListTable::Transport::Transport(const AbstractTable* table) :
-    EntryWithDescriptors(table),
-    preferred_section(-1)
+    EntryWithDescriptors(table)
 {
 }
 
@@ -107,8 +83,8 @@ void ts::AbstractTransportListTable::clearContent()
 
 void ts::AbstractTransportListTable::clearPreferredSections()
 {
-    for (auto it = transports.begin(); it != transports.end(); ++it) {
-        it->second.preferred_section = -1;
+    for (auto& it : transports) {
+        it.second.preferred_section = -1;
     }
 }
 
@@ -126,7 +102,7 @@ void ts::AbstractTransportListTable::deserializePayload(PSIBuffer& buf, const Se
     buf.getDescriptorListWithLength(descs);
 
     // Transport stream loop.
-    buf.skipBits(4);
+    buf.skipReservedBits(4);
     buf.pushReadSizeFromLength(12); // transport_stream_loop_length
     while (buf.canRead()) {
         const uint16_t tsid = buf.getUInt16();
@@ -178,9 +154,9 @@ void ts::AbstractTransportListTable::addSection(BinaryTable& table, PSIBuffer& p
 bool ts::AbstractTransportListTable::getNextTransport(TransportStreamIdSet& ts_set, TransportStreamId& ts_id, int section_number) const
 {
     // Search one TS which should be serialized in current section
-    for (auto it = ts_set.begin(); it != ts_set.end(); ++it) {
-        if (transports[*it].preferred_section == section_number) {
-            ts_id = *it;
+    for (const auto& it : ts_set) {
+        if (transports[it].preferred_section == section_number) {
+            ts_id = it;
             ts_set.erase(it);
             return true;
         }
@@ -188,9 +164,9 @@ bool ts::AbstractTransportListTable::getNextTransport(TransportStreamIdSet& ts_s
 
     // No transport for this section.
     // Search one TS without section hint or with a previous section hint.
-    for (auto it = ts_set.begin(); it != ts_set.end(); ++it) {
-        if (transports[*it].preferred_section < section_number) { // including preferred_section == -1
-            ts_id = *it;
+    for (const auto& it : ts_set) {
+        if (transports[it].preferred_section < section_number) { // including preferred_section == -1
+            ts_id = it;
             ts_set.erase(it);
             return true;
         }

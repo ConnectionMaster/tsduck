@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,6 +14,19 @@
 #include "tsLogicalChannelNumbers.h"
 #include "tsCADescriptor.h"
 #include "tsISDBAccessControlDescriptor.h"
+#include "tsCAT.h"
+#include "tsSDT.h"
+#include "tsBAT.h"
+#include "tsRST.h"
+#include "tsTDT.h"
+#include "tsTOT.h"
+#include "tsTSDT.h"
+#include "tsMGT.h"
+#include "tsCVCT.h"
+#include "tsTVCT.h"
+#include "tsRRT.h"
+#include "tsSTT.h"
+#include "tsSAT.h"
 
 
 //----------------------------------------------------------------------------
@@ -51,25 +43,11 @@ ts::SignalizationDemux::SignalizationDemux(DuckContext& duck) :
 ts::SignalizationDemux::SignalizationDemux(DuckContext& duck, SignalizationHandlerInterface* handler, std::initializer_list<TID> tids) :
     _duck(duck),
     _demux(duck, this, this),
-    _handler(handler),
-    _full_filters(false),
-    _filtered_tids(),
-    _filtered_srv_ids(),
-    _filtered_srv_names(),
-    _last_pat(),
-    _last_pat_handled(false),
-    _last_nit(),
-    _last_nit_handled(false),
-    _ts_id(0xFFFF),
-    _orig_network_id(0xFFFF),
-    _network_id(0xFFFF),
-    _last_utc(),
-    _pids(),
-    _services()
+    _handler(handler)
 {
     _last_pat.invalidate();
-    for (auto it = tids.begin(); it != tids.end(); ++it) {
-        addFilteredTableId(*it);
+    for (const auto& it : tids) {
+        addFilteredTableId(it);
     }
 }
 
@@ -80,13 +58,6 @@ ts::SignalizationDemux::SignalizationDemux(DuckContext& duck, SignalizationHandl
 
 void ts::SignalizationDemux::reset()
 {
-    // Notify that all services disappear.
-    if (!_services.empty() && _handler != nullptr) {
-        for (auto it = _services.begin(); it != _services.end(); ) {
-            _handler->handleService(_ts_id, it->second->service, it->second->pmt, true);
-        }
-    }
-
     _demux.reset();
     _demux.setPIDFilter(NoPID);
     _filtered_tids.clear();
@@ -133,6 +104,9 @@ void ts::SignalizationDemux::feedPacket(const TSPacket& pkt)
         }
     }
     ctx->packets++;
+    if (pkt.getScrambling() != SC_CLEAR) {
+        ctx->scrambled = true;
+    }
 
     // Feed to table demux to collect signalization.
     _demux.feedPacket(pkt);
@@ -146,9 +120,9 @@ void ts::SignalizationDemux::feedPacket(const TSPacket& pkt)
 void ts::SignalizationDemux::getPIDs(PIDSet& pids) const
 {
     pids.reset();
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        if (it->second->packets > 0) {
-            pids.set(it->first);
+    for (const auto& it : _pids) {
+        if (it.second->packets > 0) {
+            pids.set(it.first);
         }
     }
 }
@@ -178,6 +152,12 @@ uint8_t ts::SignalizationDemux::streamType(PID pid, uint8_t deftype) const
     auto ctx = _pids.find(pid);
     const uint8_t type = ctx == _pids.end() ? uint8_t(ST_NULL) : ctx->second->stream_type;
     return type == ST_NULL ? deftype : type;
+}
+
+bool ts::SignalizationDemux::isScrambled(PID pid) const
+{
+    auto ctx = _pids.find(pid);
+    return ctx != _pids.end() && ctx->second->scrambled;
 }
 
 ts::PacketCounter ts::SignalizationDemux::packetCount(PID pid) const
@@ -238,8 +218,8 @@ bool ts::SignalizationDemux::inAnyService(PID pid, std::set<uint16_t> service_id
 {
     auto ctx = _pids.find(pid);
     if (ctx != _pids.end()) {
-        for (auto it = service_ids.begin(); it != service_ids.end(); ++it) {
-            if (Contains(ctx->second->services, *it)) {
+        for (auto it : service_ids) {
+            if (Contains(ctx->second->services, it)) {
                 return true;
             }
         }
@@ -272,16 +252,16 @@ void ts::SignalizationDemux::getServiceIds(PID pid, std::set<uint16_t> services)
 void ts::SignalizationDemux::getServiceIds(std::set<uint16_t>& services) const
 {
     services.clear();
-    for (auto it = _services.begin(); it != _services.end(); ++it) {
-        services.insert(it->first);
+    for (const auto& it : _services) {
+        services.insert(it.first);
     }
 }
 
 void ts::SignalizationDemux::getServices(ServiceList& services) const
 {
     services.clear();
-    for (auto it = _services.begin(); it != _services.end(); ++it) {
-        services.push_back(it->second->service);
+    for (const auto& it : _services) {
+        services.push_back(it.second->service);
     }
 }
 
@@ -302,8 +282,8 @@ void ts::SignalizationDemux::addFullFilters()
 
 void ts::SignalizationDemux::addFilteredTableIds(std::initializer_list<TID> tids)
 {
-    for (auto it = tids.begin(); it != tids.end(); ++it) {
-        addFilteredTableId(*it);
+    for (auto it : tids) {
+        addFilteredTableId(it);
     }
 }
 
@@ -334,8 +314,8 @@ bool ts::SignalizationDemux::addFilteredTableId(TID tid)
             _demux.addPID(PID_PAT);
             // If a PAT is known, add all PMT PID's.
             if (_last_pat.isValid()) {
-                for (auto it = _last_pat.pmts.begin(); it != _last_pat.pmts.end(); ++it) {
-                    _demux.addPID(it->second);
+                for (const auto& it : _last_pat.pmts) {
+                    _demux.addPID(it.second);
                 }
             }
             break;
@@ -377,6 +357,10 @@ bool ts::SignalizationDemux::addFilteredTableId(TID tid)
             _demux.addPID(PID_PSIP);
             break;
         }
+        case TID_SAT: {
+            _demux.addPID(PID_SAT);
+            break;
+        }
         default: {
             // Unsupported table id.
             return false;
@@ -395,8 +379,8 @@ bool ts::SignalizationDemux::addFilteredTableId(TID tid)
 
 void ts::SignalizationDemux::removeFilteredTableIds(std::initializer_list<TID> tids)
 {
-    for (auto it = tids.begin(); it != tids.end(); ++it) {
-        removeFilteredTableId(*it);
+    for (auto it : tids) {
+        removeFilteredTableId(it);
     }
 }
 
@@ -431,9 +415,9 @@ bool ts::SignalizationDemux::removeFilteredTableId(TID tid)
         case TID_PMT: {
             // If a PAT is known, remove all PMT PID's which are not specifically monitored by service id.
             if (_last_pat.isValid()) {
-                for (auto it = _last_pat.pmts.begin(); it != _last_pat.pmts.end(); ++it) {
-                    if (!isFilteredServiceId(it->first)) {
-                        _demux.removePID(it->second);
+                for (const auto& it : _last_pat.pmts) {
+                    if (!isFilteredServiceId(it.first)) {
+                        _demux.removePID(it.second);
                     }
                 }
             }
@@ -481,6 +465,10 @@ bool ts::SignalizationDemux::removeFilteredTableId(TID tid)
             if (!isFilteredTableId(TID_MGT) && !isFilteredTableId(TID_CVCT) && !isFilteredTableId(TID_TVCT) && !isFilteredTableId(TID_RRT) && !isFilteredTableId(TID_STT)) {
                 _demux.removePID(PID_PSIP);
             }
+            break;
+        }
+        case TID_SAT: {
+            _demux.removePID(PID_SAT);
             break;
         }
         default: {
@@ -557,17 +545,17 @@ void ts::SignalizationDemux::addFilteredService(const UString& name)
     }
     else {
         // Add a service by name. Check if already in the list of filtered names.
-        for (auto it = _filtered_srv_names.begin(); it != _filtered_srv_names.end(); ++it) {
-            if (it->similar(name)) {
+        for (const auto& it : _filtered_srv_names) {
+            if (it.similar(name)) {
                 return;
             }
         }
         // Add in the list of filtered names.
         _filtered_srv_names.insert(name);
         // Then, if the service id is known, filter its service ids.
-        for (auto it = _services.begin(); it != _services.end(); ++it) {
-            if (it->second->service.match(name)) {
-                addFilteredServiceId(it->first);
+        for (const auto& it : _services) {
+            if (it.second->service.match(name)) {
+                addFilteredServiceId(it.first);
             }
         }
     }
@@ -596,9 +584,9 @@ void ts::SignalizationDemux::removeFilteredService(const UString& name)
             }
         }
         // Then, if the service id is known, remove its service ids.
-        for (auto it = _services.begin(); it != _services.end(); ++it) {
-            if (it->second->service.match(name)) {
-                removeFilteredServiceId(it->first);
+        for (const auto& it : _services) {
+            if (it.second->service.match(name)) {
+                removeFilteredServiceId(it.first);
             }
         }
     }
@@ -618,8 +606,8 @@ bool ts::SignalizationDemux::isFilteredServiceName(const UString& name) const
     }
     else {
         // Find similar names.
-        for (auto it = _filtered_srv_names.begin(); it != _filtered_srv_names.end(); ++it) {
-            if (it->similar(name)) {
+        for (const auto& it : _filtered_srv_names) {
+            if (it.similar(name)) {
                 return true;
             }
         }
@@ -637,8 +625,8 @@ void ts::SignalizationDemux::removeAllFilteredServices()
     // If a PAT is known, remove all PMT PID's.
     // If all PMT's are still monitored, don't change anything.
     if (_last_pat.isValid() && !isFilteredTableId(TID_PMT)) {
-        for (auto it = _last_pat.pmts.begin(); it != _last_pat.pmts.end(); ++it) {
-            _demux.removePID(it->second);
+        for (const auto& it : _last_pat.pmts) {
+            _demux.removePID(it.second);
         }
     }
 
@@ -654,7 +642,7 @@ void ts::SignalizationDemux::removeAllFilteredServices()
 
 void ts::SignalizationDemux::handleTable(SectionDemux&, const BinaryTable& table)
 {
-    _duck.report().debug(u"signalization demux got table id 0x%X (%<d)", {table.tableId()});
+    _duck.report().debug(u"signalization demux got table id %n", table.tableId());
 
     const PID pid = table.sourcePID();
     const TID tid = table.tableId();
@@ -772,6 +760,13 @@ void ts::SignalizationDemux::handleTable(SectionDemux&, const BinaryTable& table
             }
             break;
         }
+        case TID_SAT: {
+            const SAT sat(_duck, table);
+            if (sat.isValid() && pid == PID_SAT) {
+                handleSAT(sat, pid);
+            }
+            break;
+        }
         default: {
             // Unsupported table id or processed elsewhere (STT).
             break;
@@ -815,11 +810,11 @@ void ts::SignalizationDemux::handlePAT(const PAT& pat, PID pid)
     // If a previous PAT was there, remove unused PMT PID's.
     if (_last_pat.isValid() && (all_pmts || !_filtered_srv_ids.empty())) {
         // Loop on all previous services
-        for (auto old_it = _last_pat.pmts.begin(); old_it != _last_pat.pmts.end(); ++old_it) {
+        for (const auto& old_it : _last_pat.pmts) {
             // If the service no longer exists or has changed its PMT PID, remove the previous PMT PID. from the demux.
-            const auto new_it = pat.pmts.find(old_it->first);
-            if (new_it == pat.pmts.end() || new_it->second != old_it->second) {
-                _demux.removePID(old_it->second);
+            const auto new_it = pat.pmts.find(old_it.first);
+            if (new_it == pat.pmts.end() || new_it->second != old_it.second) {
+                _demux.removePID(old_it.second);
             }
         }
     }
@@ -829,15 +824,22 @@ void ts::SignalizationDemux::handlePAT(const PAT& pat, PID pid)
     _last_pat_handled = false;
     _ts_id = pat.ts_id;
 
+    // Notify the PAT to the application.
+    if (_handler != nullptr && isFilteredTableId(TID_PAT)) {
+        _last_pat_handled = true;
+        _handler->handlePAT(pat, pid);
+    }
+
     // Add or update services.
-    for (auto pat_it = pat.pmts.begin(); pat_it != pat.pmts.end(); ++pat_it) {
+    for (const auto& pat_it : pat.pmts) {
         // Monitor new PMT PID's. Some of them may be already monitored.
-        if (all_pmts || isFilteredServiceId(pat_it->first)) {
-            _demux.addPID(pat_it->second);
+        if (all_pmts || isFilteredServiceId(pat_it.first)) {
+            _demux.addPID(pat_it.second);
         }
         // Update the service PMT PID.
-        auto srv = getServiceContext(pat_it->first, CreateService::ALWAYS);
-        srv->service.setPMTPID(pat_it->second);
+        auto srv = getServiceContext(pat_it.first, CreateService::ALWAYS);
+        srv->service.setPMTPID(pat_it.second);
+        srv->service.setTSId(pat.ts_id);
         // Notify application if the service was just created or its PMT changed.
         if (_handler != nullptr && srv->service.isModified()) {
             _handler->handleService(_ts_id, srv->service, srv->pmt, false);
@@ -866,12 +868,6 @@ void ts::SignalizationDemux::handlePAT(const PAT& pat, PID pid)
         }
     }
 
-    // Notify the PAT to the application.
-    if (_handler != nullptr && isFilteredTableId(TID_PAT)) {
-        _last_pat_handled = true;
-        _handler->handlePAT(pat, pid);
-    }
-
     // Reprocess the last NIT in case of PAT change (TS id may have changed).
     if (_last_nit.isValid() && !_last_nit_handled) {
         handleNIT(_last_nit, nitPID());
@@ -885,13 +881,13 @@ void ts::SignalizationDemux::handlePAT(const PAT& pat, PID pid)
 
 void ts::SignalizationDemux::handleCAT(const CAT& cat, PID pid)
 {
-    // Look for EMM PID's in the CAT.
-    handleDescriptors(cat.descs, pid);
-
     // Notify the CAT to the application.
     if (_handler != nullptr && isFilteredTableId(TID_CAT)) {
         _handler->handleCAT(cat, pid);
     }
+
+    // Look for EMM PID's in the CAT.
+    handleDescriptors(cat.descs, pid);
 }
 
 
@@ -905,7 +901,7 @@ void ts::SignalizationDemux::handlePMT(const PMT& pmt, PID pid)
     // on its PID because we found that PID in the PAT. At that time, all
     // services from the PAT were registered in _services.
     auto srv(getServiceContext(pmt.service_id, CreateService::NEVER));
-    if (srv.isNull()) {
+    if (srv == nullptr) {
         return;
     }
 
@@ -914,8 +910,8 @@ void ts::SignalizationDemux::handlePMT(const PMT& pmt, PID pid)
     srv->service.setPMTPID(pid);
 
     // In case of PMT update for an existing service, remove all previous PID's for this service.
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        it->second->services.erase(pmt.service_id);
+    for (const auto& it : _pids) {
+        it.second->services.erase(pmt.service_id);
     }
 
     // Register the PMT PID as PSI.
@@ -923,26 +919,26 @@ void ts::SignalizationDemux::handlePMT(const PMT& pmt, PID pid)
     ctx->pid_class = PIDClass::PSI;
     ctx->services.insert(pmt.service_id);
 
+    // Notify the PMT to the application.
+    if (_handler != nullptr && (isFilteredTableId(TID_PMT) || isFilteredServiceId(pmt.service_id))) {
+        _handler->handlePMT(pmt, pid);
+    }
+
     // Look for ECM PID's at service level.
     handleDescriptors(pmt.descs, pid);
 
     // Loop on all components.
-    for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
+    for (const auto& it : pmt.streams) {
 
         // Register the characteritics of the component PID.
-        ctx = getPIDContext(it->first);
-        ctx->pid_class = it->second.getClass(_duck);
-        ctx->stream_type = it->second.stream_type;
-        ctx->codec = it->second.getCodec(_duck);
+        ctx = getPIDContext(it.first);
+        ctx->pid_class = it.second.getClass(_duck);
+        ctx->stream_type = it.second.stream_type;
+        ctx->codec = it.second.getCodec(_duck);
         ctx->services.insert(pmt.service_id);
 
         // Look for ECM PID's at component level.
         handleDescriptors(pmt.descs, pid);
-    }
-
-    // Notify the PMT to the application.
-    if (_handler != nullptr && (isFilteredTableId(TID_PMT) || isFilteredServiceId(pmt.service_id))) {
-        _handler->handlePMT(pmt, pid);
     }
 
     // A PMT change always means that something has changed in the service.
@@ -973,34 +969,33 @@ void ts::SignalizationDemux::handleNIT(const NIT& nit, PID pid)
         if (!_last_pat.isValid()) {
             return;
         }
-
-        // Collect all logical channel numbers from the NIT for the TS id.
-        LogicalChannelNumbers lcn(_duck);
-        lcn.addFromNIT(nit, _ts_id);
-
-        // Get LCN's mapping to services.
-        std::map<uint16_t, ServiceIdTriplet> lcn_to_service;
-        lcn.getLCNs(lcn_to_service, _ts_id);
-
-        // Update LCN's in our services.
-        for (auto lcn_it = lcn_to_service.begin(); lcn_it != lcn_to_service.end(); ++lcn_it) {
-            // Find existing services only (the PAT is known).
-            const auto srv(getServiceContext(lcn_it->second.service_id, CreateService::NEVER));
-            if (!srv.isNull()) {
-                srv->service.setLCN(lcn_it->first);
-                // If this is a new LCN, notify the application of a service updated.
-                if (_handler != nullptr && srv->service.isModified()) {
-                    _handler->handleService(_ts_id, srv->service, srv->pmt, false);
-                    srv->service.clearModified();
-                }
-            }
-        }
     }
 
     // Notify the NIT to the application.
     if (_handler != nullptr && isFilteredTableId(nit.tableId())) {
         _last_nit_handled = _last_nit_handled || nit.isActual();
         _handler->handleNIT(nit, pid);
+    }
+
+    // Process modifications on services from the NIT.
+    if (nit.isActual()) {
+        // Collect all logical channel numbers from the NIT for the TS id.
+        LogicalChannelNumbers lcn(_duck);
+        lcn.addFromNIT(nit, _ts_id);
+
+        // Update LCN's in our services.
+        ServiceContextMapView services_view(_services, _ts_id, _orig_network_id);
+        lcn.updateServices(services_view, Replacement::UPDATE);
+
+        // Check which services were modified and notify application.
+        if (_handler != nullptr) {
+            for (auto& srv : _services) {
+                if (srv.second->service.isModified()) {
+                    _handler->handleService(_ts_id, srv.second->service, srv.second->pmt, false);
+                    srv.second->service.clearModified();
+                }
+            }
+        }
     }
 }
 
@@ -1011,6 +1006,11 @@ void ts::SignalizationDemux::handleNIT(const NIT& nit, PID pid)
 
 void ts::SignalizationDemux::handleSDT(const SDT& sdt, PID pid)
 {
+    // Notify the SDT to the application.
+    if (_handler != nullptr && isFilteredTableId(sdt.tableId())) {
+        _handler->handleSDT(sdt, pid);
+    }
+
     // Extract information on this TS only on the SDT Actual.
     if (sdt.isActual()) {
 
@@ -1019,12 +1019,12 @@ void ts::SignalizationDemux::handleSDT(const SDT& sdt, PID pid)
         _orig_network_id = sdt.onetw_id;
 
         // Collect service information. Loop on all services in the SDT.
-        for (auto sdt_it = sdt.services.begin(); sdt_it != sdt.services.end(); ++sdt_it) {
+        for (const auto& sdt_it : sdt.services) {
             // Find existing services (the PAT is known) or may exist (the PAT is not yet known).
             // When the PAT is received later and the service does not exist, it will be removed.
-            const auto srv(getServiceContext(sdt_it->first, CreateService::IF_MAY_EXIST));
-            if (!srv.isNull()) {
-                sdt_it->second.updateService(_duck, srv->service);
+            const auto srv(getServiceContext(sdt_it.first, CreateService::IF_MAY_EXIST));
+            if (srv != nullptr) {
+                sdt_it.second.updateService(_duck, srv->service);
                 // If the service description changed, notify the application.
                 if (_handler != nullptr && srv->service.isModified()) {
                     _handler->handleService(_ts_id, srv->service, srv->pmt, false);
@@ -1032,11 +1032,6 @@ void ts::SignalizationDemux::handleSDT(const SDT& sdt, PID pid)
                 }
             }
         }
-    }
-
-    // Notify the SDT to the application.
-    if (_handler != nullptr && isFilteredTableId(sdt.tableId())) {
-        _handler->handleSDT(sdt, pid);
     }
 }
 
@@ -1047,14 +1042,14 @@ void ts::SignalizationDemux::handleSDT(const SDT& sdt, PID pid)
 
 void ts::SignalizationDemux::handleMGT(const MGT& mgt, PID pid)
 {
-    // Locate all additional ATSC signalization PID's.
-    for (auto it = mgt.tables.begin(); it != mgt.tables.end(); ++it) {
-        getPIDContext(it->second.table_type_PID)->pid_class = PIDClass::PSI;
-    }
-
     // Notify the MGT to the application.
     if (_handler != nullptr && isFilteredTableId(TID_MGT)) {
         _handler->handleMGT(mgt, pid);
+    }
+
+    // Locate all additional ATSC signalization PID's.
+    for (const auto& it : mgt.tables) {
+        getPIDContext(it.second.table_type_PID)->pid_class = PIDClass::PSI;
     }
 }
 
@@ -1066,13 +1061,19 @@ void ts::SignalizationDemux::handleMGT(const MGT& mgt, PID pid)
 template <class XVCT, typename std::enable_if<std::is_base_of<ts::VCT, XVCT>::value, int>::type>
 void ts::SignalizationDemux::handleVCT(const XVCT& vct, PID pid, void (SignalizationHandlerInterface::*handle)(const XVCT&, PID))
 {
+    // Call specific and generic form of VCT handler.
+    if (_handler != nullptr && isFilteredTableId(vct.tableId())) {
+        (_handler->*handle)(vct, pid);
+        _handler->handleVCT(vct, pid);
+    }
+
     // Collect service information. Loop on all services in the VCT.
-    for (auto vct_it = vct.channels.begin(); vct_it != vct.channels.end(); ++vct_it) {
+    for (const auto& vct_it : vct.channels) {
         // Find existing services (the PAT is known) or may exist (the PAT is not yet known).
         // When the PAT is received later and the service does not exist, it will be removed.
-        const auto srv(getServiceContext(vct_it->second.program_number, CreateService::IF_MAY_EXIST));
-        if (!srv.isNull()) {
-            vct_it->second.updateService(srv->service);
+        const auto srv(getServiceContext(vct_it.second.program_number, CreateService::IF_MAY_EXIST));
+        if (srv != nullptr) {
+            vct_it.second.updateService(srv->service);
             // If the service description changed, notify the application.
             if (_handler != nullptr && srv->service.isModified()) {
                 _handler->handleService(_ts_id, srv->service, srv->pmt, false);
@@ -1080,11 +1081,18 @@ void ts::SignalizationDemux::handleVCT(const XVCT& vct, PID pid, void (Signaliza
             }
         }
     }
+}
 
-    // Call specific and generic form of VCT handler.
-    if (_handler != nullptr && isFilteredTableId(vct.tableId())) {
-        (_handler->*handle)(vct, pid);
-        _handler->handleVCT(vct, pid);
+
+//----------------------------------------------------------------------------
+// Process a SAT.
+//----------------------------------------------------------------------------
+
+void ts::SignalizationDemux::handleSAT(const SAT& sat, PID pid)
+{
+    // Notify the SAT to the application.
+    if (_handler != nullptr && isFilteredTableId(TID_SAT)) {
+        _handler->handleSAT(sat, pid);
     }
 }
 
@@ -1098,7 +1106,7 @@ void ts::SignalizationDemux::handleDescriptors(const DescriptorList& dlist, PID 
     // Loop on all descriptors
     for (size_t index = 0; index < dlist.size(); ++index) {
         const DescriptorPtr& ptr(dlist[index]);
-        if (!ptr.isNull() && ptr->isValid()) {
+        if (ptr != nullptr && ptr->isValid()) {
             const DID did = ptr->tag();
 
             // Extract descriptor-dependent information.
@@ -1127,24 +1135,12 @@ void ts::SignalizationDemux::handleDescriptors(const DescriptorList& dlist, PID 
 ts::SignalizationDemux::PIDContextPtr ts::SignalizationDemux::getPIDContext(PID pid)
 {
     auto it = _pids.find(pid);
-    return it != _pids.end() ? it->second : (_pids[pid] = PIDContextPtr(new PIDContext(pid)));
+    return it != _pids.end() ? it->second : (_pids[pid] = std::make_shared<PIDContext>(pid));
 }
 
 // Constructor.
 ts::SignalizationDemux::PIDContext::PIDContext(PID pid_) :
-    pid(pid_),
-    pid_class(PIDClass::UNDEFINED),
-    codec(CodecType::UNDEFINED),
-    stream_type(ST_NULL),
-    cas_id(CASID_NULL),
-    packets(0),
-    pusi_count(0),
-    first_pusi(INVALID_PACKET_COUNTER),
-    last_pusi(INVALID_PACKET_COUNTER),
-    intra_count(0),
-    first_intra(INVALID_PACKET_COUNTER),
-    last_intra(INVALID_PACKET_COUNTER),
-    services()
+    pid(pid_)
 {
     if (pid == PID_NULL) {
         pid_class = PIDClass::STUFFING;
@@ -1188,7 +1184,7 @@ ts::SignalizationDemux::ServiceContextPtr ts::SignalizationDemux::getServiceCont
              (create == CreateService::IF_MAY_EXIST && !_last_pat.isValid()) ||
              (create == CreateService::IF_MAY_EXIST && _last_pat.isValid() && Contains(_last_pat.pmts, service_id)))
     {
-        return _services[service_id] = ServiceContextPtr(new ServiceContext(service_id));
+        return _services[service_id] = std::make_shared<ServiceContext>(service_id);
     }
     else {
         return ServiceContextPtr();
@@ -1196,10 +1192,20 @@ ts::SignalizationDemux::ServiceContextPtr ts::SignalizationDemux::getServiceCont
 }
 
 // Constructor.
-ts::SignalizationDemux::ServiceContext::ServiceContext(uint16_t service_id) :
-    service(),
-    pmt()
+ts::SignalizationDemux::ServiceContext::ServiceContext(uint16_t service_id)
 {
     service.setId(service_id); // must no be set in constructor, must set "modified"
     pmt.invalidate();
+}
+
+// A view of ServiceContextMap which iterates over Service fields.
+// Add a service only if it comes from the same TS.
+void ts::SignalizationDemux::ServiceContextMapView::push_back(const Service& srv)
+{
+    if (_tsid != 0xFFFF && (!srv.hasTSId() || srv.hasTSId(_tsid)) && (_onid == 0xFFFF || !srv.hasONId() || srv.hasONId(_onid))) {
+        if (_svmap[srv.getId()] == nullptr) {
+            _svmap[srv.getId()] = std::make_shared<ServiceContext>(srv.getId());
+        }
+        _svmap[srv.getId()]->service = srv;
+    }
 }

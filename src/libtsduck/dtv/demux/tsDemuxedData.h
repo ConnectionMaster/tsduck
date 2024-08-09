@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -152,16 +131,7 @@ namespace ts {
         //! @return True if the two packets are identical. False otherwise.
         //!
         bool operator==(const DemuxedData& other) const;
-
-#if defined(TS_NEED_UNEQUAL_OPERATOR)
-        //!
-        //! Unequality operator.
-        //! The source PID's are ignored, only the packet contents are compared.
-        //! @param [in] other Other packet to compare.
-        //! @return True if the two packets are different. False otherwise.
-        //!
-        bool operator!=(const DemuxedData& other) const { return !operator==(other); }
-#endif
+        TS_UNEQUAL_OPERATOR(DemuxedData)
 
         //!
         //! Get the source PID.
@@ -210,10 +180,17 @@ namespace ts {
         virtual const uint8_t* content() const;
 
         //!
-        //! Size of the binary content of the data.
-        //! @return Size of the binary content of the data.
+        //! Size of the logical binary content of the data.
+        //! For subclasses of DemuxedData, this is the logical size of the data structure inside the DemuxedData blob.
+        //! @return Size of the logical binary content of the data.
         //!
         virtual size_t size() const;
+
+        //!
+        //! Size of the complete binary raw data containing the logical structure.
+        //! @return Size of the complete binary raw data.
+        //!
+        size_t rawDataSize() const;
 
         //!
         //! Check if the start of the data matches a given pattern.
@@ -228,7 +205,7 @@ namespace ts {
         //! Read/write access to the full binary content of the data for subclasses.
         //! @return Address of the full binary content of the data.
         //!
-        uint8_t* rwContent() { return _data.isNull() ? nullptr : _data->data(); }
+        uint8_t* rwContent() { return _data == nullptr ? nullptr : _data->data(); }
 
         //!
         //! Resize the full binary content of the data for subclasses.
@@ -245,10 +222,10 @@ namespace ts {
 
     private:
         // Private fields
-        PID           _source_pid;   // Source PID (informational)
-        PacketCounter _first_pkt;    // Index of first packet in stream
-        PacketCounter _last_pkt;     // Index of last packet in stream
-        ByteBlockPtr  _data;         // Full binary content of the packet
+        PID           _source_pid = PID_NULL;  // Source PID (informational)
+        PacketCounter _first_pkt = 0;          // Index of first packet in stream
+        PacketCounter _last_pkt = 0;           // Index of last packet in stream
+        ByteBlockPtr  _data {};                // Full binary content of the packet
 
         // Inaccessible operations
         DemuxedData(const DemuxedData&) = delete;

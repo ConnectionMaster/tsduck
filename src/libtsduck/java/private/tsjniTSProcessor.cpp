@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -50,7 +29,7 @@ TSDUCKJNI void JNICALL Java_io_tsduck_TSProcessor_initNativeObject(JNIEnv* env, 
             report = ts::jni::GetPointerField<ts::Report>(env, jreport, "nativeObject");
         }
         if (report == nullptr) {
-            report = ts::NullReport::Instance();
+            report = &NULLREP;
         }
         ts::jni::SetPointerField(env, obj, "nativeObject", new ts::TSProcessor(*report));
     }
@@ -124,8 +103,8 @@ TSDUCKJNI jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject
     args.instuff_start = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "addStartStuffing")));
     args.instuff_stop = size_t(std::max<jint>(0, ts::jni::GetIntField(env, obj, "addStopStuffing")));
     args.fixed_bitrate = ts::BitRate(std::max<jint>(0, ts::jni::GetIntField(env, obj, "bitrate")));
-    args.bitrate_adj = ts::MilliSecond(std::max<jint>(0, ts::jni::GetIntField(env, obj, "bitrateAdjustInterval")));
-    args.receive_timeout = ts::MilliSecond(std::max<jint>(0, ts::jni::GetIntField(env, obj, "receiveTimeout")));
+    args.bitrate_adj = cn::milliseconds(std::max<cn::milliseconds::rep>(0, ts::jni::GetIntField(env, obj, "bitrateAdjustInterval")));
+    args.receive_timeout = cn::milliseconds(cn::milliseconds::rep(std::max<jint>(0, ts::jni::GetIntField(env, obj, "receiveTimeout"))));
     args.app_name = ts::jni::GetStringField(env, obj, "appName");
 
     // Get plugins description.
@@ -139,13 +118,13 @@ TSDUCKJNI jboolean JNICALL Java_io_tsduck_TSProcessor_start(JNIEnv* env, jobject
         ts::UString cmd(args.app_name);
         cmd.append(u" ");
         cmd.append(args.input.toString(ts::PluginType::INPUT));
-        for (auto it = args.plugins.begin(); it != args.plugins.end(); ++it) {
+        for (const auto& it : args.plugins) {
             cmd.append(u" ");
-            cmd.append(it->toString(ts::PluginType::PROCESSOR));
+            cmd.append(it.toString(ts::PluginType::PROCESSOR));
         }
         cmd.append(u" ");
         cmd.append(args.output.toString(ts::PluginType::OUTPUT));
-        tsp->report().debug(u"starting: %s", {cmd});
+        tsp->report().debug(u"starting: %s", cmd);
     }
 
     // Finally start the TSProcessor.

@@ -1,43 +1,23 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsUDPSocket.h"
 #include "tsNullReport.h"
+#include "tsSysUtils.h"
 
 // Network timestampting feature in Linux.
 #if defined(TS_LINUX)
-#include <linux/net_tstamp.h>
+    #include <linux/net_tstamp.h>
 #endif
 
 // Furiously idiotic Windows feature, see comment in receiveOne()
 #if defined(TS_WINDOWS)
-volatile ::LPFN_WSARECVMSG ts::UDPSocket::_wsaRevcMsg = 0;
+    volatile ::LPFN_WSARECVMSG ts::UDPSocket::_wsaRevcMsg = nullptr;
 #endif
 
 
@@ -45,17 +25,10 @@ volatile ::LPFN_WSARECVMSG ts::UDPSocket::_wsaRevcMsg = 0;
 // Constructor
 //----------------------------------------------------------------------------
 
-ts::UDPSocket::UDPSocket(bool auto_open, Report& report) :
-    Socket(),
-    _local_address(),
-    _default_destination(),
-    _mcast(),
-    _ssmcast()
+ts::UDPSocket::UDPSocket(bool auto_open, Report& report)
 {
     if (auto_open) {
-        // Returned value ignored on purpose, the socket is marked as closed in the object on error.
-        // coverity[CHECKED_RETURN]
-        open(report);
+        UDPSocket::open(report);
     }
 }
 
@@ -84,11 +57,20 @@ bool ts::UDPSocket::open(Report& report)
 
     // Set the IP_PKTINFO option. This option is used to get the destination address of all
     // UDP packets arriving on this socket. Actual socket option is an int.
+    // On FreeBSD, this option is replaced by IP_RECVDSTADDR.
+#if defined(IP_PKTINFO)
     int opt = 1;
     if (::setsockopt(getSocket(), IPPROTO_IP, IP_PKTINFO, SysSockOptPointer(&opt), sizeof(opt)) != 0) {
-        report.error(u"error setting socket IP_PKTINFO option: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error setting socket IP_PKTINFO option: %s", SysErrorCodeMessage());
         return false;
     }
+#elif defined(IP_RECVDSTADDR)
+    int opt = 1;
+    if (::setsockopt(getSocket(), IPPROTO_IP, IP_RECVDSTADDR, SysSockOptPointer(&opt), sizeof(opt)) != 0) {
+        report.error(u"error setting socket IP_RECVDSTADDR option: %s", SysErrorCodeMessage());
+        return false;
+    }
+#endif
 
     return true;
 }
@@ -120,9 +102,9 @@ bool ts::UDPSocket::bind(const IPv4SocketAddress& addr, Report& report)
     ::sockaddr sock_addr;
     addr.copy(sock_addr);
 
-    report.debug(u"binding socket to %s", {addr});
+    report.debug(u"binding socket to %s", addr);
     if (::bind(getSocket(), &sock_addr, sizeof(sock_addr)) != 0) {
-        report.error(u"error binding socket to local address: %s", {SysSocketErrorCodeMessage()});
+        report.error(u"error binding socket to local address: %s", SysErrorCodeMessage());
         return false;
     }
 
@@ -148,7 +130,7 @@ bool ts::UDPSocket::setOutgoingMulticast(const IPv4Address& addr, Report& report
     addr.copy(iaddr);
 
     if (::setsockopt(getSocket(), IPPROTO_IP, IP_MULTICAST_IF, SysSockOptPointer(&iaddr), sizeof(iaddr)) != 0) {
-        report.error(u"error setting outgoing local address: " + SysSocketErrorCodeMessage());
+        report.error(u"error setting outgoing local address: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -193,14 +175,14 @@ bool ts::UDPSocket::setTTL(int ttl, bool multicast, Report& report)
     if (multicast) {
         SysSocketMulticastTTLType mttl = SysSocketMulticastTTLType(ttl);
         if (::setsockopt(getSocket(), IPPROTO_IP, IP_MULTICAST_TTL, SysSockOptPointer(&mttl), sizeof(mttl)) != 0) {
-            report.error(u"socket option multicast TTL: " + SysSocketErrorCodeMessage());
+            report.error(u"socket option multicast TTL: %s", SysErrorCodeMessage());
             return false;
         }
     }
     else {
         SysSocketTTLType uttl = SysSocketTTLType(ttl);
         if (::setsockopt(getSocket(), IPPROTO_IP, IP_TTL, SysSockOptPointer(&uttl), sizeof(uttl)) != 0) {
-            report.error(u"socket option unicast TTL: " + SysSocketErrorCodeMessage());
+            report.error(u"socket option unicast TTL: %s", SysErrorCodeMessage());
             return false;
         }
     }
@@ -216,7 +198,23 @@ bool ts::UDPSocket::setTOS(int tos, Report& report)
 {
     SysSocketTOSType utos = SysSocketTOSType(tos);
     if (::setsockopt(getSocket(), IPPROTO_IP, IP_TOS, SysSockOptPointer(&utos), sizeof(utos)) != 0) {
-        report.error(u"socket option TOS: " + SysSocketErrorCodeMessage());
+        report.error(u"socket option TOS: %s", SysErrorCodeMessage());
+        return false;
+    }
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Set the multicast loop option.
+//----------------------------------------------------------------------------
+
+bool ts::UDPSocket::setMulticastLoop(bool on, Report& report)
+{
+    SysSocketMulticastLoopType mloop = SysSocketMulticastLoopType(on);
+    report.debug(u"setting socket IP_MULTICAST_LOOP to %d", mloop);
+    if (::setsockopt(getSocket(), IPPROTO_IP, IP_MULTICAST_LOOP, SysSockOptPointer(&mloop), sizeof(mloop)) != 0) {
+        report.error(u"socket option multicast loop: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -234,7 +232,7 @@ bool ts::UDPSocket::setReceiveTimestamps(bool on, Report& report)
     // Set SO_TIMESTAMPNS option which reports timestamps in nanoseconds (struct timespec).
     int enable = int(on);
     if (::setsockopt(getSocket(), SOL_SOCKET, SO_TIMESTAMPNS, &enable, sizeof(enable)) != 0) {
-        report.error(u"socket option SO_TIMESTAMPNS: " + SysSocketErrorCodeMessage());
+        report.error(u"socket option SO_TIMESTAMPNS: %s", SysErrorCodeMessage());
         return false;
     }
 #endif
@@ -251,7 +249,7 @@ bool ts::UDPSocket::setBroadcast(bool on, Report& report)
 {
     int enable = int(on);
     if (::setsockopt(getSocket(), SOL_SOCKET, SO_BROADCAST, SysSockOptPointer(&enable), sizeof(enable)) != 0) {
-        report.error(u"socket option broadcast: " + SysSocketErrorCodeMessage());
+        report.error(u"socket option broadcast: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -271,8 +269,8 @@ bool ts::UDPSocket::setBroadcastIfRequired(const IPv4Address destination, Report
     }
 
     // Loop on all local addresses and set broadcast when we match a local broadcast address.
-    for (auto it = locals.begin(); it != locals.end(); ++it) {
-        if (destination == it->broadcastAddress()) {
+    for (const auto& it : locals) {
+        if (destination == it.broadcastAddress()) {
             return setBroadcast(true, report);
         }
     }
@@ -295,30 +293,35 @@ bool ts::UDPSocket::addMembership(const IPv4Address& multicast, const IPv4Addres
     }
     groupString += multicast.toString();
     if (local.hasAddress()) {
-        report.verbose(u"joining multicast group %s from local address %s", {groupString, local});
+        report.verbose(u"joining multicast group %s from local address %s", groupString, local);
     }
     else {
-        report.verbose(u"joining multicast group %s from default interface", {groupString});
+        report.verbose(u"joining multicast group %s from default interface", groupString);
     }
 
     // Now join the group.
     if (source.hasAddress()) {
         // Source-specific multicast (SSM).
+#if defined(TS_NO_SSM)
+        report.error(u"source-specific multicast (SSM) is not supported on this operating system");
+        return false;
+#else
         SSMReq req(multicast, local, source);
         if (::setsockopt(getSocket(), IPPROTO_IP, IP_ADD_SOURCE_MEMBERSHIP, SysSockOptPointer(&req.data), sizeof(req.data)) != 0) {
-            report.error(u"error adding SSM membership to %s from local address %s: %s", {groupString, local, SysSocketErrorCodeMessage()});
+            report.error(u"error adding SSM membership to %s from local address %s: %s", groupString, local, SysErrorCodeMessage());
             return false;
         }
         else {
             _ssmcast.insert(req);
             return true;
         }
+#endif
     }
     else {
         // Standard multicast.
         MReq req(multicast, local);
         if (::setsockopt(getSocket(), IPPROTO_IP, IP_ADD_MEMBERSHIP, SysSockOptPointer(&req.data), sizeof(req.data)) != 0) {
-            report.error(u"error adding multicast membership to %s from local address %s: %s", {groupString, local, SysSocketErrorCodeMessage()});
+            report.error(u"error adding multicast membership to %s from local address %s: %s", groupString, local, SysErrorCodeMessage());
             return false;
         }
         else {
@@ -376,26 +379,27 @@ bool ts::UDPSocket::dropMembership(Report& report)
     bool ok = true;
 
     // Drop all standard multicast groups.
-    for (auto it = _mcast.begin(); it != _mcast.end(); ++it) {
-        report.verbose(u"leaving multicast group %s from local address %s", {IPv4Address(it->data.imr_multiaddr), IPv4Address(it->data.imr_interface)});
-        if (::setsockopt(getSocket(), IPPROTO_IP, IP_DROP_MEMBERSHIP, SysSockOptPointer(&it->data), sizeof(it->data)) != 0) {
-            report.error(u"error dropping multicast membership: %s", {SysSocketErrorCodeMessage()});
+    for (const auto& it : _mcast) {
+        report.verbose(u"leaving multicast group %s from local address %s", IPv4Address(it.data.imr_multiaddr), IPv4Address(it.data.imr_interface));
+        if (::setsockopt(getSocket(), IPPROTO_IP, IP_DROP_MEMBERSHIP, SysSockOptPointer(&it.data), sizeof(it.data)) != 0) {
+            report.error(u"error dropping multicast membership: %s", SysErrorCodeMessage());
             ok = false;
         }
     }
+    _mcast.clear();
 
     // Drop all source-specific multicast groups.
-    for (auto it = _ssmcast.begin(); it != _ssmcast.end(); ++it) {
+#if !defined(TS_NO_SSM)
+    for (const auto& it : _ssmcast) {
         report.verbose(u"leaving multicast group %s@%s from local address %s",
-                       {IPv4Address(it->data.imr_sourceaddr), IPv4Address(it->data.imr_multiaddr), IPv4Address(it->data.imr_interface)});
-        if (::setsockopt(getSocket(), IPPROTO_IP, IP_DROP_SOURCE_MEMBERSHIP, SysSockOptPointer(&it->data), sizeof(it->data)) != 0) {
-            report.error(u"error dropping multicast membership: %s", {SysSocketErrorCodeMessage()});
+                       IPv4Address(it.data.imr_sourceaddr), IPv4Address(it.data.imr_multiaddr), IPv4Address(it.data.imr_interface));
+        if (::setsockopt(getSocket(), IPPROTO_IP, IP_DROP_SOURCE_MEMBERSHIP, SysSockOptPointer(&it.data), sizeof(it.data)) != 0) {
+            report.error(u"error dropping multicast membership: %s", SysErrorCodeMessage());
             ok = false;
         }
     }
-
-    _mcast.clear();
     _ssmcast.clear();
+#endif
 
     return ok;
 }
@@ -416,7 +420,7 @@ bool ts::UDPSocket::send(const void* data, size_t size, const IPv4SocketAddress&
     dest.copy(addr);
 
     if (::sendto(getSocket(), SysSendBufferPointer(data), SysSendSizeType(size), 0, &addr, sizeof(addr)) < 0) {
-        report.error(u"error sending UDP message: " + SysSocketErrorCodeMessage());
+        report.error(u"error sending UDP message: %s", SysErrorCodeMessage());
         return false;
     }
     return true;
@@ -425,9 +429,6 @@ bool ts::UDPSocket::send(const void* data, size_t size, const IPv4SocketAddress&
 
 //----------------------------------------------------------------------------
 // Receive a message.
-// If abort interface is non-zero, invoke it when I/O is interrupted
-// (in case of user-interrupt, return, otherwise retry).
-// Return true on success, false on error.
 //----------------------------------------------------------------------------
 
 bool ts::UDPSocket::receive(void* data,
@@ -437,24 +438,24 @@ bool ts::UDPSocket::receive(void* data,
                             IPv4SocketAddress& destination,
                             const AbortInterface* abort,
                             Report& report,
-                            MicroSecond* timestamp)
+                            cn::microseconds* timestamp)
 {
     // Clear timestamp if specified.
     if (timestamp != nullptr) {
-        *timestamp = -1;
+        *timestamp = cn::microseconds(-1);
     }
 
     // Loop on unsollicited interrupts
     for (;;) {
 
         // Wait for a message.
-        const SysSocketErrorCode err = receiveOne(data, max_size, ret_size, sender, destination, report, timestamp);
+        const int err = receiveOne(data, max_size, ret_size, sender, destination, report, timestamp);
 
         if (abort != nullptr && abort->aborting()) {
             // Aborting, no error message.
             return false;
         }
-        else if (err == SYS_SUCCESS) {
+        else if (err == 0) {
             // Sometimes, we get "successful" empty message coming from nowhere. Ignore them.
             if (ret_size > 0 || sender.hasAddress()) {
                 return true;
@@ -464,7 +465,7 @@ bool ts::UDPSocket::receive(void* data,
             // User-interrupt, end of processing but no error message
             return false;
         }
-#if !defined(TS_WINDOWS)
+#if defined(TS_UNIX)
         else if (err == EINTR) {
             // Got a signal, not a user interrupt, will ignore it
             report.debug(u"signal, not user interrupt");
@@ -474,7 +475,7 @@ bool ts::UDPSocket::receive(void* data,
             // Abort on non-interrupt errors.
             if (isOpen()) {
                 // Report the error only if the error does not result from a close in another thread.
-                report.error(u"error receiving from UDP socket: %s", {SysSocketErrorCodeMessage(err)});
+                report.error(u"error receiving from UDP socket: %s", SysErrorCodeMessage(err));
             }
             return false;
         }
@@ -486,13 +487,13 @@ bool ts::UDPSocket::receive(void* data,
 // Perform one receive operation. Hide the system mud.
 //----------------------------------------------------------------------------
 
-ts::SysSocketErrorCode ts::UDPSocket::receiveOne(void* data,
-                                                 size_t max_size,
-                                                 size_t& ret_size,
-                                                 IPv4SocketAddress& sender,
-                                                 IPv4SocketAddress& destination,
-                                                 Report& report,
-                                                 MicroSecond* timestamp)
+int ts::UDPSocket::receiveOne(void* data,
+                              size_t max_size,
+                              size_t& ret_size,
+                              IPv4SocketAddress& sender,
+                              IPv4SocketAddress& destination,
+                              Report& report,
+                              cn::microseconds* timestamp)
 {
     // Clear returned values
     ret_size = 0;
@@ -515,16 +516,16 @@ ts::SysSocketErrorCode ts::UDPSocket::receiveOne(void* data,
 #if defined(TS_WINDOWS)
 
     // First, get the address of WSARecvMsg the first time we use it.
-    if (_wsaRevcMsg == 0) {
-        ::LPFN_WSARECVMSG funcAddress = 0;
+    if (_wsaRevcMsg == nullptr) {
+        ::LPFN_WSARECVMSG funcAddress = nullptr;
         ::GUID guid = WSAID_WSARECVMSG;
         ::DWORD dwBytes = 0;
         const ::SOCKET sock = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (sock == INVALID_SOCKET) {
-            return LastSysSocketErrorCode();
+            return LastSysErrorCode();
         }
         if (::WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid), &funcAddress, sizeof(funcAddress), &dwBytes, 0, 0) != 0) {
-            const SysSocketErrorCode err = LastSysSocketErrorCode();
+            const int err = LastSysErrorCode();
             ::closesocket(sock);
             return err;
         }
@@ -556,7 +557,7 @@ ts::SysSocketErrorCode ts::UDPSocket::receiveOne(void* data,
     // Wait for a message.
     ::DWORD insize = 0;
     if (_wsaRevcMsg(getSocket(), &msg, &insize, 0, 0)  != 0) {
-        return LastSysSocketErrorCode();
+        return LastSysErrorCode();
     }
 
     // Browse returned ancillary data.
@@ -594,31 +595,41 @@ ts::SysSocketErrorCode ts::UDPSocket::receiveOne(void* data,
     SysSocketSignedSizeType insize = ::recvmsg(getSocket(), &hdr, 0);
 
     if (insize < 0) {
-        return LastSysSocketErrorCode();
+        return LastSysErrorCode();
     }
 
-    // Because of invalid definition of CMSG_NXTHDR in musl libc (Alpine Linux)
     TS_PUSH_WARNING()
-    TS_GCC_NOWARNING(zero-as-null-pointer-constant)
+    TS_GCC_NOWARNING(zero-as-null-pointer-constant) // invalid definition of CMSG_NXTHDR in musl libc (Alpine Linux)
+#if defined(TS_OPENBSD)
+    TS_LLVM_NOWARNING(cast-align) // invalid definition of CMSG_NXTHDR on OpenBSD
+#endif
 
     // Browse returned ancillary data.
     for (::cmsghdr* cmsg = CMSG_FIRSTHDR(&hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&hdr, cmsg)) {
 
         // Look for destination IP address.
+        // IP_PKTINFO is used on all Unix, except FreeBSD.
+#if defined(IP_PKTINFO)
         if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO && cmsg->cmsg_len >= sizeof(::in_pktinfo)) {
             const ::in_pktinfo* info = reinterpret_cast<const ::in_pktinfo*>(CMSG_DATA(cmsg));
             destination = IPv4SocketAddress(info->ipi_addr, _local_address.port());
         }
+#elif defined(IP_RECVDSTADDR)
+        if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVDSTADDR && cmsg->cmsg_len >= sizeof(::in_addr)) {
+            const ::in_addr* info = reinterpret_cast<const ::in_addr*>(CMSG_DATA(cmsg));
+            destination = IPv4SocketAddress(*info, _local_address.port());
+        }
+#endif
 
         // On Linux, look for receive timestamp.
 #if defined(TS_LINUX)
-        else if (timestamp != nullptr && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS && cmsg->cmsg_len >= sizeof(::timespec)) {
+        if (timestamp != nullptr && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMPNS && cmsg->cmsg_len >= sizeof(::timespec)) {
             // System time stamp in nanosecond.
             const ::timespec* ts = reinterpret_cast<const ::timespec*>(CMSG_DATA(cmsg));
-            const NanoSecond nano = NanoSecond(ts->tv_sec) * NanoSecPerSec + NanoSecond(ts->tv_nsec);
+            const cn::nanoseconds::rep nano = cn::nanoseconds::rep(ts->tv_sec) * 1'000'000'000 + cn::nanoseconds::rep(ts->tv_nsec);
             // System time stamp is valid when not zero, convert it to micro-seconds.
             if (nano != 0) {
-                *timestamp = nano / NanoSecPerMicroSec;
+                *timestamp = cn::duration_cast<cn::microseconds>(cn::nanoseconds(nano));
             }
         }
 #endif
@@ -632,5 +643,5 @@ ts::SysSocketErrorCode ts::UDPSocket::receiveOne(void* data,
     ret_size = size_t(insize);
     sender = IPv4SocketAddress(sender_sock);
 
-    return SYS_SUCCESS;
+    return 0; // success
 }

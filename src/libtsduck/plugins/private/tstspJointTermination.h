@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,7 +14,6 @@
 #pragma once
 #include "tsTSProcessorArgs.h"
 #include "tsPluginThread.h"
-#include "tsMutex.h"
 
 namespace ts {
     namespace tsp {
@@ -62,7 +40,7 @@ namespace ts {
                              PluginType type,
                              const PluginOptions& pl_options,
                              const ThreadAttributes& attributes,
-                             Mutex& global_mutex,
+                             std::recursive_mutex& global_mutex,
                              Report* report);
 
             // Implementation of "joint termination", inherited from TSP.
@@ -72,7 +50,7 @@ namespace ts {
             virtual bool thisJointTerminated() const override;
 
         protected:
-            Mutex& _global_mutex;
+            std::recursive_mutex& _global_mutex;
             const TSProcessorArgs& _options;
 
             //!
@@ -83,13 +61,13 @@ namespace ts {
             PacketCounter totalPacketsBeforeJointTermination() const;
 
         private:
-            bool _use_jt;        // Use "joint termination"
-            bool _jt_completed;  // Completed, for "joint termination"
+            bool _use_jt = false;        // Use "joint termination"
+            bool _jt_completed = false;  // Completed, for "joint termination"
 
             // The following static private data must be accessed exclusively under the protection of the global mutex.
-            static int           _jt_users;         // Nb plugins using "joint termination"
-            static int           _jt_remaining;     // Nb pluging using jt but not yet completed
-            static PacketCounter _jt_hightest_pkt;  // Highest pkt# for completed jt plugins
+            static int           _jt_users;        // Nb plugins using "joint termination"
+            static int           _jt_remaining;    // Nb pluging using jt but not yet completed
+            static PacketCounter _jt_highest_pkt;  // Highest pkt# for completed jt plugins
         };
     }
 }

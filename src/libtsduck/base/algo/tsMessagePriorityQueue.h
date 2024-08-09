@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -46,12 +25,11 @@ namespace ts {
     //! priority are dequeued in their enqueueing order.
     //!
     //! @tparam MSG The type of the messages to exchange.
-    //! @tparam MUTEX The type of mutex for synchronization (ts::Mutex by default).
     //! @tparam COMPARE A function object to sort @a MSG instances. By default,
     //! the '<' operator on @a MSG is used.
     //!
-    template <typename MSG, class MUTEX = Mutex, class COMPARE = std::less<MSG>>
-    class MessagePriorityQueue: public MessageQueue<MSG, MUTEX>
+    template <typename MSG, class COMPARE = std::less<MSG>>
+    class MessagePriorityQueue: public MessageQueue<MSG>
     {
         TS_NOCOPY(MessagePriorityQueue);
     public:
@@ -66,13 +44,13 @@ namespace ts {
         //! bounded somehow, otherwise the queue may exhaust all the process
         //! memory.
         //!
-        MessagePriorityQueue(size_t maxMessages = 0);
+        MessagePriorityQueue(size_t maxMessages = 0) : SuperClass(maxMessages) {}
 
     protected:
         //!
         //! Explicit reference to superclass.
         //!
-        typedef MessageQueue<MSG, MUTEX> SuperClass;
+        using SuperClass = MessageQueue<MSG>;
 
         //!
         //! This virtual protected method performs placement in the message queue.
@@ -85,4 +63,32 @@ namespace ts {
     };
 }
 
-#include "tsMessagePriorityQueueTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Placement in the message queue (virtual protected methods).
+template <typename MSG, class COMPARE>
+typename ts::MessagePriorityQueue<MSG, COMPARE>::SuperClass::MessageList::iterator
+ts::MessagePriorityQueue<MSG, COMPARE>::enqueuePlacement(const typename SuperClass::MessagePtr& msg, typename SuperClass::MessageList& list)
+{
+    auto loc = list.end();
+
+    // Null pointers are stored at end (anywhere else would be probably fine).
+    if (msg == nullptr) {
+        return loc;
+    }
+
+    // Loop until the previous element is lower that msg.
+    while (loc != list.begin()) {
+        const auto cur = loc;
+        --loc;
+        if (*loc != nullptr && !COMPARE()(*msg, **loc)) {
+            return cur;
+        }
+    }
+
+    // Reached begin of list, all elements are greater than msg.
+    return loc;
+}

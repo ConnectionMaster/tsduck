@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,11 +14,6 @@
 #include "tsFatal.h"
 #include "tsAlgorithm.h"
 
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::EITProcessor::MIN_BUFFERED_SECTIONS;
-constexpr size_t ts::EITProcessor::DEFAULT_BUFFERED_SECTIONS;
-#endif
-
 
 //----------------------------------------------------------------------------
 // Constructor.
@@ -47,18 +21,9 @@ constexpr size_t ts::EITProcessor::DEFAULT_BUFFERED_SECTIONS;
 
 ts::EITProcessor::EITProcessor(DuckContext& duck, PID pid) :
     _duck(duck),
-    _input_pids(),
     _output_pid(pid),
-    _start_time_offset(0),
-    _date_only(false),
-    _max_buffered_sections(DEFAULT_BUFFERED_SECTIONS),
     _demux(_duck, nullptr, this),
-    _packetizer(duck, pid, this),
-    _sections(),
-    _removed_tids(),
-    _removed(),
-    _kept(),
-    _renamed()
+    _packetizer(_duck, pid, this)
 {
     _input_pids.set(pid);
     _demux.addPID(pid);
@@ -66,7 +31,7 @@ ts::EITProcessor::EITProcessor(DuckContext& duck, PID pid) :
 
 void ts::EITProcessor::reset()
 {
-    _start_time_offset = 0;
+    _start_time_offset = cn::milliseconds::zero();
     _date_only = false;
     _demux.reset();
     _packetizer.reset();
@@ -162,7 +127,7 @@ void ts::EITProcessor::provideSection(SectionCounter counter, SectionPtr& sectio
 {
     if (_sections.empty()) {
         // No section to provide.
-        section.clear();
+        section.reset();
     }
     else {
         // Remove one section from the queue for insertion.
@@ -295,7 +260,7 @@ void ts::EITProcessor::removePresentFollowing()
 // Add an offset to all start times of all events in all EIT's.
 //----------------------------------------------------------------------------
 
-void ts::EITProcessor::addStartTimeOffet(MilliSecond offset, bool date_only)
+void ts::EITProcessor::addStartTimeOffet(cn::milliseconds offset, bool date_only)
 {
     _start_time_offset = offset;
     _date_only = date_only;
@@ -370,7 +335,7 @@ void ts::EITProcessor::handleSection(SectionDemux& demux, const Section& section
     // At this point, we need to keep the section.
     // Build a copy of it for insertion in the queue.
     const SectionPtr sp(new Section(section, ShareMode::COPY));
-    CheckNonNull(sp.pointer());
+    CheckNonNull(sp.get());
 
     // Update the section if this is an EIT.
     if (is_eit) {
@@ -378,26 +343,26 @@ void ts::EITProcessor::handleSection(SectionDemux& demux, const Section& section
         bool modified = false;
 
         // Rename EIT's.
-        for (auto it = _renamed.begin(); it != _renamed.end(); ++it) {
-            if (Match(it->first, srv_id, ts_id, net_id)) {
+        for (const auto& it : _renamed) {
+            if (Match(it.first, srv_id, ts_id, net_id)) {
                 // Rename the specified fields.
-                if (it->second.hasId()) {
+                if (it.second.hasId()) {
                     modified = true;
-                    sp->setTableIdExtension(it->second.getId(), false);
+                    sp->setTableIdExtension(it.second.getId(), false);
                 }
-                if (it->second.hasTSId()) {
+                if (it.second.hasTSId()) {
                     modified = true;
-                    sp->setUInt16(0, it->second.getTSId(), false);
+                    sp->setUInt16(0, it.second.getTSId(), false);
                 }
-                if (it->second.hasONId()) {
+                if (it.second.hasONId()) {
                     modified = true;
-                    sp->setUInt16(2, it->second.getONId(), false);
+                    sp->setUInt16(2, it.second.getONId(), false);
                 }
             }
         }
 
         // Update all events start times.
-        if (_start_time_offset != 0) {
+        if (_start_time_offset != cn::milliseconds::zero()) {
             uint8_t* data = const_cast<uint8_t*>(sp->payload() + 6);
             const uint8_t* const end = sp->payload() + sp->payloadSize();
             while (data + 12 <= end) {
@@ -434,6 +399,6 @@ void ts::EITProcessor::handleSection(SectionDemux& demux, const Section& section
         _sections.push_back(sp);
     }
     else {
-        _duck.report().warning(u"dropping EIT section (%d bytes), too many buffered EIT sections (%d)", {sp->size(), _sections.size()});
+        _duck.report().warning(u"dropping EIT section (%d bytes), too many buffered EIT sections (%d)", sp->size(), _sections.size());
     }
 }

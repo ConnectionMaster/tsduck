@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -42,40 +21,15 @@
 
 class TimeShiftBufferTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testMinimum();
-    void testMemory();
-    void testFile();
-
-    TSUNIT_TEST_BEGIN(TimeShiftBufferTest);
-    TSUNIT_TEST(testMinimum);
-    TSUNIT_TEST(testMemory);
-    TSUNIT_TEST(testFile);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Minimum);
+    TSUNIT_DECLARE_TEST(Memory);
+    TSUNIT_DECLARE_TEST(File);
 
 private:
     void testCommon(uint8_t total, uint8_t memory);
 };
 
 TSUNIT_REGISTER(TimeShiftBufferTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void TimeShiftBufferTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void TimeShiftBufferTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -106,7 +60,7 @@ void TimeShiftBufferTest::testCommon(uint8_t total, uint8_t memory)
         pkt.init(i, i, i);
         mdata.reset();
         mdata.setLabel(in_label);
-        in_label = (in_label + 1) % ts::TSPacketMetadata::LABEL_COUNT;
+        in_label = (in_label + 1) % ts::TSPacketLabelSet::SIZE;
 
         TSUNIT_EQUAL(184, pkt.getPayloadSize());
         TSUNIT_EQUAL(i, pkt.getPID());
@@ -128,7 +82,7 @@ void TimeShiftBufferTest::testCommon(uint8_t total, uint8_t memory)
         pkt.init(i, i, i);
         mdata.reset();
         mdata.setLabel(in_label);
-        in_label = (in_label + 1) % ts::TSPacketMetadata::LABEL_COUNT;
+        in_label = (in_label + 1) % ts::TSPacketLabelSet::SIZE;
 
         TSUNIT_EQUAL(184, pkt.getPayloadSize());
         TSUNIT_EQUAL(i, pkt.getPID());
@@ -144,7 +98,7 @@ void TimeShiftBufferTest::testCommon(uint8_t total, uint8_t memory)
         TSUNIT_ASSERT(!mdata.getInputStuffing());
         TSUNIT_ASSERT(mdata.hasAnyLabel());
         TSUNIT_ASSERT(mdata.hasLabel(out_label));
-        out_label = (out_label + 1) % ts::TSPacketMetadata::LABEL_COUNT;
+        out_label = (out_label + 1) % ts::TSPacketLabelSet::SIZE;
         TSUNIT_ASSERT(!mdata.hasLabel(out_label));
     }
 
@@ -152,17 +106,17 @@ void TimeShiftBufferTest::testCommon(uint8_t total, uint8_t memory)
     TSUNIT_ASSERT(!buf.isOpen());
 }
 
-void TimeShiftBufferTest::testMinimum()
+TSUNIT_DEFINE_TEST(Minimum)
 {
     testCommon(2, 2);
 }
 
-void TimeShiftBufferTest::testMemory()
+TSUNIT_DEFINE_TEST(Memory)
 {
     testCommon(10, 16);
 }
 
-void TimeShiftBufferTest::testFile()
+TSUNIT_DEFINE_TEST(File)
 {
     testCommon(20, 4);
 }

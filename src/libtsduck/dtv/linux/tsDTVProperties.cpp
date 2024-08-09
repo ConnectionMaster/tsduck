@@ -1,47 +1,23 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
 #include "tsDTVProperties.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr uint32_t ts::DTVProperties::UNKNOWN;
-#endif
+#include "tsUString.h"
+#include "tsMemory.h"
 
 
 //-----------------------------------------------------------------------------
 // Constructor
 //-----------------------------------------------------------------------------
 
-ts::DTVProperties::DTVProperties() :
-    _prop_head({ 0, _prop_buffer})
+ts::DTVProperties::DTVProperties()
 {
-    ::memset(_prop_buffer, 0xFF, sizeof(_prop_buffer));
+    MemSet(_prop_buffer, 0xFF, sizeof(_prop_buffer));
 }
 
 
@@ -136,11 +112,11 @@ bool ts::DTVProperties::getStatByCommand(int64_t& value, ::fecap_scale_params& s
 void ts::DTVProperties::report(Report& report, int severity) const
 {
     if (report.maxSeverity() >= severity) {
-        report.log(severity, u"%d DTVProperties:", {_prop_head.num});
+        report.log(severity, u"%d DTVProperties:", _prop_head.num);
         for (size_t i = 0; i < _prop_head.num; ++i) {
             const ::dtv_property& prop(_prop_head.props[i]);
             const char* name = CommandName(prop.cmd);
-            report.log(severity, u"[%d] cmd = %d (%s), data = %d (0x%<08X)", {i, prop.cmd, name == nullptr ? "?" : name, prop.u.data});
+            report.log(severity, u"[%d] cmd = %d (%s), data = %d (0x%<08X)", i, prop.cmd, name == nullptr ? "?" : name, prop.u.data);
         }
     }
 }
@@ -148,7 +124,7 @@ void ts::DTVProperties::report(Report& report, int severity) const
 void ts::DTVProperties::reportStat(Report& report, int severity) const
 {
     if (report.maxSeverity() >= severity) {
-        report.log(severity, u"%d DTVProperties (statistics result):", {_prop_head.num});
+        report.log(severity, u"%d DTVProperties (statistics result):", _prop_head.num);
         for (size_t i1 = 0; i1 < _prop_head.num; ++i1) {
             const ::dtv_property& prop(_prop_head.props[i1]);
             const char* name = CommandName(prop.cmd);
@@ -157,9 +133,9 @@ void ts::DTVProperties::reportStat(Report& report, int severity) const
                 if (i2 > 0) {
                     str.append(u", ");
                 }
-                str.format(u"{scale: %d, value: %d}", {prop.u.st.stat[i2].scale, prop.u.st.stat[i2].svalue});
+                str.format(u"{scale: %d, value: %d}", prop.u.st.stat[i2].scale, prop.u.st.stat[i2].svalue);
             }
-            report.log(severity, u"[%d] cmd = %d (%s), count = %d, stat = %s", {i1, prop.cmd, name == nullptr ? "?" : name, prop.u.st.len, str});
+            report.log(severity, u"[%d] cmd = %d (%s), count = %d, stat = %s", i1, prop.cmd, name == nullptr ? "?" : name, prop.u.st.len, str);
         }
     }
 }
@@ -191,8 +167,7 @@ void ts::DTVProperties::DTVNames::reg(const char* name, const char* value)
 }
 
 // The constructor builds the map once.
-ts::DTVProperties::DTVNames::DTVNames() :
-    _names()
+ts::DTVProperties::DTVNames::DTVNames()
 {
     // Explicit zero.
     assert(DTV_UNDEFINED == 0);

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -74,13 +53,13 @@ namespace ts {
         //! Set the connection timeout for this request.
         //! @param [in] timeout Connection timeout in milliseconds.
         //!
-        void setConnectionTimeout(MilliSecond timeout);
+        void setConnectionTimeout(cn::milliseconds timeout) { _connectionTimeout = timeout; }
 
         //!
         //! Set the timeout for each receive operation.
         //! @param [in] timeout Reception timeout in milliseconds.
         //!
-        void setReceiveTimeout(MilliSecond timeout);
+        void setReceiveTimeout(cn::milliseconds timeout) { _receiveTimeout = timeout; }
 
         //!
         //! Set the optional proxy host and port for this request.
@@ -141,7 +120,7 @@ namespace ts {
         //! is ignored. On Unix systems, this file is used to store and retrieve cookies
         //! in the libcurl format. When @a fileName is empty, use a temporary file name.
         //!
-        void enableCookies(const UString& fileName = UString());
+        void enableCookies(const fs::path& fileName = fs::path());
 
         //!
         //! Disable the use of cookies for all requests.
@@ -157,7 +136,7 @@ namespace ts {
         //!   per-application file and this method always report an empty string.
         //! @return The cookie file name.
         //!
-        UString getCookiesFileName() const;
+        fs::path getCookiesFileName() const;
 
         //!
         //! Delete the cookies file, if one was defined.
@@ -168,13 +147,20 @@ namespace ts {
         //!
         //! Default user agent string ("tsduck").
         //!
-        static const UString DEFAULT_USER_AGENT;
+        static constexpr const UChar* DEFAULT_USER_AGENT = u"tsduck";
 
         //!
         //! Set the user agent name to use in HTTP headers.
         //! @param [in] name The user agent name. If empty, DEFAULT_USER_AGENT is used.
         //!
-        void setUserAgent(const UString& name = UString());
+        void setUserAgent(const UString& name = UString()) { _userAgent = name.empty() ? DEFAULT_USER_AGENT : name; }
+
+        //!
+        //! Enable compression.
+        //! Compression is disabled by default.
+        //! @param [in] on Boolean setting compression on or off.
+        //!
+        void enableCompression(bool on = true) { _useCompression = on; }
 
         //!
         //! Get the current user agent name to use in HTTP headers.
@@ -239,7 +225,7 @@ namespace ts {
         //! Representation of request or reponse headers.
         //! The keys of the map are the header names.
         //!
-        typedef std::multimap<UString,UString> HeadersMap;
+        using HeadersMap = std::multimap<UString,UString>;
 
         //!
         //! Get all response headers.
@@ -348,7 +334,7 @@ namespace ts {
         //! @param [in] chunkSize Individual download chunk size.
         //! @return True on success, false on error.
         //!
-        bool downloadFile(const UString& url, const UString& fileName, size_t chunkSize = DEFAULT_CHUNK_SIZE);
+        bool downloadFile(const UString& url, const fs::path& fileName, size_t chunkSize = DEFAULT_CHUNK_SIZE);
 
         //!
         //! Get the version of the underlying HTTP library.
@@ -361,33 +347,34 @@ namespace ts {
         // This is done to avoid inclusion of specialized headers in this public file.
         class SystemGuts;
 
-        Report&       _report;
-        UString       _userAgent;
-        bool          _autoRedirect;
-        UString       _originalURL;
-        UString       _finalURL;
-        MilliSecond   _connectionTimeout;
-        MilliSecond   _receiveTimeout;
-        UString       _proxyHost;
-        uint16_t      _proxyPort;
-        UString       _proxyUser;
-        UString       _proxyPassword;
-        UString       _cookiesFileName;
-        bool          _useCookies;
-        bool          _deleteCookiesFile;  // delete the cookies file on close
-        HeadersMap    _requestHeaders;     // all request headers (to send)
-        HeadersMap    _responseHeaders;    // all response headers (received)
-        int           _httpStatus;         // 200, 404, etc.
-        size_t        _contentSize;        // actually downloaded size
-        size_t        _headerContentSize;  // content size, as announced in response header
-        volatile bool _isOpen;             // The transfer is open/started.
-        volatile bool _interrupted;        // interrupted by application-defined handler
-        SystemGuts*   _guts;               // system-specific data
+        Report&          _report;
+        UString          _userAgent {DEFAULT_USER_AGENT};
+        bool             _autoRedirect = true;
+        UString          _originalURL {};
+        UString          _finalURL {};
+        cn::milliseconds _connectionTimeout {};
+        cn::milliseconds _receiveTimeout {};
+        UString          _proxyHost {};
+        uint16_t         _proxyPort = 0;
+        UString          _proxyUser {};
+        UString          _proxyPassword {};
+        bool             _useCompression = false;
+        fs::path         _cookiesFileName {};
+        bool             _useCookies = false;
+        bool             _deleteCookiesFile = false; // delete the cookies file on close
+        HeadersMap       _requestHeaders {};         // all request headers (to send)
+        HeadersMap       _responseHeaders {};        // all response headers (received)
+        int              _httpStatus = 0;            // 200, 404, etc.
+        size_t           _contentSize = 0;           // actually downloaded size
+        size_t           _headerContentSize = 0;     // content size, as announced in response header
+        volatile bool    _isOpen = false;            // the transfer is open/started.
+        volatile bool    _interrupted = false;       // interrupted by application-defined handler
+        SystemGuts*      _guts = nullptr;            // system-specific data
 
-        static UString  _defaultProxyHost;
-        static uint16_t _defaultProxyPort;
-        static UString  _defaultProxyUser;
-        static UString  _defaultProxyPassword;
+        static UString   _defaultProxyHost;
+        static uint16_t  _defaultProxyPort;
+        static UString   _defaultProxyUser;
+        static UString   _defaultProxyPassword;
 
         // Allocate and deallocate guts (depend on implementations).
         void allocateGuts();

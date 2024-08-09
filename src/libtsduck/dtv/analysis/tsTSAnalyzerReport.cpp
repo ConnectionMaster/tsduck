@@ -1,37 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSAnalyzerReport.h"
 #include "tsNames.h"
 #include "tsjsonObject.h"
-#include "tsjsonString.h"
-#include "tsjsonNumber.h"
 #include "tsAlgorithm.h"
 
 
@@ -225,7 +202,7 @@ void ts::TSAnalyzerReport::reportTS(Grid& grid, const UString& title)
     grid.section();
 
     grid.setLayout({grid.bothTruncateLeft(42, u'.'), grid.border(), grid.bothTruncateLeft(26, u'.')});
-    grid.putLayout({{u"Transport Stream Id:", _ts_id_valid ? UString::Format(u"%d (0x%X)", {_ts_id, _ts_id}) : u"Unknown"},
+    grid.putLayout({{u"Transport Stream Id:", _ts_id.has_value() ? UString::Format(u"%n", *_ts_id) : u"Unknown"},
                     {u"Services:", UString::Decimal(_services.size())}});
     grid.putLayout({{u"Bytes:", UString::Decimal(PKT_SIZE * _ts_pkt_cnt)},
                     {u"PID's: Total:", UString::Decimal(_pid_cnt)}});
@@ -243,16 +220,17 @@ void ts::TSAnalyzerReport::reportTS(Grid& grid, const UString& title)
                     grid.right(wide ? WIDE_TSBR_COL2 : DEF_TSBR_COL2)});
     grid.putLayout({{u"Transport stream bitrate, based on", u"188 bytes/pkt"},
                     {u"204 bytes/pkt"}});
-    grid.putLayout({{u"User-specified:", _ts_user_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", {_ts_user_bitrate})},
-                    {_ts_user_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", {ToBitrate204(_ts_user_bitrate)})}});
-    grid.putLayout({{u"Estimated based on PCR's:", _ts_pcr_bitrate_188 == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {_ts_pcr_bitrate_188})},
-                    { _ts_pcr_bitrate_188 == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {_ts_pcr_bitrate_204})}});
-    grid.putLayout({{u"Selected reference bitrate:", _ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {_ts_bitrate})},
-                    {_ts_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", {ToBitrate204(_ts_bitrate)})}});
+    grid.putLayout({{u"User-specified:", _ts_user_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", _ts_user_bitrate)},
+                    {_ts_user_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", ToBitrate204(_ts_user_bitrate))}});
+    grid.putLayout({{u"Estimated based on PCR's:", _ts_pcr_bitrate_188 == 0 ? u"Unknown" : UString::Format(u"%'d b/s", _ts_pcr_bitrate_188)},
+                    { _ts_pcr_bitrate_188 == 0 ? u"Unknown" : UString::Format(u"%'d b/s", _ts_pcr_bitrate_204)}});
+    grid.putLayout({{u"Selected reference bitrate:", _ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", _ts_bitrate)},
+                    {_ts_bitrate == 0 ? u"None" : UString::Format(u"%'d b/s", ToBitrate204(_ts_bitrate))}});
     grid.subSection();
 
     grid.setLayout({grid.bothTruncateLeft(73, u'.')});
-    grid.putLayout({{u"Broadcast time:", _duration == 0 ? u"Unknown" : UString::Format(u"%d sec (%d min %d sec)", {_duration / 1000, _duration / 60000, (_duration / 1000) % 60})}});
+    const cn::milliseconds::rep ms = _duration.count();
+    grid.putLayout({{u"Broadcast time:", ms == 0 ? u"Unknown" : UString::Format(u"%d sec (%d min %d sec)", ms / 1000, ms / 60000, (ms / 1000) % 60)}});
     if (_first_tdt != Time::Epoch || _first_tot != Time::Epoch || !_country_code.empty()) {
         // This looks like a DVB stream.
         reportTimeStamp(grid, u"First TDT UTC time stamp:", _first_tdt);
@@ -281,9 +259,9 @@ void ts::TSAnalyzerReport::reportTS(Grid& grid, const UString& title)
     for (const auto& it : _services) {
         const ServiceContext& sv(*it.second);
         // Not that the decimal service id is always built but ignored when the layout of the first column contains only one field.
-        grid.putLayout({{UString::Format(u"0x%X", {sv.service_id}), UString::Format(u"(%d)", {sv.service_id})},
+        grid.putLayout({{UString::Format(u"0x%X", sv.service_id), UString::Format(u"(%d)", sv.service_id)},
                         {sv.getName(), sv.scrambled_pid_cnt > 0 ? u"S" : u"C"},
-                        {sv.bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {sv.bitrate})}});
+                        {sv.bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", sv.bitrate)}});
     }
 
     grid.putLine();
@@ -318,7 +296,7 @@ void ts::TSAnalyzerReport::reportServiceHeader(Grid& grid, const UString& usage,
 
 void ts::TSAnalyzerReport::reportServiceSubtotal(Grid& grid, const UString& header, const UString& usage, bool scrambled, const BitRate& bitrate, const BitRate& ts_bitrate, bool wide) const
 {
-    grid.putLayout({{header, u""}, {usage, scrambled ? u"S " : u"C "}, {ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {bitrate})}});
+    grid.putLayout({{header, u""}, {usage, scrambled ? u"S " : u"C "}, {ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", bitrate)}});
 }
 
 
@@ -336,7 +314,7 @@ void ts::TSAnalyzerReport::reportServicePID(Grid& grid, const PIDContext& pc) co
         bool first = true;
         for (auto oui : pc.ssu_oui) {
             description += first ? u" (SSU " : u", ";
-            description += names::OUI(oui);
+            description += NameFromOUI(oui);
             first = false;
         }
         description += u")";
@@ -344,9 +322,9 @@ void ts::TSAnalyzerReport::reportServicePID(Grid& grid, const PIDContext& pc) co
 
     // PID line. Not that the decimal PID is always built but ignored when the layout
     // of the first column contains only one field (the hexa value).
-    grid.putLayout({{UString::Format(u"0x%X", {pc.pid}), UString::Format(u"(%d)", {pc.pid})},
+    grid.putLayout({{UString::Format(u"0x%X", pc.pid), UString::Format(u"(%d)", pc.pid)},
                     {description, access},
-                    {_ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {pc.bitrate})}});
+                    {_ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", pc.bitrate)}});
 }
 
 
@@ -366,10 +344,9 @@ void ts::TSAnalyzerReport::reportServices(Grid& grid, const UString& title)
     grid.putLine(u"SERVICES ANALYSIS REPORT", title);
 
     // Display global pids
-
     grid.section();
     grid.putLine(u"Global PID's");
-    grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", {_global_pkt_cnt, _global_pid_cnt, _global_pid_cnt - _global_scr_pids, _global_scr_pids}));
+    grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", _global_pkt_cnt, _global_pid_cnt, _global_pid_cnt - _global_scr_pids, _global_scr_pids));
     reportServiceHeader(grid, u"Global PID's", _global_scr_pids > 0, _global_bitrate, _ts_bitrate, wide);
     reportServiceSubtotal(grid, wide ? u"Subtotal" : u"Subt.", u"Global PSI/SI PID's (0x00-0x1F)", _psisi_scr_pids > 0, _psisi_bitrate, _ts_bitrate, wide);
 
@@ -381,11 +358,10 @@ void ts::TSAnalyzerReport::reportServices(Grid& grid, const UString& title)
     }
 
     // Display unreferenced pids
-
     if (_unref_pid_cnt > 0) {
         grid.section();
         grid.putLine(u"Unreferenced PID's");
-        grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", {_unref_pkt_cnt, _unref_pid_cnt, _unref_pid_cnt - _unref_scr_pids, _unref_scr_pids}));
+        grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", _unref_pkt_cnt, _unref_pid_cnt, _unref_pid_cnt - _unref_scr_pids, _unref_scr_pids));
         reportServiceHeader(grid, u"Unreferenced PID's", _unref_scr_pids > 0, _unref_bitrate, _ts_bitrate, wide);
 
         for (const auto& it : _pids) {
@@ -397,24 +373,27 @@ void ts::TSAnalyzerReport::reportServices(Grid& grid, const UString& title)
     }
 
     // Display list of services
-
     for (const auto& it : _services) {
 
         const ServiceContext& sv(*it.second);
         grid.section();
-        grid.putLine(UString::Format(u"Service: 0x%X (%d), TS: 0x%X (%d), Original Netw: 0x%X (%d)", {sv.service_id, sv.service_id, _ts_id, _ts_id, sv.orig_netw_id, sv.orig_netw_id}));
-        grid.putLine(UString::Format(u"Service name: %s, provider: %s", {sv.getName(), sv.getProvider()}));
+        grid.putLine(UString::Format(u"Service: %n", sv.service_id) +
+                     (_ts_id.has_value() ? UString::Format(u", TS: %n", *_ts_id) : UString()) +
+                     (sv.orig_netw_id.has_value() ? UString::Format(u", Original Netw: %n", *sv.orig_netw_id) : UString()));
+        grid.putLine(UString::Format(u"Service name: %s, provider: %s", sv.getName(), sv.getProvider()) +
+                     (sv.lcn.has_value() ? UString::Format(u", LCN: %d", *sv.lcn) : UString()) +
+                     (sv.hidden ? u" (hidden)" : u""));
         grid.putLine(u"Service type: " + names::ServiceType(sv.service_type, NamesFlags::FIRST));
-        grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", {sv.ts_pkt_cnt, sv.pid_cnt, sv.pid_cnt - sv.scrambled_pid_cnt, sv.scrambled_pid_cnt}));
+        grid.putLine(UString::Format(u"TS packets: %'d, PID's: %d (clear: %d, scrambled: %d)", sv.ts_pkt_cnt, sv.pid_cnt, sv.pid_cnt - sv.scrambled_pid_cnt, sv.scrambled_pid_cnt));
         grid.putLine(u"PMT PID: " +
-                     (sv.pmt_pid == 0 || sv.pmt_pid == PID_NULL ? u"Unknown in PAT" : UString::Format(u"0x%X (%d)", {sv.pmt_pid, sv.pmt_pid})) +
+                     (sv.pmt_pid == 0 || sv.pmt_pid == PID_NULL ? u"Unknown in PAT" : UString::Format(u"%n", sv.pmt_pid)) +
                      u", PCR PID: " +
-                     (sv.pcr_pid == 0 || sv.pcr_pid == PID_NULL ? u"None" : UString::Format(u"0x%X (%d)", {sv.pcr_pid, sv.pcr_pid})));
+                     (sv.pcr_pid == 0 || sv.pcr_pid == PID_NULL ? u"None" : UString::Format(u"%n", sv.pcr_pid)));
 
         // Display all PID's of this service
         reportServiceHeader(grid, names::ServiceType(sv.service_type), sv.scrambled_pid_cnt > 0, sv.bitrate, _ts_bitrate, wide);
-        for (auto pid_it = _pids.begin(); pid_it != _pids.end(); ++pid_it) {
-            const PIDContext& pc(*pid_it->second);
+        for (const auto& pid_it : _pids) {
+            const PIDContext& pc(*pid_it.second);
             if (Contains(pc.services, sv.service_id)) {
                 reportServicePID(grid, pc);
             }
@@ -435,9 +414,9 @@ void ts::TSAnalyzerReport::reportServices(Grid& grid, const UString& title)
 
 void ts::TSAnalyzerReport::reportServicesForPID(Grid& grid, const PIDContext& pc) const
 {
-    for (auto& serv_id : pc.services) {
+    for (const auto& serv_id : pc.services) {
         auto serv_it = _services.find(serv_id);
-        grid.putLine(UString::Format(u"Service: 0x%X (%d) %s", {serv_id, serv_id, serv_it == _services.end() ? UString() : serv_it->second->getName()}));
+        grid.putLine(UString::Format(u"Service: %n %s", serv_id, serv_it == _services.end() ? UString() : serv_it->second->getName()));
     }
 }
 
@@ -455,7 +434,7 @@ void ts::TSAnalyzerReport::reportPIDs(Grid& grid, const UString& title)
     grid.putLine(u"PIDS ANALYSIS REPORT", title);
 
     // Loop on all analyzed PID's.
-    for (auto& it : _pids) {
+    for (const auto& it : _pids) {
 
         // Get PID description, ignore if no packet was found.
         // A PID can be declared, in a PMT for instance, but has no traffic on it.
@@ -485,19 +464,19 @@ void ts::TSAnalyzerReport::reportPIDs(Grid& grid, const UString& title)
             crypto_period = u"Unknown";
         }
         else if (_ts_bitrate == 0) {
-            crypto_period = UString::Format(u"%d pkt", {pc.crypto_period});
+            crypto_period = UString::Format(u"%d pkt", pc.crypto_period);
         }
         else {
-            crypto_period = UString::Format(u"%d sec", {((pc.crypto_period * PKT_SIZE_BITS) / _ts_bitrate).toInt()});
+            crypto_period = UString::Format(u"%d sec", ((pc.crypto_period * PKT_SIZE_BITS) / _ts_bitrate).toInt());
         }
 
         // Header lines
         grid.section();
-        grid.putLine(UString::Format(u"PID: 0x%X (%d)", {pc.pid, pc.pid}), pc.fullDescription(false), false);
+        grid.putLine(UString::Format(u"PID: %n", pc.pid), pc.fullDescription(false), false);
 
         // Type of PES data, if available
         if (pc.same_stream_id) {
-            grid.putLine(u"PES stream id: " + names::StreamId(pc.pes_stream_id, NamesFlags::FIRST));
+            grid.putLine(u"PES stream id: " + NameFromDTV(u"pes.stream_id", pc.pes_stream_id, NamesFlags::FIRST));
         }
 
         // Audio/video attributes
@@ -512,7 +491,7 @@ void ts::TSAnalyzerReport::reportPIDs(Grid& grid, const UString& title)
 
         // List of System Software Update OUI's on this PID
         for (auto oui : pc.ssu_oui) {
-            grid.putLine(u"SSU OUI: " + names::OUI(oui, NamesFlags::FIRST));
+            grid.putLine(u"SSU OUI: " + NameFromOUI(oui, NamesFlags::FIRST));
         }
         grid.subSection();
 
@@ -521,7 +500,7 @@ void ts::TSAnalyzerReport::reportPIDs(Grid& grid, const UString& title)
         grid.putLayout({{pid_type}, {u"Transport:"}, {u"Discontinuities:"}});
 
         grid.setLayout({grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(21, u'.')});
-        grid.putLayout({{u"Bitrate:", _ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", {pc.bitrate})},
+        grid.putLayout({{u"Bitrate:", _ts_bitrate == 0 ? u"Unknown" : UString::Format(u"%'d b/s", pc.bitrate)},
                         {u"Packets:", UString::Decimal(pc.ts_pkt_cnt)},
                         {u"Expected:", UString::Decimal(pc.exp_discont)}});
         grid.putLayout({{u"Access:", pc.scrambled ? u"Scrambled" : u"Clear"},
@@ -535,13 +514,35 @@ void ts::TSAnalyzerReport::reportPIDs(Grid& grid, const UString& title)
 
         grid.setLayout({grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(21, u'.')});
         grid.putLayout({{pc.scrambled ? u"Inv.scramb.:" : u"", pc.scrambled ? UString::Decimal(pc.inv_ts_sc_cnt) : u""},
-                        {u"PCR:", UString::Decimal(pc.pcr_cnt)},
+                        {pc.ts_pcr_bitrate > 0 ? u"TSrate:" : u"", pc.ts_pcr_bitrate > 0 ? UString::Format(u"%'d b/s", pc.ts_pcr_bitrate) : u""},
                         {pc.carry_pes ? u"Packets:" : u"Unit start:", UString::Decimal(pc.carry_pes ? pc.pl_start_cnt : pc.unit_start_cnt)}});
 
         if (pc.ts_pcr_bitrate > 0 || pc.carry_pes) {
             grid.putLayout({{u""},
-                            {pc.ts_pcr_bitrate > 0 ? u"TSrate:" : u"", pc.ts_pcr_bitrate > 0 ? UString::Format(u"%'d b/s", {pc.ts_pcr_bitrate}) : u""},
+                            {u""},
                             {pc.carry_pes ? u"Inv.Start:" : u"", pc.carry_pes ? UString::Decimal(pc.inv_pes_start) : u""}});
+        }
+
+        const bool has_pcr = pc.first_pcr != INVALID_PCR;
+        const bool has_pts = pc.first_pts != INVALID_PTS;
+        const bool has_dts = pc.first_dts != INVALID_DTS;
+
+        if (has_pcr || has_pts || has_dts) {
+            grid.setLayout({grid.left(24), grid.left(24), grid.left(21)});
+            grid.putLayout({{u"Clock values range:"}});
+            grid.setLayout({grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(24, u'.'), grid.bothTruncateLeft(21, u'.')});
+            grid.putLayout({{has_pcr ? u"PCR:" : u"", has_pcr ? UString::Decimal(pc.pcr_cnt) : u""},
+                            {has_pts ? u"PTS:" : u"", has_pts ? UString::Decimal(pc.pts_cnt) : u""},
+                            {has_dts ? u"DTS:" : u"", has_dts ? UString::Decimal(pc.dts_cnt) : u""}});
+            grid.putLayout({{has_pcr ? u"from" : u"", has_pcr ? UString::Decimal(pc.first_pcr) : u""},
+                            {has_pts ? u"from" : u"", has_pts ? UString::Decimal(pc.first_pts) : u""},
+                            {has_dts ? u"from" : u"", has_dts ? UString::Decimal(pc.first_dts) : u""}});
+            grid.putLayout({{has_pcr ? u"to" : u"", has_pcr ? UString::Decimal(pc.last_pcr) : u""},
+                            {has_pts ? u"to" : u"", has_pts ? UString::Decimal(pc.last_pts) : u""},
+                            {has_dts ? u"to" : u"", has_dts ? UString::Decimal(pc.last_dts) : u""}});
+            grid.putLayout({{has_pcr ? u"Leaps:" : u"", has_pcr ? UString::Decimal(pc.pcr_leap_cnt) : u""},
+                            {has_pts ? u"Leaps:" : u"", has_pts ? UString::Decimal(pc.pts_leap_cnt) : u""},
+                            {has_dts ? u"Leaps:" : u"", has_dts ? UString::Decimal(pc.dts_leap_cnt) : u""}});
         }
     }
 
@@ -562,7 +563,7 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
     grid.putLine(u"TABLES & SECTIONS ANALYSIS REPORT", title);
 
     // Loop on all PID's
-    for (auto pid_it : _pids) {
+    for (const auto& pid_it : _pids) {
 
         // Get PID description, ignore if PID without sections
         const PIDContext& pc(*pid_it.second);
@@ -572,13 +573,13 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
 
         // Header line: PID
         grid.section();
-        grid.putLine(UString::Format(u"PID: 0x%X (%d)", {pc.pid, pc.pid}), pc.fullDescription(false), false);
+        grid.putLine(UString::Format(u"PID: %n", pc.pid), pc.fullDescription(false), false);
 
         // Header lines: list of services to which the PID belongs to
         reportServicesForPID(grid, pc);
 
         // Loop on all tables on this PID
-        for (auto& sec_it : pc.sections) {
+        for (const auto& sec_it : pc.sections) {
             const ETIDContext& etc(*sec_it.second);
             const TID tid = etc.etid.tid();
             const bool isShort = etc.etid.isShortSection();
@@ -588,9 +589,9 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
             uint64_t rep, min_rep, max_rep;
             if (_ts_bitrate != 0) {
                 unit = u" ms";
-                rep = PacketInterval(_ts_bitrate, etc.repetition_ts);
-                min_rep = PacketInterval(_ts_bitrate, etc.min_repetition_ts);
-                max_rep = PacketInterval(_ts_bitrate, etc.max_repetition_ts);
+                rep = PacketInterval(_ts_bitrate, etc.repetition_ts).count();
+                min_rep = PacketInterval(_ts_bitrate, etc.min_repetition_ts).count();
+                max_rep = PacketInterval(_ts_bitrate, etc.max_repetition_ts).count();
             }
             else {
                 unit = u" pkt";
@@ -606,7 +607,7 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
             bool first = true;
             for (size_t i = 0; i < etc.versions.size(); ++i) {
                 if (etc.versions.test(i)) {
-                    version_list.append(UString::Format(u"%s%d", {first ? u"" : u", ", i}));
+                    version_list.append(UString::Format(u"%s%d", first ? u"" : u", ", i));
                     first = false;
                 }
             }
@@ -623,16 +624,16 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
             // Header line: TID
             grid.subSection();
             grid.putLine(names::TID(_duck, tid, pc.cas_id, NamesFlags::BOTH_FIRST) +
-                         (isShort ? u"" : UString::Format(u", TID ext: 0x%X (%d)", {etc.etid.tidExt(), etc.etid.tidExt()})));
+                         (isShort ? u"" : UString::Format(u", TID ext: %n", etc.etid.tidExt())));
 
             // 4-columns output, first column remains empty.
             grid.setLayout({grid.left(2), grid.bothTruncateLeft(25, u'.'), grid.bothTruncateLeft(23, u'.'), grid.bothTruncateLeft(17, u'.')});
             grid.putLayout({{u""},
-                            {u"Repetition:", UString::Format(u"%d %s", {rep, unit})},
+                            {u"Repetition:", UString::Format(u"%d %s", rep, unit)},
                             {u"Section cnt:", UString::Decimal(etc.section_count)},
                             {version_count <= 1 ? u"": u"First version:", version_count <= 1 ? u"": UString::Decimal(etc.first_version)}});
             grid.putLayout({{u""},
-                            {u"Min repet.:", UString::Format(u"%d %s", {min_rep, unit})},
+                            {u"Min repet.:", UString::Format(u"%d %s", min_rep, unit)},
                             {isShort ? u"" : u"Table cnt:", isShort ? u"" : UString::Decimal(etc.table_count)},
                             {version_count <= 1 ? u"": u"Last version:", version_count <= 1 ? u"": UString::Decimal(etc.last_version)}});
             if (version_count > 3) {
@@ -640,7 +641,7 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
                 grid.setLayout({grid.left(2), grid.bothTruncateLeft(25, u'.'), grid.bothTruncateLeft(42, u'.')});
             }
             grid.putLayout({{u""},
-                            {u"Max repet.:", UString::Format(u"%d %s", {max_rep, unit})},
+                            {u"Max repet.:", UString::Format(u"%d %s", max_rep, unit)},
                             {version_title, version_list},
                             {u"", u""}});
         }
@@ -657,6 +658,7 @@ void ts::TSAnalyzerReport::reportTables(Grid& grid, const UString& title)
 void ts::TSAnalyzerReport::reportErrors(std::ostream& stm, const UString& title)
 {
     int error_count = 0;
+    const uint16_t tsid = _ts_id.value_or(0xFFFF);
 
     // Update the global statistics value if internal data were modified.
     recomputeStatistics();
@@ -666,92 +668,97 @@ void ts::TSAnalyzerReport::reportErrors(std::ostream& stm, const UString& title)
     if (!title.empty()) {
         stm << "TITLE: " << title << std::endl;
     }
-    if (_ts_id_valid) {
-        stm << UString::Format(u"INFO: Transport Stream Identifier: %d (0x%X)", {_ts_id, _ts_id}) << std::endl;
+    if (_ts_id.has_value()) {
+        stm << UString::Format(u"INFO: Transport Stream Identifier: %n", tsid) << std::endl;
     }
 
     // Report global errors
-
     if (_invalid_sync > 0) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: TS packets with invalid sync byte: %d", {_ts_id, _ts_id, _invalid_sync}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: TS packets with invalid sync byte: %d", tsid, _invalid_sync) << std::endl;
     }
     if (_transport_errors > 0) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: TS packets with transport error indicator: %d", {_ts_id, _ts_id, _transport_errors}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: TS packets with transport error indicator: %d", tsid, _transport_errors) << std::endl;
     }
     if (_suspect_ignored > 0) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: suspect TS packets, ignored: %d", {_ts_id, _ts_id, _suspect_ignored}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: suspect TS packets, ignored: %d", tsid, _suspect_ignored) << std::endl;
     }
     if (_unref_pid_cnt > 0) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: Unreferenced PID's: %d", {_ts_id, _ts_id, _unref_pid_cnt}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: Unreferenced PID's: %d", tsid, _unref_pid_cnt) << std::endl;
     }
 
     // Report missing standard DVB tables
-
     if (!_tid_present[TID_PAT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No PAT", {_ts_id, _ts_id}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No PAT", tsid) << std::endl;
     }
     if (_scrambled_pid_cnt > 0 && !_tid_present[TID_CAT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No CAT (%d scrambled PID's)", {_ts_id, _ts_id, _scrambled_pid_cnt}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No CAT (%d scrambled PID's)", tsid, _scrambled_pid_cnt) << std::endl;
     }
     if (!_tid_present[TID_SDT_ACT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No SDT Actual", {_ts_id, _ts_id}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No SDT Actual", tsid) << std::endl;
     }
     if (!_tid_present[TID_BAT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No BAT", {_ts_id, _ts_id}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No BAT", tsid) << std::endl;
     }
     if (!_tid_present[TID_TDT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No TDT", {_ts_id, _ts_id}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No TDT", tsid) << std::endl;
     }
     if (!_tid_present[TID_TOT]) {
         error_count++;
-        stm << UString::Format(u"TS:%d:0x%X: No TOT", {_ts_id, _ts_id}) << std::endl;
+        stm << UString::Format(u"TS:%d:0x%<X: No TOT", tsid) << std::endl;
     }
 
     // Report error per PID
-
     for (auto& pid_it : _pids) {
         const PIDContext& pc(*pid_it.second);
         if (pc.exp_discont > 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: Discontinuities (expected): %d", {pc.pid, pc.pid, pc.exp_discont}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: Discontinuities (expected): %d", pc.pid, pc.exp_discont) << std::endl;
         }
         if (pc.unexp_discont > 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: Discontinuities (unexpected): %d", {pc.pid, pc.pid, pc.unexp_discont}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: Discontinuities (unexpected): %d", pc.pid, pc.unexp_discont) << std::endl;
         }
         if (pc.duplicated > 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: Duplicated TS packets: %d", {pc.pid, pc.pid, pc.duplicated}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: Duplicated TS packets: %d", pc.pid, pc.duplicated) << std::endl;
         }
         if (pc.inv_ts_sc_cnt > 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: Invalid scrambling control values: %d", {pc.pid, pc.pid, pc.inv_ts_sc_cnt}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: Invalid scrambling control values: %d", pc.pid, pc.inv_ts_sc_cnt) << std::endl;
         }
         if (pc.carry_pes && pc.inv_pes_start > 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: Invalid PES header start codes: %d", {pc.pid, pc.pid, pc.inv_pes_start}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: Invalid PES header start codes: %d", pc.pid, pc.inv_pes_start) << std::endl;
+        }
+        if (pc.carry_pes && pc.inv_pes > 0) {
+            error_count++;
+            stm << UString::Format(u"PID:%d:0x%<X: Invalid PES packets: %d", pc.pid, pc.inv_pes) << std::endl;
+        }
+        if (pc.carry_section && pc.inv_sections > 0) {
+            error_count++;
+            stm << UString::Format(u"PID:%d:0x%<X: Invalid sections: %d", pc.pid, pc.inv_sections) << std::endl;
         }
         if (pc.is_pmt_pid && pc.pmt_cnt == 0) {
             assert(!pc.services.empty());
             int service_id(*(pc.services.begin()));
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: No PMT (PMT PID of service %d, 0x%X)", {pc.pid, pc.pid, service_id, service_id}) << std::endl;
+            stm << UString::Format(u"PID:%d:0x%<X: No PMT (PMT PID of service %d, 0x%<X)", pc.pid, service_id) << std::endl;
         }
         if (pc.is_pcr_pid && pc.pcr_cnt == 0) {
             error_count++;
-            stm << UString::Format(u"PID:%d:0x%X: No PCR, PCR PID of service%s", {pc.pid, pc.pid, pc.services.size() > 1 ? u"s" : u""});
+            stm << UString::Format(u"PID:%d:0x%<X: No PCR, PCR PID of service%s", pc.pid, pc.services.size() > 1 ? u"s" : u"");
             bool first = true;
             for (auto& srv : pc.services) {
-                stm << (first ? "" : ",") << UString::Format(u" %d (0x%<X)", {srv});
+                stm << (first ? "" : ",") << UString::Format(u" %n", srv);
                 first = false;
             }
             stm << std::endl;
@@ -759,7 +766,6 @@ void ts::TSAnalyzerReport::reportErrors(std::ostream& stm, const UString& title)
     }
 
     // Summary
-
     stm << "SUMMARY: Error count: " << error_count << std::endl;
 }
 
@@ -773,9 +779,9 @@ void ts::TSAnalyzerReport::reportNormalizedTime(std::ostream& stm, const Time& t
     if (time != Time::Epoch) {
         const Time::Fields f(time);
         stm << type << ":"
-            << UString::Format(u"date=%02d/%02d/%04d:", {f.day, f.month, f.year})
-            << UString::Format(u"time=%02dh%02dm%02ds:", {f.hour, f.minute, f.second})
-            << "secondsince2000=" << ((time - Time(2000, 1, 1, 0, 0, 0)) / MilliSecPerSec) << ":";
+            << UString::Format(u"date=%02d/%02d/%04d:", f.day, f.month, f.year)
+            << UString::Format(u"time=%02dh%02dm%02ds:", f.hour, f.minute, f.second)
+            << "secondsince2000=" << cn::duration_cast<cn::seconds>(time - Time(2000, 1, 1, 0, 0, 0)).count() << ":";
         if (!country.empty()) {
             stm << "country=" << country << ":";
         }
@@ -798,8 +804,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
 
     // Print one line with transport stream description
     stm << "ts:";
-    if (_ts_id_valid) {
-        stm << "id=" << _ts_id << ":";
+    if (_ts_id.has_value()) {
+        stm << "id=" << *_ts_id << ":";
     }
     stm << "services=" << _services.size() << ":"
         << "clearservices=" << (_services.size() - _scrambled_services_cnt) << ":"
@@ -820,7 +826,7 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         << "userbitrate204=" << ToBitrate204(_ts_user_bitrate).toInt() << ":"
         << "pcrbitrate=" << _ts_pcr_bitrate_188.toInt() << ":"
         << "pcrbitrate204=" << _ts_pcr_bitrate_204.toInt() << ":"
-        << "duration=" << (_duration / 1000) << ":";
+        << "duration=" << cn::duration_cast<cn::seconds>(_duration).count() << ":";
     if (!_country_code.empty()) {
         stm << "country=" << _country_code << ":";
     }
@@ -849,8 +855,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         << "access=" << (_global_scr_pids > 0 ? "scrambled" : "clear") << ":"
         << "pidlist=";
     bool first = true;
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc(*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc(*it.second);
         if (pc.referenced && pc.services.size() == 0 && (pc.ts_pkt_cnt != 0 || !pc.optional)) {
             stm << (first ? "" : ",") << pc.pid;
             first = false;
@@ -869,8 +875,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         << "access=" << (_unref_scr_pids > 0 ? "scrambled" : "clear") << ":"
         << "pidlist=";
     first = true;
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc (*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc (*it.second);
         if (!pc.referenced && (pc.ts_pkt_cnt != 0 || !pc.optional)) {
             stm << (first ? "" : ",") << pc.pid;
             first = false;
@@ -879,50 +885,56 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
     stm << ":" << std::endl;
 
     // Print one line per service
-    for (auto it = _services.begin(); it != _services.end(); ++it) {
-        const ServiceContext& sv(*it->second);
-        stm << "service:"
-            << "id=" << sv.service_id << ":"
-            << "tsid=" << _ts_id << ":"
-            << "orignetwid=" << sv.orig_netw_id << ":"
-            << "access=" << (sv.scrambled_pid_cnt > 0 ? "scrambled" : "clear") << ":"
-            << "pids=" << sv.pid_cnt << ":"
-            << "clearpids=" << (sv.pid_cnt - sv.scrambled_pid_cnt) << ":"
-            << "scrambledpids=" << sv.scrambled_pid_cnt << ":"
-            << "packets=" << sv.ts_pkt_cnt << ":"
-            << "bitrate=" << sv.bitrate.toInt() << ":"
-            << "bitrate204=" << ToBitrate204(sv.bitrate).toInt() << ":"
-            << "servtype=" << int(sv.service_type) << ":";
+    for (const auto& it : _services) {
+        const ServiceContext& sv(*it.second);
+        stm << "service:id=" << sv.service_id;
+        if (_ts_id.has_value()) {
+            stm << ":tsid=" << *_ts_id;
+        }
+        if (sv.orig_netw_id.has_value()) {
+            stm << ":orignetwid=" << *sv.orig_netw_id;
+        }
+        if (sv.lcn.has_value()) {
+            stm << ":lcn=" << *sv.lcn;
+        }
+        stm << ":access=" << (sv.scrambled_pid_cnt > 0 ? "scrambled" : "clear")
+            << ":pids=" << sv.pid_cnt
+            << ":clearpids=" << (sv.pid_cnt - sv.scrambled_pid_cnt)
+            << ":scrambledpids=" << sv.scrambled_pid_cnt
+            << ":packets=" << sv.ts_pkt_cnt
+            << ":bitrate=" << sv.bitrate.toInt()
+            << ":bitrate204=" << ToBitrate204(sv.bitrate).toInt()
+            << ":servtype=" << int(sv.service_type);
+        if (sv.hidden) {
+            stm << ":hidden";
+        }
         if (sv.carry_ssu) {
-            stm << "ssu:";
+            stm << ":ssu";
         }
         if (sv.carry_t2mi) {
-            stm << "t2mi:";
+            stm << ":t2mi";
         }
         if (sv.pmt_pid != 0) {
-            stm << "pmtpid=" << sv.pmt_pid << ":";
+            stm << ":pmtpid=" << sv.pmt_pid;
         }
         if (sv.pcr_pid != 0 && sv.pcr_pid != PID_NULL) {
-            stm << "pcrpid=" << sv.pcr_pid << ":";
+            stm << ":pcrpid=" << sv.pcr_pid;
         }
-        stm << "pidlist=";
+        stm << ":pidlist=";
         first = true;
-        for (auto it_pid = _pids.begin(); it_pid != _pids.end(); ++it_pid) {
-            if (it_pid->second->services.count(sv.service_id) != 0) {
+        for (const auto& it_pid : _pids) {
+            if (it_pid.second->services.count(sv.service_id) != 0) {
                 // This PID belongs to the service
-                stm << (first ? "" : ",") << it_pid->first;
+                stm << (first ? "" : ",") << it_pid.first;
                 first = false;
             }
         }
-        stm << ":"
-            << "provider=" << sv.getProvider() << ":"
-            << "name=" << sv.getName()
-            << std::endl;
+        stm << ":provider=" << sv.getProvider() << ":name=" << sv.getName() << std::endl;
     }
 
     // Print one line per PID
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc(*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc(*it.second);
         if (pc.ts_pkt_cnt == 0 && pc.optional) {
             continue;
         }
@@ -939,8 +951,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         if (pc.cas_id != 0) {
             stm << "cas=" << pc.cas_id << ":";
         }
-        for (auto it2 = pc.cas_operators.begin(); it2 != pc.cas_operators.end(); ++it2) {
-            stm << "operator=" << (*it2) << ":";
+        for (const auto& it2 : pc.cas_operators) {
+            stm << "operator=" << it2 << ":";
         }
         stm << "access=" << (pc.scrambled ? "scrambled" : "clear") << ":";
         if (pc.crypto_period != 0 && _ts_bitrate != 0) {
@@ -967,8 +979,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         }
         else {
             first = true;
-            for (auto it1 = pc.services.begin(); it1 != pc.services.end(); ++it1) {
-                stm << (first ? "servlist=" : ",") << *it1;
+            for (const auto& it1 : pc.services) {
+                stm << (first ? "servlist=" : ",") << it1;
                 first = false;
             }
             if (!first) {
@@ -976,8 +988,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
             }
         }
         first = true;
-        for (auto it1 = pc.ssu_oui.begin(); it1 != pc.ssu_oui.end(); ++it1) {
-            stm << (first ? "ssuoui=" : ",") << *it1;
+        for (const auto& it1 : pc.ssu_oui) {
+            stm << (first ? "ssuoui=" : ",") << it1;
             first = false;
         }
         if (!first) {
@@ -986,8 +998,8 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         if (pc.carry_t2mi) {
             stm << "t2mi:";
             first = true;
-            for (auto it1 = pc.t2mi_plp_ts.begin(); it1 != pc.t2mi_plp_ts.end(); ++it1) {
-                stm << (first ? "plp=" : ",") << int(it1->first);
+            for (const auto& it1 : pc.t2mi_plp_ts) {
+                stm << (first ? "plp=" : ",") << int(it1.first);
                 first = false;
             }
             if (!first) {
@@ -1002,6 +1014,11 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
             << "invalidscrambling=" << pc.inv_ts_sc_cnt << ":"
             << "af=" << pc.ts_af_cnt << ":"
             << "pcr=" << pc.pcr_cnt << ":"
+            << "pts=" << pc.pts_cnt << ":"
+            << "dts=" << pc.dts_cnt << ":"
+            << "pcrleap=" << pc.pcr_leap_cnt << ":"
+            << "ptsleap=" << pc.pts_leap_cnt << ":"
+            << "dtsleap=" << pc.dts_leap_cnt << ":"
             << "discontinuities=" << pc.unexp_discont << ":"
             << "duplicated=" << pc.duplicated << ":";
         if (pc.carry_pes) {
@@ -1011,14 +1028,23 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
         else {
             stm << "unitstart=" << pc.unit_start_cnt << ":";
         }
+        if (pc.first_pcr != INVALID_PCR) {
+            stm << "firstpcr=" << pc.first_pcr << ":lastpcr=" << pc.last_pcr << ":";
+        }
+        if (pc.first_pts != INVALID_PTS) {
+            stm << "firstpts=" << pc.first_pts << ":lastpts=" << pc.last_pts << ":";
+        }
+        if (pc.first_dts != INVALID_DTS) {
+            stm << "firstdts=" << pc.first_dts << ":lastdts=" << pc.last_dts << ":";
+        }
         stm << "description=" << pc.fullDescription(true) << std::endl;
     }
 
     // Print one line per table
-    for (auto pci = _pids.begin(); pci != _pids.end(); ++pci) {
-        const PIDContext& pc(*pci->second);
-        for (auto it = pc.sections.begin(); it != pc.sections.end(); ++it) {
-            const ETIDContext& etc(*it->second);
+    for (const auto& pci : _pids) {
+        const PIDContext& pc(*pci.second);
+        for (const auto& it : pc.sections) {
+            const ETIDContext& etc(*it.second);
             stm << "table:"
                 << "pid=" << pc.pid << ":"
                 << "tid=" << int(etc.etid.tid()) << ":";
@@ -1031,9 +1057,9 @@ void ts::TSAnalyzerReport::reportNormalized(TSAnalyzerOptions& opt, std::ostream
                 << "minrepetitionpkt=" << etc.min_repetition_ts << ":"
                 << "maxrepetitionpkt=" << etc.max_repetition_ts << ":";
             if (_ts_bitrate != 0) {
-                stm << "repetitionms=" << PacketInterval(_ts_bitrate, etc.repetition_ts) << ":"
-                    << "minrepetitionms=" << PacketInterval(_ts_bitrate, etc.min_repetition_ts) << ":"
-                    << "maxrepetitionms=" << PacketInterval(_ts_bitrate, etc.max_repetition_ts) << ":";
+                stm << "repetitionms=" << PacketInterval(_ts_bitrate, etc.repetition_ts).count() << ":"
+                    << "minrepetitionms=" << PacketInterval(_ts_bitrate, etc.min_repetition_ts).count() << ":"
+                    << "maxrepetitionms=" << PacketInterval(_ts_bitrate, etc.max_repetition_ts).count() << ":";
             }
             if (etc.versions.any()) {
                 stm << "firstversion=" << int(etc.first_version) << ":"
@@ -1072,8 +1098,8 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
     }
 
     // Add transport stream description
-    if (_ts_id_valid) {
-        root.query(u"ts", true).add(u"id", _ts_id);
+    if (_ts_id.has_value()) {
+        root.query(u"ts", true).add(u"id", *_ts_id);
     }
     root.query(u"ts", true).add(u"bytes", PKT_SIZE * _ts_pkt_cnt);
     root.query(u"ts", true).add(u"bitrate", _ts_bitrate.toInt());
@@ -1082,7 +1108,7 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
     root.query(u"ts", true).add(u"user-bitrate-204", ToBitrate204(_ts_user_bitrate).toInt());
     root.query(u"ts", true).add(u"pcr-bitrate", _ts_pcr_bitrate_188.toInt());
     root.query(u"ts", true).add(u"pcr-bitrate-204", _ts_pcr_bitrate_204.toInt());
-    root.query(u"ts", true).add(u"duration", _duration / 1000);
+    root.query(u"ts", true).add(u"duration", cn::duration_cast<cn::seconds>(_duration).count());
     if (!_country_code.empty()) {
         root.query(u"ts", true).add(u"country", _country_code);
     }
@@ -1111,8 +1137,8 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
     root.query(u"ts.pids.global", true).add(u"bitrate", _global_bitrate.toInt());
     root.query(u"ts.pids.global", true).add(u"bitrate-204", ToBitrate204(_global_bitrate).toInt());
     root.query(u"ts.pids.global", true).add(u"is-scrambled", json::Bool(_global_scr_pids > 0));
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc(*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc(*it.second);
         if (pc.referenced && pc.services.size() == 0 && (pc.ts_pkt_cnt != 0 || !pc.optional)) {
             root.query(u"ts.pids.global.pids", true, json::Type::Array).set(pc.pid);
         }
@@ -1126,8 +1152,8 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
     root.query(u"ts.pids.unreferenced", true).add(u"bitrate", _unref_bitrate.toInt());
     root.query(u"ts.pids.unreferenced", true).add(u"bitrate-204", ToBitrate204(_unref_bitrate).toInt());
     root.query(u"ts.pids.unreferenced", true).add(u"is-scrambled", json::Bool(_unref_scr_pids > 0));
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc (*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc (*it.second);
         if (!pc.referenced && (pc.ts_pkt_cnt != 0 || !pc.optional)) {
             root.query(u"ts.pids.unreferenced.pids", true, json::Type::Array).set(pc.pid);
         }
@@ -1148,16 +1174,23 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
     }
 
     // One node per service
-    for (auto it = _services.begin(); it != _services.end(); ++it) {
-        const ServiceContext& sv(*it->second);
+    for (const auto& it : _services) {
+        const ServiceContext& sv(*it.second);
         json::Value& jv(root.query(u"services[]", true));
         jv.add(u"id", sv.service_id);
         jv.add(u"provider", sv.getProvider());
         jv.add(u"name", sv.getName());
         jv.add(u"type", sv.service_type);
-        jv.add(u"type-name", names::StreamType(sv.service_type));
-        jv.add(u"tsid", _ts_id);
-        jv.add(u"original-network-id", sv.orig_netw_id);
+        jv.add(u"type-name", names::ServiceType(sv.service_type));
+        if (_ts_id.has_value()) {
+            jv.add(u"tsid", *_ts_id);
+        }
+        if (sv.orig_netw_id.has_value()) {
+            jv.add(u"original-network-id", *sv.orig_netw_id);
+        }
+        if (sv.lcn.has_value()) {
+            jv.add(u"lcn", *sv.lcn);
+        }
         jv.add(u"is-scrambled", json::Bool(sv.scrambled_pid_cnt > 0));
         jv.query(u"components", true).add(u"total", sv.pid_cnt);
         jv.query(u"components", true).add(u"clear", sv.pid_cnt - sv.scrambled_pid_cnt);
@@ -1165,6 +1198,7 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         jv.add(u"packets", sv.ts_pkt_cnt);
         jv.add(u"bitrate", sv.bitrate.toInt());
         jv.add(u"bitrate-204", ToBitrate204(sv.bitrate).toInt());
+        jv.add(u"hidden", json::Bool(sv.hidden));
         jv.add(u"ssu", json::Bool(sv.carry_ssu));
         jv.add(u"t2mi", json::Bool(sv.carry_t2mi));
         if (sv.pmt_pid != 0) {
@@ -1173,17 +1207,17 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         if (sv.pcr_pid != 0 && sv.pcr_pid != PID_NULL) {
             jv.add(u"pcr-pid", sv.pcr_pid);
         }
-        for (auto it_pid = _pids.begin(); it_pid != _pids.end(); ++it_pid) {
-            if (it_pid->second->services.count(sv.service_id) != 0) {
+        for (const auto& it_pid : _pids) {
+            if (it_pid.second->services.count(sv.service_id) != 0) {
                 // This PID belongs to the service
-                jv.query(u"pids", true, json::Type::Array).set(it_pid->first);
+                jv.query(u"pids", true, json::Type::Array).set(it_pid.first);
             }
         }
     }
 
     // One node per PID
-    for (auto it = _pids.begin(); it != _pids.end(); ++it) {
-        const PIDContext& pc(*it->second);
+    for (const auto& it : _pids) {
+        const PIDContext& pc(*it.second);
         if (pc.ts_pkt_cnt == 0 && pc.optional) {
             continue;
         }
@@ -1198,8 +1232,8 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         if (pc.cas_id != 0) {
             jv.add(u"cas", pc.cas_id);
         }
-        for (auto it2 = pc.cas_operators.begin(); it2 != pc.cas_operators.end(); ++it2) {
-            jv.query(u"operators", true, json::Type::Array).set(*it2);
+        for (const auto& it2 : pc.cas_operators) {
+            jv.query(u"operators", true, json::Type::Array).set(it2);
         }
         jv.add(u"is-scrambled", json::Bool(pc.scrambled));
         if (pc.crypto_period != 0 && _ts_bitrate != 0) {
@@ -1219,15 +1253,15 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         jv.add(u"service-count", pc.services.size());
         jv.add(u"unreferenced", json::Bool(!pc.referenced));
         jv.add(u"global", json::Bool(pc.services.size() == 0));
-        for (auto it1 = pc.services.begin(); it1 != pc.services.end(); ++it1) {
-            jv.query(u"services", true, json::Type::Array).set(*it1);
+        for (const auto& it1 : pc.services) {
+            jv.query(u"services", true, json::Type::Array).set(it1);
         }
-        for (auto it1 = pc.ssu_oui.begin(); it1 != pc.ssu_oui.end(); ++it1) {
-            jv.query(u"ssu-oui", true, json::Type::Array).set(*it1);
+        for (const auto& it1 : pc.ssu_oui) {
+            jv.query(u"ssu-oui", true, json::Type::Array).set(it1);
         }
         jv.add(u"t2mi", json::Bool(pc.carry_t2mi));
-        for (auto it1 = pc.t2mi_plp_ts.begin(); it1 != pc.t2mi_plp_ts.end(); ++it1) {
-            jv.query(u"plp", true, json::Type::Array).set(it1->first);
+        for (const auto& it1 : pc.t2mi_plp_ts) {
+            jv.query(u"plp", true, json::Type::Array).set(it1.first);
         }
         jv.add(u"bitrate", pc.bitrate.toInt());
         jv.add(u"bitrate-204", ToBitrate204(pc.bitrate).toInt());
@@ -1237,6 +1271,11 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         jv.query(u"packets", true).add(u"invalid-scrambling", pc.inv_ts_sc_cnt);
         jv.query(u"packets", true).add(u"af", pc.ts_af_cnt);
         jv.query(u"packets", true).add(u"pcr", pc.pcr_cnt);
+        jv.query(u"packets", true).add(u"pts", pc.pts_cnt);
+        jv.query(u"packets", true).add(u"dts", pc.dts_cnt);
+        jv.query(u"packets", true).add(u"pcr-leap", pc.pcr_leap_cnt);
+        jv.query(u"packets", true).add(u"pts-leap", pc.pts_leap_cnt);
+        jv.query(u"packets", true).add(u"dts-leap", pc.dts_leap_cnt);
         jv.query(u"packets", true).add(u"discontinuities", pc.unexp_discont);
         jv.query(u"packets", true).add(u"duplicated", pc.duplicated);
         if (pc.carry_pes) {
@@ -1246,13 +1285,25 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
         else {
             jv.add(u"unit-start", pc.unit_start_cnt);
         }
+        if (pc.first_pcr != INVALID_PCR) {
+            jv.add(u"first-pcr", pc.first_pcr);
+            jv.add(u"last-pcr", pc.last_pcr);
+        }
+        if (pc.first_pts != INVALID_PTS) {
+            jv.add(u"first-pts", pc.first_pts);
+            jv.add(u"last-pts", pc.last_pts);
+        }
+        if (pc.first_dts != INVALID_DTS) {
+            jv.add(u"first-dts", pc.first_dts);
+            jv.add(u"last-dts", pc.last_dts);
+        }
     }
 
     // One node per table
-    for (auto pci = _pids.begin(); pci != _pids.end(); ++pci) {
-        const PIDContext& pc(*pci->second);
-        for (auto it = pc.sections.begin(); it != pc.sections.end(); ++it) {
-            const ETIDContext& etc(*it->second);
+    for (const auto& pci : _pids) {
+        const PIDContext& pc(*pci.second);
+        for (const auto& it : pc.sections) {
+            const ETIDContext& etc(*it.second);
             json::Value& jv(root.query(u"tables[]", true));
             jv.add(u"pid", pc.pid);
             jv.add(u"tid", etc.etid.tid());
@@ -1265,9 +1316,9 @@ void ts::TSAnalyzerReport::reportJSON(TSAnalyzerOptions& opt, std::ostream& stm,
             jv.add(u"min-repetition-pkt", etc.min_repetition_ts);
             jv.add(u"max-repetition-pkt", etc.max_repetition_ts);
             if (_ts_bitrate != 0) {
-                jv.add(u"repetition-ms", PacketInterval(_ts_bitrate, etc.repetition_ts));
-                jv.add(u"min-repetition-ms", PacketInterval(_ts_bitrate, etc.min_repetition_ts));
-                jv.add(u"max-repetition-ms", PacketInterval(_ts_bitrate, etc.max_repetition_ts));
+                jv.add(u"repetition-ms", PacketInterval(_ts_bitrate, etc.repetition_ts).count());
+                jv.add(u"min-repetition-ms", PacketInterval(_ts_bitrate, etc.min_repetition_ts).count());
+                jv.add(u"max-repetition-ms", PacketInterval(_ts_bitrate, etc.max_repetition_ts).count());
             }
             if (etc.versions.any()) {
                 jv.add(u"first-version", etc.first_version);
@@ -1296,7 +1347,7 @@ void ts::TSAnalyzerReport::jsonTime(json::Value& parent, const UString& path, co
         json::Value& tm(parent.query(path, true));
         tm.add(u"date", time.format(Time::DATE));
         tm.add(u"time", time.format(Time::TIME | Time::MILLISECOND));
-        tm.add(u"seconds-since-2000", (time - Time(2000, 1, 1, 0, 0, 0)) / MilliSecPerSec);
+        tm.add(u"seconds-since-2000", cn::duration_cast<cn::seconds>(time - Time(2000, 1, 1, 0, 0, 0)).count());
         if (!country.empty()) {
             tm.add(u"country", country);
         }

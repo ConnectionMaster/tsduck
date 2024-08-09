@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 //!
@@ -36,8 +15,6 @@
 
 #pragma once
 #include "tsByteBlock.h"
-#include "tsMutex.h"
-#include "tsCondition.h"
 #include "tsReport.h"
 #include "tsDirectShow.h"
 
@@ -122,14 +99,13 @@ namespace ts {
         //! Read data from transport stream.
         //! @param [out] buffer Address of returned TS packet buffer.
         //! @param [in] buffer_size Size in bytes of the @a buffer.
-        //! @param [in] timeout Read timeout in milliseconds.
-        //! If timeout is not infinite and no packet has been read
-        //! within this timeout, return zero.
+        //! @param [in] timeout Read timeout in milliseconds. Ignored if zero or negative.
+        //! If timeout is positive and no packet has been read within this timeout, return zero.
         //! @return The size in bytes of the data returned in buffer.
         //! Always return a multiple of 188, complete TS packets.
         //! Return zero on error or end of stream.
         //!
-        size_t Read(void* buffer, size_t buffer_size, MilliSecond timeout = Infinite);
+        size_t Read(void* buffer, size_t buffer_size, cn::milliseconds timeout = cn::milliseconds::zero());
 
         //!
         //! Abort a blocked Read() operation.
@@ -167,18 +143,18 @@ namespace ts {
 
     private:
         friend class SinkPin;
-        Mutex            _mutex;             // Protect access to all private members
-        Condition        _not_empty;         // Signaled when some message is inserted
-        std::deque <::IMediaSample*> _queue; // Queue of input
-        size_t           _max_messages;
-        ByteBlock        _sample_buffer;     // Collected media samples
-        size_t           _sample_offset;     // Next offset in _sample_buffer
-        Report&          _report;
-        ::LONG volatile  _ref_count;
-        ::FILTER_STATE   _state;
-        ::IFilterGraph*  _graph;
-        SinkPin*         _pin;
-        ::MPEG2_TRANSPORT_STRIDE _stride;    // Description of packet structure
+        std::timed_mutex            _mutex {};          // Protect access to all private members
+        std::condition_variable_any _not_empty {};      // Signaled when some message is inserted
+        std::deque<::IMediaSample*> _queue {};          // Queue of input
+        size_t                      _max_messages = 0;
+        ByteBlock                   _sample_buffer {};  // Collected media samples
+        size_t                      _sample_offset = 0; // Next offset in _sample_buffer
+        Report&                     _report;
+        ::LONG volatile             _ref_count = 1;
+        ::FILTER_STATE              _state = ::State_Stopped;
+        ::IFilterGraph*             _graph = nullptr;
+        SinkPin*                    _pin = nullptr;
+        ::MPEG2_TRANSPORT_STRIDE    _stride {};         // Description of packet structure
 
         //!
         //! Fill the user's buffer with data from media samples in _sample_buffer.

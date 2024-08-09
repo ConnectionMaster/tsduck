@@ -1,37 +1,27 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsIPv6Address.h"
+#include "tsUString.h"
+#include "tsMemory.h"
 
 // Local host address
 const ts::IPv6Address ts::IPv6Address::AnyAddress;
 const ts::IPv6Address ts::IPv6Address::LocalHost(0, 0, 0, 0, 0, 0, 0, 1);
+
+
+//----------------------------------------------------------------------------
+// Constructors and destructors
+//----------------------------------------------------------------------------
+
+ts::IPv6Address::~IPv6Address()
+{
+}
 
 
 //----------------------------------------------------------------------------
@@ -50,7 +40,7 @@ void ts::IPv6Address::clearAddress()
 
 bool ts::IPv6Address::hasAddress() const
 {
-    return ::memcmp(_bytes, AnyAddress._bytes, sizeof(_bytes)) != 0;
+    return !MemEqual(_bytes, AnyAddress._bytes, sizeof(_bytes));
 }
 
 bool ts::IPv6Address::isMulticast() const
@@ -64,7 +54,7 @@ size_t ts::IPv6Address::getAddress(void* addr, size_t size) const
         return 0;
     }
     else {
-        ::memcpy(addr, _bytes, BYTES);
+        MemCopy(addr, _bytes, BYTES);
         return BYTES;
     }
 }
@@ -77,13 +67,13 @@ bool ts::IPv6Address::setAddress(const void *addr, size_t size)
     }
     else if (size >= BYTES) {
         // Ignore extra bytes, if any.
-        ::memcpy(_bytes, addr, BYTES);
+        MemCopy(_bytes, addr, BYTES);
         return true;
     }
     else {
         // Truncated address, pad MSB with zeroes.
         TS_ZERO(_bytes);
-        ::memcpy(_bytes + BYTES - size, addr, size);
+        MemCopy(_bytes + BYTES - size, addr, size);
         return false;
     }
 }
@@ -134,8 +124,8 @@ bool ts::IPv6Address::match(const IPv6Address& other) const
 ts::UString ts::IPv6Address::toFullString() const
 {
     return UString::Format(u"%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
-                           {hexlet(0), hexlet(1), hexlet(2), hexlet(3),
-                            hexlet(4), hexlet(5), hexlet(6), hexlet(7)});
+                           hexlet(0), hexlet(1), hexlet(2), hexlet(3),
+                           hexlet(4), hexlet(5), hexlet(6), hexlet(7));
 }
 
 ts::UString ts::IPv6Address::toString() const
@@ -171,7 +161,7 @@ ts::UString ts::IPv6Address::toString() const
             if (!result.empty() && result.back() != u':') {
                 result.append(u':');
             }
-            result.append(UString::Format(u"%1x", {GetUInt16(_bytes + i)}));
+            result.append(UString::Format(u"%1x", GetUInt16(_bytes + i)));
             i += 2;
         }
     }
@@ -224,7 +214,7 @@ bool ts::IPv6Address::resolve(const UString& name, Report& report)
                 const size_t zCount = 8 + first - last;
                 ok = zCount > 0;
                 if (ok) {
-                    ::memset(_bytes + bytesIndex, 0, 2 * zCount);
+                    MemZero(_bytes + bytesIndex, 2 * zCount);
                     bytesIndex += 2 * zCount;
                 }
             }
@@ -232,7 +222,7 @@ bool ts::IPv6Address::resolve(const UString& name, Report& report)
         else {
             // Found a standard hexlet.
             uint16_t hl = 0; // hexlet
-            ok = fields[i].size() <= 4 && fields[i].scan(u"%x", {&hl});
+            ok = fields[i].size() <= 4 && fields[i].scan(u"%x", &hl);
             if (ok) {
                 PutUInt16(_bytes + bytesIndex, hl);
                 bytesIndex += 2;
@@ -245,7 +235,7 @@ bool ts::IPv6Address::resolve(const UString& name, Report& report)
 
     // Erase in case of error.
     if (!ok) {
-        report.error(u"invalid IPv6 address '%s'", {name});
+        report.error(u"invalid IPv6 address '%s'", name);
         clear();
     }
     return ok;

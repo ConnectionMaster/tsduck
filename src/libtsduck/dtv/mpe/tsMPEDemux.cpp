@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -42,11 +21,7 @@
 ts::MPEDemux::MPEDemux(DuckContext& duck, MPEHandlerInterface* mpe_handler, const PIDSet& pid_filter) :
     SuperClass(duck, pid_filter),
     _handler(mpe_handler),
-    _psi_demux(duck, this, this),
-    _ts_id(0),
-    _pmts(),
-    _new_pids(),
-    _int_tags()
+    _psi_demux(duck, this, this)
 {
     immediateReset();
 }
@@ -172,7 +147,7 @@ void ts::MPEDemux::handleTable(SectionDemux& demux, const BinaryTable& table)
 
         case TID_PMT: {
             PMTPtr pmt(new PMT(_duck, table));
-            if (!pmt.isNull() && pmt->isValid()) {
+            if (pmt != nullptr && pmt->isValid()) {
                 // Keep track of all PMT's in the TS.
                 _pmts[pmt->service_id] = pmt;
                 // Process content of the PMT.
@@ -210,7 +185,7 @@ void ts::MPEDemux::processPMT(const PMT& pmt)
 
         // Loop on all data_broadcast_id_descriptors for the component.
         for (size_t i = stream.descs.search(DID_DATA_BROADCAST_ID); i < stream.descs.count(); i = stream.descs.search(DID_DATA_BROADCAST_ID, i + 1)) {
-            if (!stream.descs[i].isNull()) {
+            if (stream.descs[i] != nullptr) {
                 const DataBroadcastIdDescriptor desc(_duck, *stream.descs[i]);
                 if (desc.isValid()) {
                     // Found a valid data_broadcast_id_descriptor.

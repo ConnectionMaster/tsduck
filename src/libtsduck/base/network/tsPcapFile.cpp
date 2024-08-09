@@ -1,37 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPcapFile.h"
-#include "tsPcap.h"
 #include "tsIPv4Packet.h"
 #include "tsByteBlock.h"
-#include "tsNullReport.h"
 #include "tsIntegerUtils.h"
 #include "tsSysUtils.h"
 
@@ -40,51 +17,9 @@
 // Constructors and destructors.
 //----------------------------------------------------------------------------
 
-ts::PcapFile::PcapFile() :
-    _error(false),
-    _in(nullptr),
-    _file(),
-    _name(),
-    _be(false),
-    _ng(false),
-    _major(0),
-    _minor(0),
-    _file_size(0),
-    _packet_count(0),
-    _ipv4_packet_count(0),
-    _packets_size(0),
-    _ipv4_packets_size(0),
-    _first_timestamp(-1),
-    _last_timestamp(-1),
-    _if()
-{
-}
-
 ts::PcapFile::~PcapFile()
 {
     close();
-}
-
-ts::PcapFile::InterfaceDesc::InterfaceDesc() :
-    link_type(LINKTYPE_UNKNOWN),
-    fcs_size(0),
-    time_units(0),
-    time_offset(0)
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Report an error (if fmt is not empty), set error indicator, return false.
-//----------------------------------------------------------------------------
-
-bool ts::PcapFile::error(Report& report, const UString& fmt, std::initializer_list<ArgMixIn> args)
-{
-    if (!fmt.empty()) {
-        report.error(fmt, args);
-    }
-    _error = true;
-    return false;
 }
 
 
@@ -92,7 +27,7 @@ bool ts::PcapFile::error(Report& report, const UString& fmt, std::initializer_li
 // Open the file for read.
 //----------------------------------------------------------------------------
 
-bool ts::PcapFile::open(const UString& filename, Report& report)
+bool ts::PcapFile::open(const fs::path& filename, Report& report)
 {
     if (_in != nullptr) {
         report.error(u"already open");
@@ -106,8 +41,8 @@ bool ts::PcapFile::open(const UString& filename, Report& report)
     _ipv4_packet_count = 0;
     _packets_size = 0;
     _ipv4_packets_size = 0;
-    _first_timestamp = -1;
-    _last_timestamp = -1;
+    _first_timestamp = cn::microseconds(-1);
+    _last_timestamp = cn::microseconds(-1);
 
     // Open the file.
     if (filename.empty() || filename == u"-") {
@@ -119,9 +54,9 @@ bool ts::PcapFile::open(const UString& filename, Report& report)
         _name = u"standard input";
     }
     else {
-        _file.open(filename.toUTF8().c_str(), std::ios::in | std::ios::binary);
+        _file.open(filename, std::ios::in | std::ios::binary);
         if (!_file) {
-            report.error(u"error opening %s", {filename});
+            report.error(u"error opening %s", filename);
             return false;
         }
         _in = &_file;
@@ -135,7 +70,7 @@ bool ts::PcapFile::open(const UString& filename, Report& report)
         return false;
     }
 
-    report.debug(u"opened %s, %s format version %d.%d, %s endian", {_name, _ng ? u"pcap-ng" : u"pcap", _major, _minor, _be ? u"big" : u"little"});
+    report.debug(u"opened %s, %s format version %d.%d, %s endian", _name, _ng ? u"pcap-ng" : u"pcap", _major, _minor, _be ? u"big" : u"little");
     return true;
 }
 
@@ -165,15 +100,15 @@ bool ts::PcapFile::readall(uint8_t* data, size_t size, Report& report)
         if (!_in->read(reinterpret_cast<char*>(data), size)) {
             // Read error, don't display error on end-of-file.
             if (!_in->eof()) {
-                report.error(u"error reading %s", {_name});
+                report.error(u"error reading %s", _name);
             }
-            return error(report);
+            return error();
         }
 
         // Get file size so far.
         const std::ios::pos_type fpos = _in->tellg();
         if (fpos != std::ios::pos_type(-1)) {
-            _file_size = size_t(fpos);
+            _file_size = uint64_t(fpos);
         }
 
         // Actual number of bytes.
@@ -199,7 +134,7 @@ bool ts::PcapFile::readHeader(uint32_t magic, Report& report)
             // This is a pcap file. Read 20 additional bytes for the rest of the header.
             uint8_t header[20];
             if (!readall(header, sizeof(header), report)) {
-                return error(report);
+                return error();
             }
             _ng = false;
             _be = magic == PCAP_MAGIC_BE || magic == PCAPNS_MAGIC_BE;
@@ -207,7 +142,7 @@ bool ts::PcapFile::readHeader(uint32_t magic, Report& report)
             _minor = get16(header + 2);
             _if.resize(1); // only one interface in pcap files
             _if[0].link_type = get16(header + 18);
-            _if[0].time_units = magic == PCAP_MAGIC_BE || magic == PCAP_MAGIC_LE ? MicroSecPerSec : NanoSecPerSec;
+            _if[0].time_units = magic == PCAP_MAGIC_BE || magic == PCAP_MAGIC_LE ? std::micro::den : std::nano::den;
             _if[0].fcs_size = (header[16] & 0x10) == 0 ? 0 : 2 * ((header[16] >> 5) & 0x07);
             break;
         }
@@ -216,10 +151,10 @@ bool ts::PcapFile::readHeader(uint32_t magic, Report& report)
             _ng = true;
             ByteBlock header;
             if (!readNgBlockBody(magic, header, report)) {
-                return error(report);
+                return error();
             }
             if (header.size() < 16) {
-                return error(report, u"invalid pcap-ng file, truncated section header in %s", {_name});
+                return error(report, u"invalid pcap-ng file, truncated section header in %s", _name);
             }
             _major = get16(header.data() + 4);
             _minor = get16(header.data() + 6);
@@ -227,7 +162,7 @@ bool ts::PcapFile::readHeader(uint32_t magic, Report& report)
             break;
         }
         default: {
-            return error(report, u"invalid pcap file, unknown magic number 0x%X", {magic});
+            return error(report, u"invalid pcap file, unknown magic number 0x%X", magic);
         }
     }
     return true;
@@ -241,12 +176,12 @@ bool ts::PcapFile::readHeader(uint32_t magic, Report& report)
 bool ts::PcapFile::analyzeNgInterface(const uint8_t* data, size_t size, Report& report)
 {
     if (data == nullptr || size < 8) {
-        return error(report, u"invalid pcap-ng interface description, %d bytes", {size});
+        return error(report, u"invalid pcap-ng interface description, %d bytes", size);
     }
 
     InterfaceDesc ifd;
     ifd.link_type = get16(data);
-    ifd.time_units = MicroSecPerSec;
+    ifd.time_units = std::micro::den;
 
     // Loop on options. Each option has 16-bit tag and 16-bit length.
     const uint8_t* end = data + size;
@@ -265,14 +200,14 @@ bool ts::PcapFile::analyzeNgInterface(const uint8_t* data, size_t size, Report& 
             ifd.fcs_size = data[0];
         }
         else if (tag == PCAPNG_IF_TSOFFSET && len == 8) {
-            ifd.time_offset = MicroSecPerSec * get64(data);
+            ifd.time_offset = cn::seconds(cn::seconds::rep(get64(data)));
         }
         else if (tag == PCAPNG_IF_TSRESOL && len == 1) {
             if ((data[0] & 0x80) == 0) {
-                ifd.time_units = Power10<SubSecond>(data[0]);
+                ifd.time_units = Power10(data[0]);
             }
             else {
-                ifd.time_units = TS_UCONST64(1) << (data[0] & 0x7F);
+                ifd.time_units = 1LL << (data[0] & 0x7F);
             }
         }
 
@@ -280,8 +215,8 @@ bool ts::PcapFile::analyzeNgInterface(const uint8_t* data, size_t size, Report& 
         data += round_up<uint16_t>(len, 4);
     }
 
-    report.debug(u"pcap-ng interface#%d: link type: %d, time units/second: %'d, time offset: %'d microsec, FCS length: %d bytes",
-                 {_if.size(), ifd.link_type, ifd.time_units, ifd.time_offset, ifd.fcs_size});
+    report.debug(u"pcap-ng interface#%d: link type: %d, time units/second: %'d, time offset: %'!s, FCS length: %d bytes",
+                 _if.size(), ifd.link_type, ifd.time_units, ifd.time_offset, ifd.fcs_size);
 
     // Add the interface description.
     _if.push_back(ifd);
@@ -300,7 +235,7 @@ bool ts::PcapFile::readNgBlockBody(uint32_t block_type, ByteBlock& body, Report&
     // Read the first "Block Total Length" field.
     uint8_t lenfield[4];
     if (!readall(lenfield, sizeof(lenfield), report)) {
-        return error(report);
+        return error();
     }
 
     // If the block type is Section Header, then the endianness is given by the first 4 bytes.
@@ -310,12 +245,12 @@ bool ts::PcapFile::readNgBlockBody(uint32_t block_type, ByteBlock& body, Report&
         body.resize(4);
         if (!readall(body.data(), body.size(), report)) {
             body.clear();
-            return error(report);
+            return error();
         }
         const uint32_t order_magic = GetUInt32BE(body.data());
         if (order_magic != PCAPNG_ORDER_BE && order_magic != PCAPNG_ORDER_LE) {
             body.clear();
-            return error(report, u"invalid pcap-ng file, unknown 'byte-order magic' 0x%X in %s", {order_magic, _name});
+            return error(report, u"invalid pcap-ng file, unknown 'byte-order magic' 0x%X in %s", order_magic, _name);
         }
         _be = order_magic == PCAPNG_ORDER_BE;
     }
@@ -325,7 +260,7 @@ bool ts::PcapFile::readNgBlockBody(uint32_t block_type, ByteBlock& body, Report&
     const size_t size = get32(lenfield);
     if (size % 4 != 0 || size < 12 + body.size()) {
         body.clear();
-        return error(report, u"invalid pcap-ng block length %d in %s", {size, _name});
+        return error(report, u"invalid pcap-ng block length %d in %s", size, _name);
     }
 
     // Read the rest of the block body.
@@ -333,17 +268,17 @@ bool ts::PcapFile::readNgBlockBody(uint32_t block_type, ByteBlock& body, Report&
     body.resize(size - 12);
     if (!readall(body.data() + start, body.size() - start, report)) {
         body.clear();
-        return error(report);
+        return error();
     }
 
     // Read and check the last "Block Total Length" field.
     if (!readall(lenfield, sizeof(lenfield), report)) {
-        return error(report);
+        return error();
     }
     const size_t last_size = get32(lenfield);
     if (size != last_size) {
         body.clear();
-        return error(report, u"inconsistent pcap-ng block length in %s, leading length: %d, trailing length: %d", {_name, size, last_size});
+        return error(report, u"inconsistent pcap-ng block length in %s, leading length: %d, trailing length: %d", _name, size, last_size);
     }
     return true;
 }
@@ -353,11 +288,11 @@ bool ts::PcapFile::readNgBlockBody(uint32_t block_type, ByteBlock& body, Report&
 // Read the next IPv4 packet (headers included).
 //----------------------------------------------------------------------------
 
-bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& report)
+bool ts::PcapFile::readIPv4(IPv4Packet& packet, cn::microseconds& timestamp, Report& report)
 {
     // Clear output values.
     packet.clear();
-    timestamp = -1;
+    timestamp = cn::microseconds(-1);
 
     // Check that the file is open.
     if (_in == nullptr) {
@@ -365,7 +300,9 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
         return false;
     }
     if (_error) {
-        report.debug(u"pcap file already in error state");
+        if (!_in->eof()) {
+            report.debug(u"pcap file already in error state");
+        }
         return false;
     }
 
@@ -378,31 +315,31 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
         size_t cap_size = 0;   // captured packet size
         size_t orig_size = 0;  // original packet size (on network)
         size_t if_index = 0;   // interface index
-        timestamp = -1;
+        timestamp = cn::microseconds(-1);
 
         // We are at the beginning of a data block.
         if (_ng) {
             // Pcap-ng file, read block type value.
             uint8_t type_field[4];
             if (!readall(type_field, sizeof(type_field), report)) {
-                return error(report);
+                return error();
             }
             const uint32_t type = get32(type_field);
             if (type == PCAPNG_SECTION_HEADER) {
                 // Restart a new section, reinitialize all characteristics.
                 if (!readHeader(type, report)) {
-                    return error(report);
+                    return error();
                 }
                 continue; // loop to next packet block
             }
             // Read one data block.
             if (!readNgBlockBody(type, buffer, report)) {
-                return error(report);
+                return error();
             }
             if (type == PCAPNG_INTERFACE_DESC) {
                 // Process an interface description.
                 if (!analyzeNgInterface(buffer.data(), buffer.size(), report)) {
-                    return error(report);
+                    return error();
                 }
                 continue; // loop to next packet block
             }
@@ -413,24 +350,24 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
                 orig_size = get32(buffer.data() + 16);
                 if_index = type == PCAPNG_OBSOLETE_PACKET ? get16(buffer.data()) : get32(buffer.data());
                 if (if_index < _if.size() && _if[if_index].time_units != 0) {
-                    const SubSecond units = _if[if_index].time_units;
-                    const SubSecond tstamp = SubSecond(uint64_t(get32(buffer.data() + 4)) << 32) + SubSecond(get32(buffer.data() + 8));
-                    // Take care to overflow in tstamp * MilliSecPerSec. Sometimes, the timestamp is a full time
-                    // since 1970 with time unit being 1,000,000,000. The value is close to the 64-bit max.
-                    if (units == MicroSecPerSec) {
-                        timestamp = tstamp;
+                    const std::intmax_t units = _if[if_index].time_units;
+                    const std::intmax_t tstamp = std::intmax_t(uint64_t(get32(buffer.data() + 4)) << 32) + get32(buffer.data() + 8);
+                    // Take care to overflow in tstamp. Sometimes, the timestamp is a full time since 1970
+                    // with time unit being 1,000,000,000. The value is close to the 64-bit max.
+                    if (units == std::micro::den) {
+                        timestamp = cn::microseconds(tstamp);
                     }
-                    else if (units > MicroSecPerSec && units % MicroSecPerSec == 0) {
-                        timestamp = tstamp / (units / MicroSecPerSec);
+                    else if (units > std::micro::den && units % std::micro::den == 0) {
+                        timestamp = cn::microseconds(tstamp / (units / std::micro::den));
                     }
-                    else if (units < MicroSecPerSec && MicroSecPerSec % units == 0) {
-                        timestamp = tstamp * (MicroSecPerSec / units);
+                    else if (units < std::micro::den && std::micro::den % units == 0) {
+                        timestamp = cn::microseconds(tstamp * (std::micro::den / units));
                     }
-                    else if (mul_overflow(tstamp, MicroSecPerSec, tstamp * MicroSecPerSec)) {
-                        timestamp = SubSecond((double(tstamp) * double(MicroSecPerSec)) / double(units));
+                    else if (mul_overflow(tstamp, std::micro::den, tstamp * std::micro::den)) {
+                        timestamp = cn::microseconds(cn::microseconds::rep((double(tstamp) * double(std::micro::den)) / double(units)));
                     }
                     else {
-                        timestamp = (tstamp * MicroSecPerSec) / units;
+                        timestamp = cn::microseconds((tstamp * std::micro::den) / units);
                     }
                 }
             }
@@ -450,27 +387,29 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
             _packet_count++;
             uint8_t header[16];
             if (!readall(header, sizeof(header), report)) {
-                return error(report);
+                return error();
             }
             const uint32_t tstamp = get32(header);
             const uint32_t sub_tstamp = get32(header + 4);
             cap_size = get32(header + 8);
             orig_size = get32(header + 12);
 
-            // Compute time stamp. Time units is never null in pcap format.
-            timestamp = (MicroSecond(tstamp) * MicroSecPerSec) + (SubSecond(sub_tstamp) * MicroSecPerSec) / _if[0].time_units;
+            // Compute time stamp. Time units should never be null in pcap format.
+            timestamp = _if[0].time_units < 0 ?
+                cn::microseconds(-1) :
+                cn::microseconds((cn::microseconds::rep(tstamp) * std::micro::den) + (cn::microseconds::rep(sub_tstamp) * std::micro::den) / _if[0].time_units);
 
             // Read packet data.
             buffer.resize(cap_size);
             if (!readall(buffer.data(), buffer.size(), report)) {
-                return error(report);
+                return error();
             }
         }
 
         // Now process the captured packet.
         _packets_size += cap_size;
         if (orig_size > cap_size) {
-            report.debug(u"truncated captured packet ignored (%d bytes, truncated to %d)", {orig_size, cap_size});
+            report.debug(u"truncated captured packet ignored (%d bytes, truncated to %d)", orig_size, cap_size);
             continue; // loop to next packet block
         }
 
@@ -479,16 +418,16 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
         if (if_index < _if.size()) {
             ifd = _if[if_index];
         }
-        if (timestamp >= 0) {
+        if (timestamp >= cn::microseconds::zero()) {
             timestamp += ifd.time_offset;
-            if (_first_timestamp < 0) {
+            if (_first_timestamp < cn::microseconds::zero()) {
                 _first_timestamp = timestamp;
             }
             _last_timestamp = timestamp;
         }
 
         report.log(2, u"pcap data block: %d bytes, captured packet at offset %d, %d bytes (original: %d bytes), link type: %d",
-                   {buffer.size(), cap_start, cap_size, orig_size, ifd.link_type});
+                   buffer.size(), cap_start, cap_size, orig_size, ifd.link_type);
 
         // Analyze the captured packet, trying to find an IPv4 datagram.
         if (ifd.link_type == LINKTYPE_NULL && cap_size > 4 && get32(buffer.data() + cap_start) == 2) {
@@ -526,7 +465,7 @@ bool ts::PcapFile::readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& 
                 return true;
             }
             else {
-                report.warning(u"invalid IPv4 datagram in pcap file, %d bytes (original: %d bytes), link type: %d", {cap_size, orig_size, ifd.link_type});
+                report.warning(u"invalid IPv4 datagram in pcap file, %d bytes (original: %d bytes), link type: %d", cap_size, orig_size, ifd.link_type);
             }
         }
     }

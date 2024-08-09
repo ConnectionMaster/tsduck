@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,16 +14,15 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsPlatform.h"
 #include "tsEnumeration.h"
 
 namespace ts {
     //
     // Base types
     //
-    typedef uint8_t  TID;  //!< Table identifier.
-    typedef uint8_t  DID;  //!< Descriptor identifier.
-    typedef uint32_t PDS;  //!< Private data specifier.
+    using TID = uint8_t ;  //!< Table identifier.
+    using DID = uint8_t ;  //!< Descriptor identifier.
+    using PDS = uint32_t;  //!< Private data specifier.
 
     //!
     //! Maximum size of a descriptor (255 + 2-byte header).
@@ -154,6 +132,7 @@ namespace ts {
         TID_DSMCC_DDM     = 0x3C, //!< Table id for DSM-CC Download Data Messages
         TID_DSMCC_SD      = 0x3D, //!< Table id for DSM-CC Stream Descriptors
         TID_DSMCC_PD      = 0x3E, //!< Table id for DSM-CC Private Data
+        TID_MPEG_LAST     = 0x3F, //!< Last MPEG-defined table id.
         TID_NULL          = 0xFF, //!< Reserved table id value, end of TS packet PSI payload
 
         // Valid in DVB context:
@@ -165,6 +144,7 @@ namespace ts {
         TID_BAT           = 0x4A, //!< Table id for Bouquet Association Table
         TID_UNT           = 0x4B, //!< Table id for Update Notification Table (SSU, ETSI TS 102 006)
         TID_INT           = 0x4C, //!< Table id for IP/MAC Notification Table (MPE, ETSI EN 301 192)
+        TID_SAT           = 0x4D, //!< Table id for Satellite Access Table
         TID_EIT_PF_ACT    = 0x4E, //!< Table id for EIT present/following - Actual network
         TID_EIT_PF_OTH    = 0x4F, //!< Table id for EIT present/following - Other network
         TID_EIT_S_ACT_MIN = 0x50, //!< Table id for EIT schedule - Actual network
@@ -312,10 +292,10 @@ namespace ts {
 
 
     //---------------------------------------------------------------------
-    //! Private data specifier (PDS) values
+    //! Selected DVB-registered private data specifier (PDS) values
     //---------------------------------------------------------------------
 
-    enum {
+    enum : PDS {
         PDS_BSKYB     = 0x00000002, //!< Private data specifier for BskyB (1).
         PDS_BSKYB_2   = 0x00000003, //!< Private data specifier for BskyB (2).
         PDS_BSKYB_3   = 0x00000004, //!< Private data specifier for BskyB (3).
@@ -332,8 +312,12 @@ namespace ts {
         PDS_CANALPLUS = 0x000000C0, //!< Private data specifier for Canal+.
         PDS_EUTELSAT  = 0x0000055F, //!< Private data specifier for EutelSat.
         PDS_OFCOM     = 0x0000233A, //!< Private data specifier for DTT UK (OFCOM, formerly ITC).
+        PDS_AUSTRALIA = 0x00003200, //!< Private data specifier for Free TV Australia.
+        PDS_AOM       = 0x414F4D53, //!< Private data specifier for the Alliance for Open Media (AOM) (value is "AOMS" in ASCII).
         PDS_ATSC      = 0x41545343, //!< Fake private data specifier for ATSC descriptors (value is "ATSC" in ASCII).
+        PDS_AVS       = 0x41565356, //!< Private data specifier for AVS Working Group of China (value is "AVSV" in ASCII).
         PDS_ISDB      = 0x49534442, //!< Fake private data specifier for ISDB descriptors (value is "ISDB" in ASCII).
+        PDS_CUVV      = 0x63757676, //!< Private data specifier for UHD World Association (value is "cuvv" in ASCII).
         PDS_NULL      = 0xFFFFFFFF, //!< An invalid private data specifier, can be used as placeholder.
     };
 
@@ -349,6 +333,8 @@ namespace ts {
     //---------------------------------------------------------------------
 
     enum : DID {
+
+        DID_NULL                = 0xFF, //!< Invalid DID value, can be used as placeholder.
 
         // Valid in all MPEG contexts:
 
@@ -383,7 +369,7 @@ namespace ts {
         DID_FMC                 = 0x1F, //!< DID for FMC_descriptor
         DID_EXT_ES_ID           = 0x20, //!< DID for External_ES_id_descriptor
         DID_MUXCODE             = 0x21, //!< DID for MuxCode_descriptor
-        DID_FMX_BUFFER_SIZE     = 0x22, //!< DID for FmxBufferSize_descriptor
+        DID_M4MUX_BUFFER_SIZE   = 0x22, //!< DID for M4MuxBufferSize_descriptor
         DID_MUX_BUFFER          = 0x23, //!< DID for MultiplexBuffer_descriptor
         DID_CONTENT_LABELLING   = 0x24, //!< DID for Content_labelling_descriptor
         DID_METADATA_POINTER    = 0x25, //!< DID for metadata_pointer_descriptor
@@ -393,7 +379,7 @@ namespace ts {
         DID_MPEG2_IPMP          = 0x29, //!< DID for MPEG-2_IPMP_descriptor
         DID_AVC_TIMING_HRD      = 0x2A, //!< DID for AVC_timing_and_HRD_descriptor
         DID_MPEG2_AAC_AUDIO     = 0x2B, //!< DID for MPEG-2 AAC Audio descriptor
-        DID_FLEX_MUX_TIMING     = 0x2C, //!< DID for FlexMuxTiming descriptor
+        DID_M4_MUX_TIMING       = 0x2C, //!< DID for M4MuxTiming descriptor
         DID_MPEG4_TEXT          = 0x2D, //!< DID for MPEG-4 Text descriptor
         DID_MPEG4_AUDIO_EXT     = 0x2E, //!< DID for MPEG-4 Audio Extension descriptor
         DID_AUX_VIDEO           = 0x2F, //!< DID for Auxiliary Video Stream descriptor
@@ -406,6 +392,8 @@ namespace ts {
         DID_STEREO_VIDEO_INFO   = 0x36, //!< DID for Stereoscopic Video Info descriptor
         DID_TRANSPORT_PROFILE   = 0x37, //!< DID for Transport Profile descriptor
         DID_HEVC_VIDEO          = 0x38, //!< DID for HEVC Video descriptor
+        DID_VVC_VIDEO           = 0x39, //!< DID for VVC Video descriptor
+        DID_EVC_VIDEO           = 0x3A, //!< DID for EVC Video descriptor
         DID_MPEG_EXTENSION      = 0x3F, //!< DID for MPEG-2 Extension descriptor
 
         // Valid in DVB context:
@@ -475,7 +463,7 @@ namespace ts {
         DID_FTA_CONTENT_MGMT    = 0x7E, //!< DID for DVB FTA_content_management_descriptor
         DID_DVB_EXTENSION       = 0x7F, //!< DID for DVB extension_descriptor
 
-        // Valid in an AIT (Application Information Table, ETSI TS 102 809):
+        // Valid only in a DVB AIT (Application Information Table, ETSI TS 102 809):
 
         DID_AIT_APPLICATION     = 0x00, //!< DID for AIT application_descriptor.
         DID_AIT_APP_NAME        = 0x01, //!< DID for AIT application_name_descriptor.
@@ -497,7 +485,7 @@ namespace ts {
         DID_AIT_APP_USAGE       = 0x16, //!< DID for AIT application_usage_descriptor.
         DID_AIT_APP_BOUNDARY    = 0x17, //!< DID for AIT simple_application_boundary_descriptor.
 
-        // Valid in an INT (IP/MAC Notification Table, ETSI EN 301 192):
+        // Valid only in a DVB INT (IP/MAC Notification Table, ETSI EN 301 192):
 
         DID_INT_SMARTCARD       = 0x06, //!< DID for INT target_smartcard_descriptor
         DID_INT_MAC_ADDR        = 0x07, //!< DID for INT target_MAC_address_descriptor
@@ -515,7 +503,7 @@ namespace ts {
         DID_INT_ISP_ACCESS      = 0x14, //!< DID for INT ISP_access_mode_descriptor
         DID_INT_GEN_STREAM_LOC  = 0x15, //!< DID for INT IP/MAC_generic_stream_location_descriptor
 
-        // Valid in a UNT (Update Notification Table, ETSI TS 102 006):
+        // Valid only in a DVB UNT (Update Notification Table, ETSI TS 102 006):
 
         DID_UNT_SCHEDULING      = 0x01, //!< DID for UNT scheduling_descriptor
         DID_UNT_UPDATE          = 0x02, //!< DID for UNT update_descriptor
@@ -531,44 +519,13 @@ namespace ts {
         DID_UNT_ENHANCED_MSG    = 0x0C, //!< DID for UNT enhanced_message_descriptor
         DID_UNT_SSU_URI         = 0x0D, //!< DID for UNT ssu_uri_descriptor
 
-        // Valid in EAS (Emergency Alert System, SCTE 18).
+        // Valid only in a DVB RNT (RAR Notification Table, ETSI TS 102 323):
 
-        DID_EAS_INBAND_DETAILS  = 0x00,  //!< DID for SCTE 18 In-Band Details Channel Descriptor
-        DID_EAS_INBAND_EXCEPTS  = 0x01,  //!< DID for SCTE 18 In-Band Exceptions Channel Descriptor
-        DID_EAS_AUDIO_FILE      = 0x02,  //!< DID for SCTE 18 Audio File Descriptor
-        DID_EAS_METADATA        = 0x03,  //!< DID for SCTE 18 / SCTE 164 Emergency Alert Metadata Descriptor
+        DVB_RNT_RAR_OVER_DVB    = 0x40, //!< DID for RNT RAR_over_DVB_stream_descriptor
+        DVB_RNT_RAR_OVER_IP     = 0x41, //!< DID for RNT RAR_over_IP_descriptor
+        DVB_RNT_SCAN            = 0x42, //!< DID for RNT RNT_scan_dscriptor
 
-        // Valid in a SIT (Splice Information Table, SCTE 35).
-
-        DID_SPLICE_AVAIL        = 0x00, //!< DID for SCTE 35 SIT avail_descriptor
-        DID_SPLICE_DTMF         = 0x01, //!< DID for SCTE 35 SIT DTMF_descriptor
-        DID_SPLICE_SEGMENT      = 0x02, //!< DID for SCTE 35 SIT segmentation_descriptor
-        DID_SPLICE_TIME         = 0x03, //!< DID for SCTE 35 SIT time_descriptor
-
-        // Valid in ATSC / SCTE context:
-
-        DID_ATSC_STUFFING       = 0x80, //!< DID for ATSC stuffing_descriptor
-        DID_ATSC_AC3            = 0x81, //!< DID for ATSC ac3_audio_stream_descriptor
-        DID_ATSC_PID            = 0x85, //!< DID for ATSC program_identifier_descriptor
-        DID_ATSC_CAPTION        = 0x86, //!< DID for ATSC caption_service_descriptor
-        DID_ATSC_CONTENT_ADVIS  = 0x87, //!< DID for ATSC content_advisory_descriptor
-        DID_CUE_IDENTIFIER      = 0x8A, //!< DID for SCTE 35 cue_identifier_descriptor
-        DID_ATSC_EXT_CHAN_NAME  = 0xA0, //!< DID for ATSC extended_channel_name_descriptor
-        DID_ATSC_SERVICE_LOC    = 0xA1, //!< DID for ATSC service_location_descriptor
-        DID_ATSC_TIME_SHIFT     = 0xA2, //!< DID for ATSC time_shifted_event_descriptor
-        DID_ATSC_COMPONENT_NAME = 0xA3, //!< DID for ATSC component_name_descriptor
-        DID_ATSC_DATA_BRDCST    = 0xA4, //!< DID for ATSC data_broadcast_descriptor
-        DID_ATSC_PID_COUNT      = 0xA5, //!< DID for ATSC pid_count_descriptor
-        DID_ATSC_DOWNLOAD       = 0xA6, //!< DID for ATSC download_descriptor
-        DID_ATSC_MPROTO_ENCAPS  = 0xA7, //!< DID for ATSC multiprotocol_encapsulation_descriptor
-        DID_ATSC_DCC_DEPARTING  = 0xA8, //!< DID for ATSC DCC_departing_request_descriptor
-        DID_ATSC_DCC_ARRIVING   = 0xA9, //!< DID for ATSC DCC_arriving_request_descriptor
-        DID_ATSC_REDIST_CONTROL = 0xAA, //!< DID for ATSC redistribution_control_descriptor
-        DID_ATSC_GENRE          = 0xAB, //!< DID for ATSC genre_descriptor
-        DID_ATSC_PRIVATE_INFO   = 0xAD, //!< DID for ATSC private_information_descriptor
-        DID_ATSC_ENHANCED_AC3   = 0xCC, //!< DID for ATSC E-AC-3_audio_stream_descriptor
-
-        // Valid after PDS_LOGIWAYS private_data_specifier
+        // Valid in DVB context after PDS_LOGIWAYS private_data_specifier
 
         DID_LW_SUBSCRIPTION      = 0x81, //!< DID for Logiways subscription_descriptor
         DID_LW_SCHEDULE          = 0xB0, //!< DID for Logiways schedule_descriptor
@@ -588,16 +545,16 @@ namespace ts {
         DID_LW_ORDER_CODE        = 0xBE, //!< DID for Logiways order_code_descriptor
         DID_LW_BOUQUET_REFERENCE = 0xBF, //!< DID for Logiways bouquet_reference_descriptor
 
-        // Valid after PDS_EUTELSAT private_data_specifier
+        // Valid in DVB context after PDS_EUTELSAT private_data_specifier
 
         DID_EUTELSAT_CHAN_NUM   = 0x83, //!< DID for eutelsat_channel_number_descriptor
 
-        // Valid after PDS_NORDIG private_data_specifier
+        // Valid in DVB context after PDS_NORDIG private_data_specifier
 
         DID_NORDIG_CHAN_NUM_V1  = 0x83, //!< DID for nordig_logical_channel_descriptor_v1
         DID_NORDIG_CHAN_NUM_V2  = 0x87, //!< DID for nordig_logical_channel_descriptor_v2
 
-        // Valid after PDS_EACEM/EICTA private_data_specifier
+        // Valid in DVB context after PDS_EACEM/EICTA private_data_specifier
 
         DID_LOGICAL_CHANNEL_NUM = 0x83, //!< DID for EACEM/EICTA logical_channel_number_descriptor
         DID_PREF_NAME_LIST      = 0x84, //!< DID for EACEM/EICTA preferred_name_list_descriptor
@@ -605,7 +562,7 @@ namespace ts {
         DID_EACEM_STREAM_ID     = 0x86, //!< DID for EACEM/EICTA eacem_stream_identifier_descriptor
         DID_HD_SIMULCAST_LCN    = 0x88, //!< DID for EACEM/EICTA HD_simulcast_logical_channel_number_descriptor
 
-        // Valid after PDS_OFCOM private_data_specifier
+        // Valid in DVB context after PDS_OFCOM private_data_specifier
 
         DID_OFCOM_LOGICAL_CHAN  = 0x83, //!< DID for OFCOM/DTG logical_channel_descriptor
         DID_OFCOM_PREF_NAME_LST = 0x84, //!< DID for OFCOM/DTG preferred_name_list_descriptor
@@ -615,7 +572,11 @@ namespace ts {
         DID_OFCOM_HD_SIMULCAST  = 0x88, //!< DID for OFCOM/DTG HD_simulcast_logical_channel_descriptor
         DID_OFCOM_GUIDANCE      = 0x89, //!< DID for OFCOM/DTG guidance_descriptor
 
-        // Valid after PDS_CANALPLUS private_data_specifier
+        // Valid in DVB context after PDS_AUSTRALIA private_data_specifier
+
+        DID_AUSTRALIA_LOGICAL_CHAN = 0x83, //!< DID for Free TV Australia logical_channel_descriptor
+
+        // Valid in DVB context after PDS_CANALPLUS private_data_specifier
 
         DID_DTG_STREAM_IND      = 0x80, //!< DID for Canal+ DTG_Stream_indicator_descriptor
         DID_PIO_OFFSET_TIME     = 0X80, //!< DID for Canal+ pio_offset_time_descriptor
@@ -691,17 +652,67 @@ namespace ts {
         DID_DATA_COMPONENT_FD   = 0xFD, //!< DID for Canal+ data_component_descriptor
         DID_SYSTEM_MGMT_FE      = 0xFE, //!< DID for Canal+ system_management_descriptor
 
-        // Valid after PDS_BSKYB private_data_specifier
+        // Valid in DVB context after PDS_BSKYB private_data_specifier
 
         DID_LOGICAL_CHANNEL_SKY = 0xB1, //!< DID for BskyB logical_channel_number_by_region_descriptor
         DID_SERVICE_SKY         = 0xB2, //!< DID for BskyB service_descriptor
 
+        // Valid in DVB context after PDS_AVS private_data_specifier
+
+        DID_AVS3_VIDEO          = 0xD1, //!< DID for AVS3 video descriptor, as defined in T/AI 109.6
+
+        // Valid in DVB context after PDS_CUVV private_data_specifier
+
+        DID_CUVV_HDR            = 0xF3,  //!< DID for UWA HDR Vivid video descriptor, as defined in T/UWA 005.2-1
+
+        // Valid in DVB context after PDS_AOM private_data_specifier
+
+        DID_AV1_VIDEO           = 0x80, //!< DID for AV1 video descriptor, as defined in https://aomediacodec.github.io/av1-mpeg2-ts/
+
+        // Valid in ATSC / SCTE context:
+
+        DID_ATSC_STUFFING       = 0x80, //!< DID for ATSC stuffing_descriptor
+        DID_ATSC_AC3            = 0x81, //!< DID for ATSC ac3_audio_stream_descriptor
+        DID_ATSC_PID            = 0x85, //!< DID for ATSC program_identifier_descriptor
+        DID_ATSC_CAPTION        = 0x86, //!< DID for ATSC caption_service_descriptor
+        DID_ATSC_CONTENT_ADVIS  = 0x87, //!< DID for ATSC content_advisory_descriptor
+        DID_CUE_IDENTIFIER      = 0x8A, //!< DID for SCTE 35 cue_identifier_descriptor
+        DID_ATSC_EXT_CHAN_NAME  = 0xA0, //!< DID for ATSC extended_channel_name_descriptor
+        DID_ATSC_SERVICE_LOC    = 0xA1, //!< DID for ATSC service_location_descriptor
+        DID_ATSC_TIME_SHIFT     = 0xA2, //!< DID for ATSC time_shifted_event_descriptor
+        DID_ATSC_COMPONENT_NAME = 0xA3, //!< DID for ATSC component_name_descriptor
+        DID_ATSC_DATA_BRDCST    = 0xA4, //!< DID for ATSC data_broadcast_descriptor
+        DID_ATSC_PID_COUNT      = 0xA5, //!< DID for ATSC pid_count_descriptor
+        DID_ATSC_DOWNLOAD       = 0xA6, //!< DID for ATSC download_descriptor
+        DID_ATSC_MPROTO_ENCAPS  = 0xA7, //!< DID for ATSC multiprotocol_encapsulation_descriptor
+        DID_ATSC_DCC_DEPARTING  = 0xA8, //!< DID for ATSC DCC_departing_request_descriptor
+        DID_ATSC_DCC_ARRIVING   = 0xA9, //!< DID for ATSC DCC_arriving_request_descriptor
+        DID_ATSC_REDIST_CONTROL = 0xAA, //!< DID for ATSC redistribution_control_descriptor
+        DID_ATSC_GENRE          = 0xAB, //!< DID for ATSC genre_descriptor
+        DID_ATSC_PRIVATE_INFO   = 0xAD, //!< DID for ATSC private_information_descriptor
+        DID_ATSC_ENHANCED_AC3   = 0xCC, //!< DID for ATSC E-AC-3_audio_stream_descriptor
+
+        // Valid in SCTE EAS (Emergency Alert System, SCTE 18).
+
+        DID_EAS_INBAND_DETAILS  = 0x00,  //!< DID for SCTE 18 In-Band Details Channel Descriptor
+        DID_EAS_INBAND_EXCEPTS  = 0x01,  //!< DID for SCTE 18 In-Band Exceptions Channel Descriptor
+        DID_EAS_AUDIO_FILE      = 0x02,  //!< DID for SCTE 18 Audio File Descriptor
+        DID_EAS_METADATA        = 0x03,  //!< DID for SCTE 18 / SCTE 164 Emergency Alert Metadata Descriptor
+
+        // Valid only in a SCTE SIT (Splice Information Table, SCTE 35).
+
+        DID_SPLICE_AVAIL        = 0x00, //!< DID for SCTE 35 SIT avail_descriptor
+        DID_SPLICE_DTMF         = 0x01, //!< DID for SCTE 35 SIT DTMF_descriptor
+        DID_SPLICE_SEGMENT      = 0x02, //!< DID for SCTE 35 SIT segmentation_descriptor
+        DID_SPLICE_TIME         = 0x03, //!< DID for SCTE 35 SIT time_descriptor
+
         // Valid in ISDB context:
+
         DID_ISDB_MATERIAL_INFO  = 0x67, //!< DID for ISDB Material information descriptor, in LIT only (WARNING: conflict with DVB)
         DID_ISDB_HYBRID_INFO    = 0x68, //!< DID for ISDB Hybrid information descriptor (WARNING: conflict with DVB)
         DID_ISDB_HIERARCH_TRANS = 0xC0, //!< DID for ISDB Hierarchical transmission descriptor
         DID_ISDB_COPY_CONTROL   = 0xC1, //!< DID for ISDB Digital copy control descriptor
-        DID_ISDB_NETWORK_ID     = 0xC2, //!< DID for ISDB Network identification descriptor
+        DID_ISDB_NETWORK_ID     = 0xC2, //!< DID for ISDB Network identifier descriptor
         DID_ISDB_PART_TS_TIME   = 0xC3, //!< DID for ISDB Partial Transport Stream time descriptor
         DID_ISDB_AUDIO_COMP     = 0xC4, //!< DID for ISDB Audio component descriptor
         DID_ISDB_HYPERLINK      = 0xC5, //!< DID for ISDB Hyperlink descriptor
@@ -756,22 +767,31 @@ namespace ts {
     //---------------------------------------------------------------------
 
     enum : DID {
-        MPEG_EDID_OBJ_DESC_UPD  = 0x02, //!< Ext.DID for ObjectDescriptorUpdate.
-        MPEG_EDID_HEVC_TIM_HRD  = 0x03, //!< Ext.DID for HEVC_timing_and_HRD_descriptor.
-        MPEG_EDID_AF_EXT        = 0x04, //!< Ext.DID for AF_extensions_descriptor
-        MPEG_EDID_HEVC_OP_POINT = 0x05, //!< Ext.DID for HEVC_operation_point_descriptor
-        MPEG_EDID_HEVC_HIER_EXT = 0x06, //!< Ext.DID for HEVC_hierarchy_extension_descriptor
-        MPEG_EDID_GREEN_EXT     = 0x07, //!< Ext.DID for green_extension_descriptor
-        MPEG_EDID_MPH3D_AUDIO   = 0x08, //!< Ext.DID for MPEGH_3D_audio_descriptor
-        MPEG_EDID_MPH3D_CONFIG  = 0x09, //!< Ext.DID for MPEGH_3D_audio_config_descriptor
-        MPEG_EDID_MPH3D_SCENE   = 0x0A, //!< Ext.DID for MPEGH_3D_audio_scene_descriptor
-        MPEG_EDID_MPH3D_TEXT    = 0x0B, //!< Ext.DID for MPEGH_3D_audio_text_label_descriptor
-        MPEG_EDID_MPH3D_MULTI   = 0x0C, //!< Ext.DID for MPEGH_3D_audio_multi_stream_descriptor
-        MPEG_EDID_MPH3D_DRCLOUD = 0x0D, //!< Ext.DID for MPEGH_3D_audio_DRC_loudness_descriptor
-        MPEG_EDID_MPH3D_COMMAND = 0x0E, //!< Ext.DID for MPEGH_3D_audio_command_descriptor
-        MPEG_EDID_QUALITY_EXT   = 0x0F, //!< Ext.DID for quality_extension_descriptor
-        MPEG_EDID_VIRT_SEGMENT  = 0x10, //!< Ext.DID for virtual_segmentation_descriptor
-        MPEG_EDID_NULL          = 0xFF, //!< Invalid EDID value, can be used as placeholder.
+        MPEG_EDID_OBJ_DESC_UPD       = 0x02, //!< Ext.DID for ObjectDescriptorUpdate.
+        MPEG_EDID_HEVC_TIM_HRD       = 0x03, //!< Ext.DID for HEVC_timing_and_HRD_descriptor.
+        MPEG_EDID_AF_EXT             = 0x04, //!< Ext.DID for AF_extensions_descriptor
+        MPEG_EDID_HEVC_OP_POINT      = 0x05, //!< Ext.DID for HEVC_operation_point_descriptor
+        MPEG_EDID_HEVC_HIER_EXT      = 0x06, //!< Ext.DID for HEVC_hierarchy_extension_descriptor
+        MPEG_EDID_GREEN_EXT          = 0x07, //!< Ext.DID for green_extension_descriptor
+        MPEG_EDID_MPH3D_AUDIO        = 0x08, //!< Ext.DID for MPEGH_3D_audio_descriptor
+        MPEG_EDID_MPH3D_CONFIG       = 0x09, //!< Ext.DID for MPEGH_3D_audio_config_descriptor
+        MPEG_EDID_MPH3D_SCENE        = 0x0A, //!< Ext.DID for MPEGH_3D_audio_scene_descriptor
+        MPEG_EDID_MPH3D_TEXT         = 0x0B, //!< Ext.DID for MPEGH_3D_audio_text_label_descriptor
+        MPEG_EDID_MPH3D_MULTI        = 0x0C, //!< Ext.DID for MPEGH_3D_audio_multi_stream_descriptor
+        MPEG_EDID_MPH3D_DRCLOUD      = 0x0D, //!< Ext.DID for MPEGH_3D_audio_DRC_loudness_descriptor
+        MPEG_EDID_MPH3D_COMMAND      = 0x0E, //!< Ext.DID for MPEGH_3D_audio_command_descriptor
+        MPEG_EDID_QUALITY_EXT        = 0x0F, //!< Ext.DID for quality_extension_descriptor
+        MPEG_EDID_VIRT_SEGMENT       = 0x10, //!< Ext.DID for virtual_segmentation_descriptor
+        MPEG_EDID_TIMED_METADATA_EXT = 0x11, //!< Ext.DID for timed_metadata_extension_descriptor
+        MPEG_EDID_HEVC_TILE_SSTRM    = 0x12, //!< Ext.DID for HEVC_tile_substream_descriptor
+        MPEG_EDID_HEVC_SUBREGION     = 0x13, //!< Ext.DID for HEVC_subregion_descriptor
+        MPEG_EDID_JXS_VIDEO          = 0x14, //!< Ext.DID for JXS_video_descriptor
+        MPEG_EDID_VVC_TIM_HRD        = 0x15, //!< Ext.DID for VVC_timing_and_HRD_descriptor.
+        MPEG_EDID_EVC_TIM_HRD        = 0x16, //!< Ext.DID for EVC_timing_and_HRD_descriptor.
+        MPEG_EDID_LCEVC_VIDEO        = 0x17, //!< Ext.DID for LCEVC_video_descriptor.
+        MPEG_EDID_LCEVC_LINKAGE      = 0x18, //!< Ext.DID for LCEVC_linkage_descriptor.
+        MPEG_EDID_MEDIA_SVC_KIND     = 0x19, //!< Ext.DID for Media_service_kind_descriptor
+        MPEG_EDID_NULL               = 0xFF, //!< Invalid EDID value, can be used as placeholder.
     };
 
 
@@ -806,6 +826,10 @@ namespace ts {
         EDID_PROTECTION_MSG     = 0x18, //!< Ext.DID for protection_message_descriptor
         EDID_AUDIO_PRESELECT    = 0x19, //!< Ext.DID for audio_preselection_descriptor
         EDID_TTML_SUBTITLING    = 0x20, //!< Ext.DID for TTML_subtitling_descriptor
+        EDID_DTS_UHD            = 0x21, //!< Ext.DID for DTS-UHD_descriptor
+        EDID_SERVICE_PROMINENCE = 0x22, //!< Ext.DID for service_prominence_descriptor
+        EDID_VVC_SUBPICTURES    = 0x23, //!< Ext.DID for vvc_subpictures_descriptor
+        EDID_S2XV2_DELIVERY     = 0x24, //!< Ext.DID for S2Xv2_satellite_delivery_system_descriptor
         EDID_NULL               = 0xFF, //!< Invalid EDID value, can be used as placeholder.
     };
 
@@ -820,6 +844,24 @@ namespace ts {
         REPLACE,     //!< Replace the old descriptor of same type with the new one.
         IGNORE,      //!< Ignore the new descriptor of same type.
         MERGE,       //!< Merge the new descriptor into the old one using a descriptor-specific method.
+    };
+
+
+    //---------------------------------------------------------------------
+    //! Format identifier values in MPEG-defined registration_descriptor.
+    //---------------------------------------------------------------------
+
+    enum : uint32_t {
+        REGID_AC3  = 0x41432D33, //!< "AC-3" registration identifier.
+        REGID_CUEI = 0x43554549, //!< "CUEI" registration identifier (SCTE-35 splice information).
+        REGID_DTG1 = 0x44544731, //!< "DTG1" registration identifier.
+        REGID_EAC3 = 0x45414333, //!< "EAC3" registration identifier.
+        REGID_GA94 = 0x47413934, //!< "GA94" registration identifier (ATSC).
+        REGID_HDMV = 0x48444D56, //!< "HDMV" registration identifier (BluRay disks).
+        REGID_HEVC = 0x48455643, //!< "HEVC" registration identifier.
+        REGID_KLVA = 0x4B4C5641, //!< "KLVA" registration identifier.
+        REGID_SCTE = 0x53435445, //!< "SCTE" registration identifier.
+        REGID_NULL = 0xFFFFFFFF, //!< Unassigned registration identifier.
     };
 
 
@@ -846,8 +888,8 @@ namespace ts {
         ST_AAC_AUDIO        = 0x0F, //!< Advanced Audio Coding (ISO 13818-7)
         ST_MPEG4_VIDEO      = 0x10, //!< MPEG-4 Video
         ST_MPEG4_AUDIO      = 0x11, //!< MPEG-4 Audio
-        ST_MPEG4_PES        = 0x12, //!< MPEG-4 SL or FlexMux in PES packets
-        ST_MPEG4_SECT       = 0x13, //!< MPEG-4 SL or FlexMux in sections
+        ST_MPEG4_PES        = 0x12, //!< MPEG-4 SL or M4Mux in PES packets
+        ST_MPEG4_SECT       = 0x13, //!< MPEG-4 SL or M4Mux in sections
         ST_DSMCC_DLOAD      = 0x14, //!< DSM-CC Synchronized Download Protocol
         ST_MDATA_PES        = 0x15, //!< MPEG-7 MetaData in PES packets
         ST_MDATA_SECT       = 0x16, //!< MPEG-7 MetaData in sections
@@ -873,14 +915,46 @@ namespace ts {
         ST_HEVC_SUBVIDEO_H  = 0x2A, //!< HEVC enhancement sub-partition, Annex H of ISO 23008-2
         ST_HEVC_SUBVIDEO_TH = 0x2B, //!< HEVC temporal enhancement sub-partition, Annex H of ISO 23008 - 2
         ST_GREEN            = 0x2C, //!< Green access units carried in MPEG-2 sections
-        ST_MPH3D_MAIN       = 0x2D, //!< ISO 23008-3 Audio with MHAS transport syntax – main stream
-        ST_MPH3D_AUX        = 0x2E, //!< ISO 23008-3 Audio with MHAS transport syntax – auxiliary stream
+        ST_MPH3D_MAIN       = 0x2D, //!< ISO 23008-3 Audio with MHAS transport syntax - main stream
+        ST_MPH3D_AUX        = 0x2E, //!< ISO 23008-3 Audio with MHAS transport syntax - auxiliary stream
         ST_QUALITY          = 0x2F, //!< Quality access units carried in sections
-        ST_VVC_VIDEO        = 0x32, //!< Possibly VVC/H.266 video (value to be confirmed, other possible values to be determined)
+        ST_MEDIA_ORCHESTR   = 0x30, //!< Media Orchestration Access Units carried in sections
+        ST_HEVC_TILESET     = 0x31, //!< HEVC substream containing Motion Constrained Tile Set
+        ST_JPEG_XS_VIDEO    = 0x32, //!< JPEG XS video stream conforming to ISO/IEC 21122-2
+        ST_VVC_VIDEO        = 0x33, //!< VVC/H.266 video or VVC/H.266 temporal subvideo
+        ST_VVC_VIDEO_SUBSET = 0x34, //!< VVC/H.266 temporal video subset of a VVC video stream
+        ST_EVC_VIDEO        = 0x35, //!< EVC video or EVC temporal sub-video
+        ST_LCEVC_VIDEO      = 0x36, //!< LCEVC video stream according to ISO/IEC 23094-2
+        ST_CHINESE_VIDEO    = 0x42, //!< Chinese Video Standard
         ST_IPMP             = 0x7F, //!< IPMP stream
+        ST_DGC_II_VIDEO     = 0x80, //!< DigiCipher II Video
         ST_AC3_AUDIO        = 0x81, //!< AC-3 Audio (ATSC only)
+        ST_AC3_TRUEHD_AUDIO = 0x83, //!< ATSC AC-3 True HD Audio
+        ST_AC3_PLUS_AUDIO   = 0x84, //!< ATSC AC-3+ Audio
         ST_SCTE35_SPLICE    = 0x86, //!< SCTE 35 splice information tables
         ST_EAC3_AUDIO       = 0x87, //!< Enhanced-AC-3 Audio (ATSC only)
+        ST_A52B_AC3_AUDIO   = 0x91, //!< A52b/AC-3 Audio
+        ST_MS_VIDEO         = 0xA0, //!< MSCODEC Video
+        ST_AVS3             = 0xD4, //!< AVS3 video
+        ST_VC1              = 0xEA, //!< Private ES (VC-1)
+
+        // Valid after a "HDMV" registration descriptor.
+
+        ST_LPCM_AUDIO       = 0x80, //!< LPCM Audio
+        ST_HDMV_AC3         = 0x81, //!< HDMV AC-3 Audio
+        ST_DTS_AUDIO        = 0x82, //!< HDMV DTS Audio
+        ST_HDMV_AC3_TRUEHD  = 0x83, //!< HDMV AC-3 True HD Audio
+        ST_HDMV_AC3_PLUS    = 0x84, //!< HDMV AC-3+ Audio
+        ST_DTS_HS_AUDIO     = 0x85, //!< DTS-HD Audio
+        ST_DTS_HD_MA_AUDIO  = 0x86, //!< DTS-HD Master Audio
+        ST_HDMV_EAC3        = 0x87, //!< HDMV Enhanced-AC-3 Audio
+        ST_DTS_AUDIO_8A     = 0x8A, //!< DTS Audio
+        ST_SUBPIC_PGS       = 0x90, //!< Subpicture PGS
+        ST_IGS              = 0x91, //!< IGS
+        ST_DVD_SUBTITLES    = 0x92, //!< DVD_SPU vls Subtitle
+        ST_SDDS_AUDIO       = 0x94, //!< SDDS Audio
+        ST_HDMV_AC3_PLS_SEC = 0xA1, //!< HDMV AC-3+ Secondary Audio
+        ST_DTS_HD_SEC       = 0xA2, //!< DTS-HD Secondary Audio
     };
 
     //!
@@ -921,9 +995,10 @@ namespace ts {
     //!
     //! Check if a stream type value indicates an audio stream.
     //! @param [in] st Stream type as used in the PMT.
+    //! @param [in] regid Previous registration id from a registration descriptor.
     //! @return True if @a st indicates an audio stream.
     //!
-    TSDUCKDLL bool StreamTypeIsAudio(uint8_t st);
+    TSDUCKDLL bool StreamTypeIsAudio(uint8_t st, uint32_t regid = REGID_NULL);
 
     //!
     //! Check if a stream type value indicates a stream carrying sections.
@@ -931,29 +1006,6 @@ namespace ts {
     //! @return True if @a st indicates a stream carrying sections.
     //!
     TSDUCKDLL bool StreamTypeIsSection(uint8_t st);
-
-
-    //---------------------------------------------------------------------
-    //! Linkage type values (in linkage_descriptor)
-    //---------------------------------------------------------------------
-
-    enum : uint8_t {
-        LINKAGE_INFO            = 0x01, //!< Information service
-        LINKAGE_EPG             = 0x02, //!< EPG service
-        LINKAGE_CA_REPLACE      = 0x03, //!< CA replacement service
-        LINKAGE_TS_NIT_BAT      = 0x04, //!< TS containing complet network/bouquet SI
-        LINKAGE_SERVICE_REPLACE = 0x05, //!< Service replacement service
-        LINKAGE_DATA_BROADCAST  = 0x06, //!< Data broadcast service
-        LINKAGE_RCS_MAP         = 0x07, //!< RCS map
-        LINKAGE_HAND_OVER       = 0x08, //!< Mobile hand-over
-        LINKAGE_SSU             = 0x09, //!< System software update service
-        LINKAGE_SSU_TABLE       = 0x0A, //!< TS containing SSU BAT or NIT
-        LINKAGE_IP_NOTIFY       = 0x0B, //!< IP/MAC notification service
-        LINKAGE_INT_BAT_NIT     = 0x0C, //!< TS containing INT BAT or NIT
-        LINKAGE_EVENT           = 0x0D, //!< Event linkage
-        LINKAGE_EXT_EVENT_MIN   = 0x0E, //!< Extented event linkage, first value
-        LINKAGE_EXT_EVENT_MAX   = 0x1F, //!< Extented event linkage, last value
-    };
 
 
     //---------------------------------------------------------------------
@@ -983,8 +1035,8 @@ namespace ts {
         SCRAMBLING_DVB_CISSA1    = 0x10, //!< DVB-CISSA v1
         SCRAMBLING_ATIS_IIF_IDSA = 0x70, //!< ATIS IIF IDSA for MPEG-2 TS
         SCRAMBLING_USER_MIN      = 0x80, //!< First user-defined value.
-        SCRAMBLING_DUCK_AES_CBC  = 0xF0, //!< TSDuck-defined value, AES-CBC (with externally-defined IV).
-        SCRAMBLING_DUCK_AES_CTR  = 0xF1, //!< TSDuck-defined value, AES-CTR (with externally-defined IV).
+        SCRAMBLING_DUCK_AES_CBC  = 0xF0, //!< TSDuck-defined value, AES-128-CBC (with externally-defined IV).
+        SCRAMBLING_DUCK_AES_CTR  = 0xF1, //!< TSDuck-defined value, AES-128-CTR (with externally-defined IV).
         SCRAMBLING_USER_MAX      = 0xFE, //!< Last user-defined value.
         SCRAMBLING_RESERVED      = 0xFF, //!< Reserved value.
     };

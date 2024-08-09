@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,11 +12,11 @@
 //----------------------------------------------------------------------------
 
 #pragma once
+#include "tsTS.h"
 #include "tsEDID.h"
-#include "tsSection.h"
+#include "tsStandards.h"
 #include "tsTablesPtr.h"
-#include "tsSingletonManager.h"
-#include "tsNamesFile.h"
+#include "tsSingleton.h"
 #include "tsVersionInfo.h"
 
 namespace ts {
@@ -66,13 +45,13 @@ namespace ts {
         //! Profile of a function which creates a table.
         //! @return A safe pointer to an instance of a concrete subclass of AbstractTable.
         //!
-        typedef AbstractTablePtr (*TableFactory)();
+        using TableFactory = AbstractTablePtr (*)();
 
         //!
         //! Profile of a function which creates a descriptor.
         //! @return A safe pointer to an instance of a concrete subclass of AbstractDescriptor.
         //!
-        typedef AbstractDescriptorPtr (*DescriptorFactory)();
+        using DescriptorFactory = AbstractDescriptorPtr (*)();
 
         //!
         //! Get the table factory for a given table id.
@@ -334,13 +313,13 @@ namespace ts {
         class TableDescription
         {
         public:
-            Standards              standards;  // Standards for this table id.
-            uint16_t               minCAS;     // Minimum CAS id for this table id (CASID_NULL if none).
-            uint16_t               maxCAS;     // Maximum CAS id for this table id (CASID_NULL if none).
-            TableFactory           factory;    // Function to build an instance of the table.
-            DisplaySectionFunction display;    // Function to display a section.
-            LogSectionFunction     log;        // Function to log a section.
-            std::array<PID,8>      pids;       // Standard PID's for the standard, stop at first PID_NULL.
+            Standards              standards = Standards::NONE;  // Standards for this table id.
+            uint16_t               minCAS = CASID_NULL;          // Minimum CAS id for this table id (CASID_NULL if none).
+            uint16_t               maxCAS = CASID_NULL;          // Maximum CAS id for this table id (CASID_NULL if none).
+            TableFactory           factory = nullptr;            // Function to build an instance of the table.
+            DisplaySectionFunction display = nullptr;            // Function to display a section.
+            LogSectionFunction     log = nullptr;                // Function to log a section.
+            std::array<PID,8>      pids {};                      // Standard PID's for the standard, stop at first PID_NULL.
 
             // Constructor.
             TableDescription();
@@ -357,21 +336,21 @@ namespace ts {
         class DescriptorDescription
         {
         public:
-            DescriptorFactory         factory;    // Function to build an instance of the descriptor.
-            DisplayDescriptorFunction display;    // Function to display a descriptor.
+            DescriptorFactory         factory;  // Function to build an instance of the descriptor.
+            DisplayDescriptorFunction display;  // Function to display a descriptor.
 
             // Constructor.
             DescriptorDescription(DescriptorFactory fact = nullptr, DisplayDescriptorFunction disp = nullptr);
         };
 
         // PSIRepository instance private members.
-        std::multimap<TID, TableDescription>            _tables;                   // Description of all table ids, potential multiple entries per table idx
-        std::map<EDID, DescriptorDescription>           _descriptors;              // Description of all descriptors, by extended id.
-        std::map<UString, TableFactory>                 _tableNames;               // XML table name to table factory
-        std::map<UString, DescriptorFactory>            _descriptorNames;          // XML descriptor name to descriptor factory
-        std::multimap<UString, TID>                     _descriptorTablesIds;      // XML descriptor name to table id for table-specific descriptors
-        std::map<uint16_t, DisplayCADescriptorFunction> _casIdDescriptorDisplays;  // CA_system_id to display function for CA_descriptor.
-        UStringList                                     _xmlModelFiles;            // Additional XML model files for tables.
+        std::multimap<TID, TableDescription>            _tables {};                   // Description of all table ids, potential multiple entries per table idx
+        std::map<EDID, DescriptorDescription>           _descriptors {};              // Description of all descriptors, by extended id.
+        std::map<UString, TableFactory>                 _tableNames {};               // XML table name to table factory
+        std::map<UString, DescriptorFactory>            _descriptorNames {};          // XML descriptor name to descriptor factory
+        std::multimap<UString, TID>                     _descriptorTablesIds {};      // XML descriptor name to table id for table-specific descriptors
+        std::map<uint16_t, DisplayCADescriptorFunction> _casIdDescriptorDisplays {};  // CA_system_id to display function for CA_descriptor.
+        UStringList                                     _xmlModelFiles {};            // Additional XML model files for tables.
 
         // Common code to lookup a table function.
         template <typename FUNCTION, typename std::enable_if<std::is_pointer<FUNCTION>::value>::type* = nullptr>
@@ -392,7 +371,7 @@ namespace ts {
 //! @cond nodoxygen
 #define _TS_FACTORY_NAME                  TS_UNIQUE_NAME(_Factory)
 #define _TS_REGISTRAR_NAME                TS_UNIQUE_NAME(_Registrar)
-#define _TS_FACTORY(rettype,classname)    namespace { rettype _TS_FACTORY_NAME() {return new classname;} }
+#define _TS_FACTORY(rettype,classname)    namespace { rettype _TS_FACTORY_NAME() { return rettype(new classname); } }
 #define _TS_TABLE_FACTORY(classname)      _TS_FACTORY(ts::AbstractTablePtr, classname)
 #define _TS_DESCRIPTOR_FACTORY(classname) _TS_FACTORY(ts::AbstractDescriptorPtr, classname)
 //! @endcond

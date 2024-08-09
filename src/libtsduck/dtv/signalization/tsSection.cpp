@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -34,18 +13,12 @@
 #include "tsSHA1.h"
 #include "tsNames.h"
 #include "tsMemory.h"
-#include "tsReportWithPrefix.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
 // Constructors.
 //----------------------------------------------------------------------------
-
-ts::Section::Section() :
-    SuperClass(),
-    _is_valid(false)
-{
-}
 
 ts::Section::Section(const Section& sect, ShareMode mode) :
     SuperClass(sect, mode),
@@ -171,7 +144,7 @@ void ts::Section::reload(TID tid, bool is_private_section, const void* payload, 
         ByteBlockPtr data(new ByteBlock(SHORT_SECTION_HEADER_SIZE + payload_size));
         PutUInt8(data->data(), tid);
         PutUInt16(data->data() + 1, (is_private_section ? 0x4000 : 0x0000) | 0x3000 | uint16_t (payload_size & 0x0FFF));
-        ::memcpy(data->data() + 3, payload, payload_size);
+        MemCopy(data->data() + 3, payload, payload_size);
         reload(data, source_pid, CRC32::COMPUTE);
     }
 }
@@ -205,7 +178,7 @@ void ts::Section::reload(TID tid,
         PutUInt8(data->data() + 5, 0xC0 | uint8_t((version & 0x1F) << 1) | (is_current ? 0x01 : 0x00));
         PutUInt8(data->data() + 6, section_number);
         PutUInt8(data->data() + 7, last_section_number);
-        ::memcpy(data->data() + 8, payload, payload_size);  // Flawfinder: ignore: memcpy()
+        MemCopy(data->data() + 8, payload, payload_size);
         reload(data, source_pid, CRC32::COMPUTE);
     }
 }
@@ -357,7 +330,7 @@ ts::ByteBlock ts::Section::hash() const
 ts::Standards ts::Section::definingStandards() const
 {
     // The defining standard is taken from table id.
-    return PSIRepository::Instance()->getTableStandards(tableId(), sourcePID());
+    return PSIRepository::Instance().getTableStandards(tableId(), sourcePID());
 }
 
 
@@ -582,9 +555,9 @@ std::istream& ts::Section::read(std::istream& strm, CRC32::Validation crc_op, Re
     // Read rest of the section
     if (insize == 3) {
         secsize += GetUInt16(header + 1) & 0x0FFF;
-        secdata = new ByteBlock(secsize);
-        CheckNonNull(secdata.pointer());
-        ::memcpy(secdata->data(), header, 3);  // Flawfinder: ignore: memcpy()
+        secdata = std::make_shared<ByteBlock>(secsize);
+        CheckNonNull(secdata.get());
+        MemCopy(secdata->data(), header, 3);
         strm.read(reinterpret_cast <char*>(secdata->data() + 3), std::streamsize(secsize - 3));
         insize += size_t(strm.gcount());
     }
@@ -594,7 +567,7 @@ std::istream& ts::Section::read(std::istream& strm, CRC32::Validation crc_op, Re
         if (insize > 0) {
             // Flawfinder: ignore: completely fooled here, std::ostream::setstate has nothing to do with PRNG.
             strm.setstate(std::ios::failbit);
-            report.error(u"truncated section%s, got %d bytes, expected %d", {UString::AfterBytes(position), insize, secsize});
+            report.error(u"truncated section%s, got %d bytes, expected %d", UString::AfterBytes(position), insize, secsize);
         }
     }
     else {
@@ -602,7 +575,7 @@ std::istream& ts::Section::read(std::istream& strm, CRC32::Validation crc_op, Re
         reload(secdata, PID_NULL, crc_op);
         if (!_is_valid) {
             strm.setstate(std::ios::failbit);
-            report.error(u"invalid section%s", {UString::AfterBytes(position)});
+            report.error(u"invalid section%s", UString::AfterBytes(position));
         }
     }
 
@@ -632,14 +605,14 @@ std::ostream& ts::Section::dump(std::ostream& strm, int indent, uint16_t cas, bo
     // If PID is the null PID, this means "unknown PID"
     if (!no_header) {
         strm << margin << ""
-             << UString::Format(u"* Section dump, PID 0x%X (%<d), TID %s", {sourcePID(), names::TID(duck, tid, cas, NamesFlags::BOTH_FIRST)})
+             << UString::Format(u"* Section dump, PID %n, TID %s", sourcePID(), names::TID(duck, tid, cas, NamesFlags::BOTH_FIRST))
              << std::endl
              << margin << "  Section size: " << size() << " bytes, header: " << (isLongSection() ? "long" : "short")
              << std::endl;
         if (isLongSection()) {
             strm << margin
-                 << UString::Format(u"  TIDext: 0x%X (%<d), version: %d, index: %d, last: %d, %s",
-                                    {tableIdExtension(), version(), sectionNumber(), lastSectionNumber(), (isNext() ? u"next" : u"current")})
+                 << UString::Format(u"  TIDext: %n, version: %d, index: %d, last: %d, %s",
+                                    tableIdExtension(), version(), sectionNumber(), lastSectionNumber(), isNext() ? u"next" : u"current")
                  << std::endl;
         }
     }

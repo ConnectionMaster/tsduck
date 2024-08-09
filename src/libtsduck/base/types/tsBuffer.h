@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,8 +14,9 @@
 #pragma once
 #include "tsMemory.h"
 #include "tsByteBlock.h"
+#include "tsFloatUtils.h"
 #include "tsUString.h"
-#include "tsVariable.h"
+#include "tsIntegerUtils.h"
 
 namespace ts {
     //!
@@ -346,7 +326,7 @@ namespace ts {
 
         //!
         //! Reset writing at the specified offset in the buffer.
-        //! Seeking backward beyon the read pointer moves the write pointer to the read pointer
+        //! Seeking backward beyond the read pointer moves the write pointer to the read pointer
         //! and generates a write error. Seeking forward past the end of buffer moves the write
         //! pointer to the end of the buffer and generates a write error.
         //! @param [in] byte Index of next byte to write.
@@ -357,7 +337,7 @@ namespace ts {
 
         //!
         //! Reset writing at the specified offset in the buffer and trash forward memory.
-        //! Seeking backward beyon the read pointer moves the write pointer to the read pointer
+        //! Seeking backward beyond the read pointer moves the write pointer to the read pointer
         //! and generates a write error. Seeking forward past the end of buffer moves the write
         //! pointer to the end of the buffer and generates a write error.
         //! @param [in] byte Index of next byte to write.
@@ -407,6 +387,51 @@ namespace ts {
         //! @return True on success, false if would got beyond write pointer (and set read error flag).
         //!
         bool skipBits(size_t bits);
+
+        //!
+        //! Skip read reserved bits forward.
+        //! @param [in] bits Number of reserved bits to skip.
+        //! @param [in] expected Expected value of each reserved bit. Must be 0 or 1, default is 1.
+        //! For each reserved bit which does not have the expected value, a "reserved bit error" is logged.
+        //! @return True on success, false if would got beyond write pointer (and set read error flag).
+        //! @see reservedBitsError()
+        //!
+        bool skipReservedBits(size_t bits, int expected = 1);
+
+        //!
+        //! Check if there were "reserved bits errors".
+        //! @return True if there were "reserved bits errors".
+        //! @see skipReservedBits()
+        //!
+        bool reservedBitsError() const { return !_reserved_bits_errors.empty(); }
+
+        //!
+        //! Return a string describing the "reserved bits errors".
+        //! @param [in] base_offset Artificial base offset in bytes which is used to describe the placement of each bit error.
+        //! When the Buffer instance describes the payload of a structure, specify the structure header size as base_offset
+        //! in order to display each bit error relatively to the complete structure.
+        //! @param [in] margin Prepend that string to each line.
+        //! @return A string describing the "reserved bits errors". This is a mul
+        //! @see skipReservedBits()
+        //!
+        UString reservedBitsErrorString(size_t base_offset = 0, const UString& margin = UString())
+        {
+            return ReservedBitsErrorString(_reserved_bits_errors, base_offset, margin);
+        }
+
+        //!
+        //! This static method returns a string describing "reserved bits errors".
+        //! @param [in,out] errors A vector of error description. Each value is made of
+        //! byte offset || bit offset (3 bits) || expected bit value (1 bit).
+        //! The vector is sorted first.
+        //! @param [in] base_offset Artificial base offset in bytes which is used to describe the placement of each bit error.
+        //! When the Buffer instance describes the payload of a structure, specify the structure header size as base_offset
+        //! in order to display each bit error relatively to the complete structure.
+        //! @param [in] margin Prepend that string to each line.
+        //! @return A string describing the "reserved bits errors". This is a mul
+        //! @see skipReservedBits()
+        //!
+        static UString ReservedBitsErrorString(std::vector<size_t>& errors, size_t base_offset = 0, const UString& margin = UString());
 
         //!
         //! Skip read bytes backward.
@@ -708,11 +733,19 @@ namespace ts {
         //!
         //! Read the next n bits as an integer value and advance the read pointer.
         //! @tparam INT An integer type for the result.
-        //! @param [out] value The value of the next @a bits as a Variable instance. If no integer can be read, the Variable is unset.
+        //! @param [out] value The value of the next @a bits as a std::optional instance. If no integer can be read, the std::optional is unset.
         //! @param [in] bits Number of bits to read.
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
-        void getBits(Variable<INT>& value, size_t bits);
+        void getBits(std::optional<INT>& value, size_t bits);
+
+        //!
+        //! Read the next n bits as a std::chrono::duration value and advance the read pointer.
+        //! @param [out] value The value of the next @a bits.
+        //! @param [in] bits Number of bits to read.
+        //!
+        template <class Rep, class Period>
+        void getBits(cn::duration<Rep,Period>& value, size_t bits);
 
         //!
         //! Put the next n bits from an integer value and advance the write pointer.
@@ -723,6 +756,29 @@ namespace ts {
         //!
         template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
         bool putBits(INT value, size_t bits);
+
+        //!
+        //! Put the next n bits from a std::chrono::duration value and advance the write pointer.
+        //! @param [in] value Integer value to write.
+        //! @param [in] bits Number of bits to write.
+        //! @return True on success, false on error (read only or no more space to write).
+        //!
+        template <class Rep, class Period>
+        bool putBits(cn::duration<Rep,Period> value, size_t bits) { return putBits(value.count(), bits); }
+
+        //!
+        //! Serialize the number of reserved '1' bits
+        //! @param [in] bits Number of reserved '1' bits to write.
+        //! @return True on success, false on error (read only or no more space to write).
+        //!
+        bool putReserved(size_t bits);
+
+        //!
+        //! Serialize the number of reserved '0' bits
+        //! @param [in] bits Number of reserved '0' bits to write.
+        //! @return True on success, false on error (read only or no more space to write).
+        //!
+        bool putReservedZero(size_t bits) { return putBits<int>(0, bits); }
 
         //!
         //! Get bulk bytes from the buffer.
@@ -885,6 +941,20 @@ namespace ts {
         int64_t getInt64() { return _big_endian ? GetInt64BE(rdb(8)) : GetInt64LE(rdb(8)); }
 
         //!
+        //! Read the next 32 bits as an IEEE float value and advance the read pointer.
+        //! Set the read error flag if there are not enough bits to read.
+        //! @return The decoded IEEE float value, according to the current endianness of the buffer.
+        //!
+        ieee_float32_t getFloat32() { return _big_endian ? GetFloat32BE(rdb(4)) : GetFloat32LE(rdb(4)); }
+
+        //!
+        //! Read the next 64 bits as an IEEE float value and advance the read pointer.
+        //! Set the read error flag if there are not enough bits to read.
+        //! @return The decoded IEEE float value, according to the current endianness of the buffer.
+        //!
+        ieee_float64_t getFloat64() { return _big_endian ? GetFloat64BE(rdb(8)) : GetFloat64LE(rdb(8)); }
+
+        //!
         //! Write an 8-bit unsigned integer value and advance the write pointer.
         //! @param [in] i 8-bit unsigned integer value to write.
         //! @return True on success, false if there is not enough space to write (and set write error flag).
@@ -981,6 +1051,20 @@ namespace ts {
         //! @return True on success, false if there is not enough space to write (and set write error flag).
         //!
         bool putInt64(int64_t i) { return putint(i, 8, PutInt64BE, PutInt64LE); }
+
+        //!
+        //! Write a 32-bit IEEE float value and advance the write pointer.
+        //! @param [in] f 32-bit IEEE float value to write.
+        //! @return True on success, false if there is not enough space to write (and set write error flag).
+        //!
+        bool putFloat32(ieee_float32_t f) { return putint(f, 4, PutFloat32BE, PutFloat32LE); }
+
+        //!
+        //! Write a 64-bit IEEE float value and advance the write pointer.
+        //! @param [in] f 32-bit IEEE float value to write.
+        //! @return True on success, false if there is not enough space to write (and set write error flag).
+        //!
+        bool putFloat64(ieee_float64_t f) { return putint(f, 8, PutFloat64BE, PutFloat64LE); }
 
         //!
         //! Read the next 4*n bits as a Binary Coded Decimal (BCD) value and advance the read pointer.
@@ -1331,7 +1415,7 @@ namespace ts {
         const uint8_t* rdb(size_t bytes);
 
         // Internal put integer method.
-        template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
+        template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_floating_point<INT>::value, int>::type = 0>
         bool putint(INT value, size_t bytes, void (*putBE)(void*,INT), void (*putLE)(void*,INT));
 
         // Request some read size. Return actually possible read size. Set read error if lower than requested.
@@ -1348,7 +1432,7 @@ namespace ts {
         UString outStringToResult(size_t param, bool (Buffer::*method)(UString&, size_t));
         bool getUTFInternal(UString& result, size_t bytes, bool utf8);
         bool getUTFWithLengthInternal(UString& result, size_t length_bits, bool utf8);
-        size_t putUTFInternal(const UString& str, size_t start, size_t count, bool partial, size_t fixed_size, int pad, bool utf8);
+        size_t putUTFInternal(const UString& str, size_t start, size_t count, bool partial, size_t fixed_size, uint16_t pad, bool utf8);
         size_t putUTFWithLengthInternal(const UString& str, size_t start, size_t count, size_t length_bits, bool partial, bool utf8);
 
         // Reason for the creation of a buffer state.
@@ -1361,14 +1445,14 @@ namespace ts {
 
         // Read/write state in the buffer.
         struct State {
-            Reason reason;     // Reason for the creation of this state.
-            bool   read_only;  // The buffer is in read-only mode.
-            size_t end;        // Size of usable area in buffer.
-            size_t rbyte;      // Next byte to read, offset from beginning of buffer.
-            size_t wbyte;      // Next byte to write, offset from beginning of buffer.
-            size_t rbit;       // Next bit to read at offset rbyte (0 = MSB in big endian, LSB in little endian).
-            size_t wbit;       // Next bit to write at offset wbyte (0 = MSB in big endian, LSB in little endian).
-            size_t len_bits;   // Size in bits of the length field (when reason is WRITE_LEN_SEQ).
+            Reason reason {Reason::FULL}; // Reason for the creation of this state.
+            bool   read_only;             // The buffer is in read-only mode.
+            size_t end;                   // Size of usable area in buffer.
+            size_t rbyte = 0;             // Next byte to read, offset from beginning of buffer.
+            size_t wbyte = 0;             // Next byte to write, offset from beginning of buffer.
+            size_t rbit = 0;              // Next bit to read at offset rbyte (0 = MSB in big endian, LSB in little endian).
+            size_t wbit = 0;              // Next bit to write at offset wbyte (0 = MSB in big endian, LSB in little endian).
+            size_t len_bits = 0;          // Size in bits of the length field (when reason is WRITE_LEN_SEQ).
 
             // Constructor.
             State(bool rdonly = true, size_t size = 0);
@@ -1377,16 +1461,17 @@ namespace ts {
             void clear();
         };
 
-        uint8_t*           _buffer;        // Base address of memory buffer.
-        size_t             _buffer_size;   // Size of addressable area in _buffer.
-        bool               _allocated;     // If true, _buffer was internally allocated and must be freed later.
-        bool               _big_endian;    // Read/write integers in big endian mode (false means little endian).
-        bool               _read_error;    // Read error encountered (passed end of stream for instance).
-        bool               _write_error;   // Write error encountered (passed end of stream for instance).
-        bool               _user_error;    // User-generated error.
-        State              _state;         // Read/write indexes.
-        std::vector<State> _saved_states;  // Stack of saved states.
-        uint8_t            _realigned[8];  // 64-bit intermediate buffer to read realigned integer.
+        uint8_t*            _buffer;              // Base address of memory buffer.
+        size_t              _buffer_size;         // Size of addressable area in _buffer.
+        bool                _allocated;           // If true, _buffer was internally allocated and must be freed later.
+        bool                _big_endian = true;   // Read/write integers in big endian mode (false means little endian).
+        bool                _read_error = false;  // Read error encountered (passed end of stream for instance).
+        bool                _write_error = false; // Write error encountered (passed end of stream for instance).
+        bool                _user_error = false;  // User-generated error.
+        State               _state;               // Read/write indexes.
+        std::vector<State>  _saved_states {};     // Stack of saved states.
+        uint8_t             _realigned[8] {};     // 64-bit intermediate buffer to read realigned integer.
+        std::vector<size_t> _reserved_bits_errors {};  // Errors in reserved bits (byte offset || bit offset (3 bits) || expected bit (1 bit)).
     };
 
     //! @cond nodoxygen
@@ -1395,4 +1480,253 @@ namespace ts {
     //! @endcond
 }
 
-#include "tsBufferTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Read the next n bits as an integer value and advance the read pointer.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::Buffer::getBits(size_t bits)
+{
+    using UNSINT = typename std::make_unsigned<INT>::type;
+    const INT value = static_cast<INT>(getBits<UNSINT>(bits));
+    return SignExtend(value, bits);
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+void ts::Buffer::getBits(std::optional<INT>& value, size_t bits)
+{
+    if (_read_error || currentReadBitOffset() + bits > currentWriteBitOffset()) {
+        _read_error = true;
+        value.reset();
+    }
+    else {
+        value = getBits<INT>(bits);
+    }
+}
+
+template <class Rep, class Period>
+void ts::Buffer::getBits(cn::duration<Rep,Period>& value, size_t bits)
+{
+    value = cn::duration<Rep,Period>(getBits<Rep>(bits));
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::Buffer::getBits(size_t bits)
+{
+    // No read if read error is already set or not enough bits to read.
+    if (_read_error || currentReadBitOffset() + bits > currentWriteBitOffset()) {
+        _read_error = true;
+        return 0;
+    }
+
+    INT val = 0;
+
+    if (_big_endian) {
+        // Read leading bits up to byte boundary
+        while (bits > 0 && _state.rbit != 0) {
+            val = INT(val << 1) | INT(getBit());
+            --bits;
+        }
+
+        // Read complete bytes
+        while (bits > 7) {
+            val = INT(val << 8) | INT(_buffer[_state.rbyte++]);
+            bits -= 8;
+        }
+
+        // Read trailing bits
+        while (bits > 0) {
+            val = INT(val << 1) | INT(getBit());
+            --bits;
+        }
+    }
+    else {
+        // Little endian decoding
+        int shift = 0;
+
+        // Read leading bits up to byte boundary
+        while (bits > 0 && _state.rbit != 0) {
+            val |= INT(getBit()) << shift;
+            --bits;
+            shift++;
+        }
+
+        // Read complete bytes
+        while (bits > 7) {
+            val |= INT(_buffer[_state.rbyte++]) << shift;
+            bits -= 8;
+            shift += 8;
+        }
+
+        // Read trailing bits
+        while (bits > 0) {
+            val |= INT(getBit()) << shift;
+            --bits;
+            shift++;
+        }
+    }
+
+    return val;
+}
+
+// Put the next n bits from an integer value and advance the write pointer.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::Buffer::putBits(INT value, size_t bits)
+{
+    // No write if write error is already set or read-only or not enough bits to write.
+    if (_write_error || _state.read_only || remainingWriteBits() < bits) {
+        _write_error = true;
+        return false;
+    }
+
+    if (_big_endian) {
+        // Write leading bits up to byte boundary
+        while (bits > 0 && _state.wbit != 0) {
+            putBit(uint8_t((value >> --bits) & 1));
+        }
+
+        // Write complete bytes.
+        while (bits > 7) {
+            bits -= 8;
+            _buffer[_state.wbyte++] = uint8_t(value >> bits);
+        }
+
+        // Write trailing bits
+        while (bits > 0) {
+            putBit(uint8_t((value >> --bits) & 1));
+        }
+    }
+    else {
+        // Little endian encoding. Write leading bits up to byte boundary.
+        while (bits > 0 && _state.wbit != 0) {
+            putBit(uint8_t(value & 1));
+            value >>= 1;
+            --bits;
+        }
+
+        // Write complete bytes.
+        while (bits > 7) {
+            _buffer[_state.wbyte++] = uint8_t(value);
+            TS_PUSH_WARNING()
+            TS_LLVM_NOWARNING(shift-count-overflow) // "shift count >= width of type" for 8-bit ints
+            value >>= 8;
+            TS_POP_WARNING()
+            bits -= 8;
+        }
+
+        // Write trailing bits
+        while (bits > 0) {
+            putBit(uint8_t(value & 1));
+            value >>= 1;
+            --bits;
+        }
+    }
+
+    return true;
+}
+
+// Internal put integer method.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value || std::is_floating_point<INT>::value, int>::type>
+bool ts::Buffer::putint(INT value, size_t bytes, void (*putBE)(void*,INT), void (*putLE)(void*,INT))
+{
+    // Internally used to write up to 8 bytes (64-bit integers).
+    assert(bytes <= 8);
+
+    // No write if write error is already set or read-only.
+    if (_write_error || _state.read_only) {
+        _write_error = true;
+        return false;
+    }
+
+    // Hypothetical new write pointer (bit pointer won't change).
+    const size_t new_wbyte = _state.wbyte + bytes;
+
+    if (new_wbyte > _state.end || (new_wbyte == _state.end && _state.wbit > 0)) {
+        // Not enough bytes to write.
+        _write_error = true;
+        return false;
+    }
+    else if (_state.wbit == 0) {
+        // Write pointer is byte aligned. Most common case.
+        if (_big_endian) {
+            putBE(_buffer + _state.wbyte, value);
+        }
+        else {
+            putLE(_buffer + _state.wbyte, value);
+        }
+        _state.wbyte = new_wbyte;
+        return true;
+    }
+    else {
+        // Write pointer is not byte aligned. Use an intermediate buffer.
+        uint8_t buf[8];
+        if (_big_endian) {
+            putBE(buf, value);
+        }
+        else {
+            putLE(buf, value);
+        }
+        putBytes(buf, bytes);
+        assert(_state.wbyte == new_wbyte);
+        return true;
+    }
+}
+
+// Read the next 4*n bits as a BCD value.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+INT ts::Buffer::getBCD(size_t bcd_count)
+{
+    INT value = 0;
+    getBCD(value, bcd_count);
+    return value;
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::Buffer::getBCD(INT& value, size_t bcd_count)
+{
+    using UNSINT = typename std::make_unsigned<INT>::type;
+    UNSINT uvalue = 0;
+
+    if (_read_error || currentReadBitOffset() + 4 * bcd_count > currentWriteBitOffset()) {
+        _read_error = true;
+        value = 0;
+        return false;
+    }
+    else {
+        while (bcd_count-- > 0) {
+            UNSINT nibble = getBits<UNSINT>(4);
+            if (nibble > 9) {
+                _read_error = true;
+                nibble = 0;
+            }
+            uvalue = 10 * uvalue + nibble;
+        }
+        value = static_cast<INT>(uvalue);
+        return true;
+    }
+}
+
+// Put the next 4*n bits as a BCD value.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value>::type*>
+bool ts::Buffer::putBCD(INT value, size_t bcd_count)
+{
+    // No write if write error is already set or read-only or not enough bits to write.
+    if (_write_error || _state.read_only || remainingWriteBits() < 4 * bcd_count) {
+        _write_error = true;
+        return false;
+    }
+
+    if (bcd_count > 0) {
+        using UNSINT = typename std::make_unsigned<INT>::type;
+        UNSINT uvalue = static_cast<UNSINT>(value);
+        UNSINT factor = static_cast<UNSINT>(Power10(bcd_count));
+        while (bcd_count-- > 0) {
+            uvalue %= factor;
+            factor /= 10;
+            putBits(uvalue / factor, 4);
+        }
+    }
+    return true;
+}

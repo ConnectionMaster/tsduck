@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -46,10 +25,9 @@
 namespace ts {
     class RegulatePlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(RegulatePlugin);
+        TS_PLUGIN_CONSTRUCTORS(RegulatePlugin);
     public:
         // Implementation of plugin API
-        RegulatePlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool isRealTime() override {return true;}
@@ -57,15 +35,15 @@ namespace ts {
 
     private:
         // Command line options:
-        bool          _pcr_synchronous;
-        BitRate       _bitrate;
-        PacketCounter _burst;
-        MilliSecond   _wait_min;
-        PID           _pid_pcr;
+        bool             _pcr_synchronous = false;
+        BitRate          _bitrate = 0;
+        PacketCounter    _burst = 0;
+        cn::milliseconds _wait_min {};
+        PID              _pid_pcr = PID_NULL;
 
         // Working data:
-        BitRateRegulator _bitrate_regulator;
-        PCRRegulator     _pcr_regulator;
+        BitRateRegulator _bitrate_regulator {this, Severity::Verbose};
+        PCRRegulator     _pcr_regulator {this, Severity::Verbose};
     };
 }
 
@@ -77,14 +55,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"regulate", ts::RegulatePlugin);
 //----------------------------------------------------------------------------
 
 ts::RegulatePlugin::RegulatePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Regulate the TS packets flow based on PCR or bitrate", u"[options]"),
-    _pcr_synchronous(false),
-    _bitrate(),
-    _burst(0),
-    _wait_min(0),
-    _pid_pcr(PID_NULL),
-    _bitrate_regulator(tsp, Severity::Verbose),
-    _pcr_regulator(tsp, Severity::Verbose)
+    ProcessorPlugin(tsp_, u"Regulate the TS packets flow based on PCR or bitrate", u"[options]")
 {
     option<BitRate>(u"bitrate", 'b');
     help(u"bitrate",
@@ -108,10 +79,10 @@ ts::RegulatePlugin::RegulatePlugin(TSP* tsp_) :
          u"With --pcr-synchronous, specify the reference PID for PCR's. By default, "
          u"use the first PID containing PCR's.");
 
-    option(u"wait-min", 'w', POSITIVE);
+    option<cn::milliseconds>(u"wait-min", 'w');
     help(u"wait-min",
          u"With --pcr-synchronous, specify the minimum wait time in milli-seconds. "
-         u"The default is " + UString::Decimal(PCRRegulator::DEFAULT_MIN_WAIT_NS / NanoSecPerMilliSec) + u" ms.");
+         u"The default is " + UString::Chrono(PCRRegulator::DEFAULT_MIN_WAIT) + u"");
 }
 
 
@@ -123,16 +94,16 @@ bool ts::RegulatePlugin::getOptions()
 {
     getValue(_bitrate, u"bitrate", 0);
     getIntValue(_burst, u"packet-burst", DEF_PACKET_BURST);
-    getIntValue(_wait_min, u"wait-min", PCRRegulator::DEFAULT_MIN_WAIT_NS / NanoSecPerMilliSec);
+    getChronoValue(_wait_min, u"wait-min", PCRRegulator::DEFAULT_MIN_WAIT);
     getIntValue(_pid_pcr, u"pid-pcr", PID_NULL);
     _pcr_synchronous = present(u"pcr-synchronous");
 
     if (present(u"bitrate") && _pcr_synchronous) {
-        tsp->error(u"--bitrate cannot be used with --pcr-synchronous");
+        error(u"--bitrate cannot be used with --pcr-synchronous");
         return false;
     }
     if (present(u"pid-pcr") && !_pcr_synchronous) {
-        tsp->error(u"--pid-pcr cannot be used without --pcr-synchronous");
+        error(u"--pid-pcr cannot be used without --pcr-synchronous");
         return false;
     }
     return true;
@@ -147,12 +118,14 @@ bool ts::RegulatePlugin::start()
 {
     // Initialize the appropriate regulator.
     if (_pcr_synchronous) {
+        debug(u"starting PCR-synchronous regulation");
         _pcr_regulator.reset();
         _pcr_regulator.setBurstPacketCount(_burst);
         _pcr_regulator.setReferencePID(_pid_pcr);
-        _pcr_regulator.setMinimimWait(_wait_min * NanoSecPerMilliSec);
+        _pcr_regulator.setMinimimWait(_wait_min);
     }
     else {
+        debug(u"starting bitrate-based regulation");
         _bitrate_regulator.setBurstPacketCount(_burst);
         _bitrate_regulator.setFixedBitRate(_bitrate);
         _bitrate_regulator.start();

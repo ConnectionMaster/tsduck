@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -39,9 +18,7 @@
 #include "tsPAT.h"
 #include "tsCAT.h"
 #include "tsPMT.h"
-#include "tsCASFamily.h"
 #include "tsCADescriptor.h"
-#include "tsSafePtr.h"
 
 
 //----------------------------------------------------------------------------
@@ -51,22 +28,21 @@
 namespace ts {
     class RemapPlugin: public AbstractDuplicateRemapPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(RemapPlugin);
+        TS_PLUGIN_CONSTRUCTORS(RemapPlugin);
     public:
         // Implementation of plugin API
-        RemapPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        typedef SafePtr<CyclingPacketizer, NullMutex> CyclingPacketizerPtr;
-        typedef std::map<PID, CyclingPacketizerPtr> PacketizerMap;
+        using CyclingPacketizerPtr = std::shared_ptr<CyclingPacketizer>;
+        using PacketizerMap = std::map<PID, CyclingPacketizerPtr>;
 
-        bool          _update_psi;      // Update all PSI
-        bool          _pmt_ready;       // All PMT PID's are known
-        SectionDemux  _demux;           // Section demux
-        PacketizerMap _pzer;            // Packetizer for sections
+        bool          _update_psi = false;  // Update all PSI
+        bool          _pmt_ready = false;   // All PMT PID's are known
+        SectionDemux  _demux {duck, this};  // Section demux
+        PacketizerMap _pzer {};             // Packetizer for sections
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -90,11 +66,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"remap", ts::RemapPlugin);
 //----------------------------------------------------------------------------
 
 ts::RemapPlugin::RemapPlugin(TSP* tsp_) :
-    AbstractDuplicateRemapPlugin(true, tsp_, u"Generic PID remapper", u"[options] [pid[-pid]=newpid ...]"),
-    _update_psi(false),
-    _pmt_ready(false),
-    _demux(duck, this),
-    _pzer()
+    AbstractDuplicateRemapPlugin(true, tsp_, u"Generic PID remapper", u"[options] [pid[-pid]=newpid ...]")
 {
     option(u"no-psi", 'n');
     help(u"no-psi",
@@ -139,7 +111,7 @@ bool ts::RemapPlugin::start()
     // Do not care about PMT if no need to update PSI
     _pmt_ready = !_update_psi;
 
-    tsp->verbose(u"%d PID's remapped", {_pidMap.size()});
+    verbose(u"%d PID's remapped", _pidMap.size());
     return true;
 }
 
@@ -269,7 +241,7 @@ ts::ProcessorPlugin::Status ts::RemapPlugin::processPacket(TSPacket& pkt, TSPack
 
         // Rebuild PSI packets
         const CyclingPacketizerPtr pzer = getPacketizer(pid, false);
-        if (!pzer.isNull()) {
+        if (pzer != nullptr) {
             // This is a PSI PID, its content may haved changed
             pzer->getNextPacket(pkt);
         }
@@ -281,7 +253,7 @@ ts::ProcessorPlugin::Status ts::RemapPlugin::processPacket(TSPacket& pkt, TSPack
 
     // Check conflicts
     if (!_unchecked && new_pid == pid && _newPIDs.test(pid)) {
-        tsp->error(u"PID conflict: PID %d (0x%X) present both in input and remap", {pid, pid});
+        error(u"PID conflict: PID %n present both in input and remap", pid);
         return TSP_END;
     }
 

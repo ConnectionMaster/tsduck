@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,9 +12,7 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tshls.h"
-#include "tsFixedPoint.h"
-#include "tsFraction.h"
+#include "tsUString.h"
 
 namespace ts {
     namespace hls {
@@ -149,8 +126,25 @@ namespace ts {
                 }
             }
 
+            //!
+            //! Get the value of a String in milli-units of a std::chrono::duration type.
+            //! @param [out] value Decoded value. If the value is an integer, return this value times 1000.
+            //! If the value is a decimal one, use 3 decimal digits. Examples: "90" -> 90000,
+            //! "1.12" -> 1120, "32.1234" -> 32123.
+            //! @param [in] str String to decode.
+            //! @return True on success, false on error.
+            //!
+            template <class Rep, class Period>
+            static bool ToMilliValue(cn::duration<Rep,Period>& value, const UString& str)
+            {
+                Rep ivalue = value.count();
+                const bool result = ToMilliValue(ivalue, str);
+                value = cn::duration<Rep,Period>(ivalue);
+                return result;
+            }
+
         private:
-            std::map<UString, UString> _map;
+            std::map<UString, UString> _map {};
         };
     }
 }

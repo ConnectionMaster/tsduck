@@ -1,36 +1,15 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsInputSwitcher.h"
-#include "tsSystemMonitor.h"
 #include "tstsswitchCore.h"
 #include "tstsswitchCommandListener.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -38,17 +17,12 @@
 //----------------------------------------------------------------------------
 
 ts::InputSwitcher::InputSwitcher(Report& report) :
-    PluginEventHandlerRegistry(),
-    _report(report),
-    _args(),
-    _core(nullptr),
-    _remote(nullptr),
-    _success(false)
+    _report(report)
 {
 }
 
 ts::InputSwitcher::InputSwitcher(const InputSwitcherArgs& args, Report& report) :
-    InputSwitcher(report)
+    _report(report)
 {
     _success = start(args);
     waitForTermination();
@@ -79,15 +53,15 @@ bool ts::InputSwitcher::start(const InputSwitcherArgs& args)
 
     // Debug message.
     if (_report.debug()) {
-        ts::UString cmd(args.appName);
+        UString cmd(args.appName);
         cmd.append(u" ");
-        for (auto it = args.inputs.begin(); it != args.inputs.end(); ++it) {
+        for (const auto& it : args.inputs) {
             cmd.append(u" ");
-            cmd.append(it->toString(ts::PluginType::INPUT));
+            cmd.append(it.toString(PluginType::INPUT));
         }
         cmd.append(u" ");
-        cmd.append(args.output.toString(ts::PluginType::OUTPUT));
-        _report.debug(u"starting: %s", {cmd});
+        cmd.append(args.output.toString(PluginType::OUTPUT));
+        _report.debug(u"starting: %s", cmd);
     }
 
     // Clear errors on the report, used to check further initialisation errors.

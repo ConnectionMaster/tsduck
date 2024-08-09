@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,7 +14,6 @@
 #include "tsDuckContext.h"
 #include "tsTuner.h"
 #include "tsTunerArgs.h"
-#include "tsSysUtils.h"
 TS_MAIN(MainCode);
 
 #if defined(TS_WINDOWS)
@@ -55,22 +33,16 @@ namespace {
         Options(int argc, char *argv[]);
 
 #if defined(TS_WINDOWS)
-        ts::DirectShowTest::TestType test_type;  // DirectShow test (Windows only).
+        ts::DirectShowTest::TestType test_type = ts::DirectShowTest::NONE;  // DirectShow test (Windows only).
 #endif
-        ts::DuckContext duck;
-        ts::TunerArgs   tuner_args;  // Name of device to list (unspecified means all).
-        bool            extended;
+        ts::DuckContext duck {this};
+        ts::TunerArgs   tuner_args {true};  // true = info_only
+        bool            extended = false;
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    ts::Args(u"List DVB tuner devices", u"[options]"),
-#if defined(TS_WINDOWS)
-    test_type(ts::DirectShowTest::NONE),
-#endif
-    duck(this),
-    tuner_args(true),
-    extended(false)
+    ts::Args(u"List DVB tuner devices", u"[options]")
 {
     // Common tuner options.
     tuner_args.defineArgs(*this, true);

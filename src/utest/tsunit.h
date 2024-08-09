@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSUnit - A simple C++ unitary test framework.
-// Copyright (c) 2019-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2019-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -54,6 +33,7 @@
 #pragma warning(disable:4626)  // assignment operator was implicitly defined as deleted
 #pragma warning(disable:4710)  // 'xxx' : function not inlined
 #pragma warning(disable:4711)  // function 'xxx' selected for automatic inline expansion
+#pragma warning(disable:4738)  // storing 32-bit float result in memory, possible loss of performance
 #pragma warning(disable:4774)  // format string expected in argument N is not a string literal
 #pragma warning(disable:4820)  // 'n' bytes padding added after data member 'nnnnn'
 #pragma warning(disable:5026)  // move constructor was implicitly defined as deleted
@@ -62,22 +42,32 @@
 #pragma warning(disable:5032)  // bug in winioctl.h : detected #pragma warning(push) with no corresponding #pragma warning(pop)
 #pragma warning(disable:5039)  // pointer or reference to potentially throwing function passed to extern C function under -EHc. Undefined behavior may occur if this function throws an exception.
 #pragma warning(disable:5045)  // Compiler will insert Spectre mitigation for memory load if / Qspectre switch specified
+#pragma warning(disable:5262)  // implicit fall - through occurs here; are you missing a break statement ? Use [[fallthrough]] when a break statement is intentionally omitted between cases
 #endif
 
 #if defined(__llvm__)
-#pragma clang diagnostic ignored "-Wc++98-compat"           // Need C++11, don't care about C++98
+#pragma clang diagnostic ignored "-Wunknown-warning-option" // Ignore recent warnings when unknown in an older version
+#pragma clang diagnostic ignored "-Wc++98-compat"           // Need C++17, don't care about C++98
 #pragma clang diagnostic ignored "-Wc++98-compat-pedantic"  // Idem
 #pragma clang diagnostic ignored "-Wglobal-constructors"    // We use many global objects for test registration
 #pragma clang diagnostic ignored "-Wexit-time-destructors"  // Idem
 #pragma clang diagnostic ignored "-Wpadded"                 // Allow padding between class fields
+#pragma clang diagnostic ignored "-Wunused-member-function" // Unused member function
 #pragma clang diagnostic ignored "-Wdocumentation-unknown-command" // Should work but fails with clang 10.0.0 on Linux
+#pragma clang diagnostic ignored "-Wunsafe-buffer-usage"    // "unsafe pointer arithmetic" (new with clang 16)
+#pragma clang diagnostic ignored "-Wweak-vtables"           // Test classes may have no explicit virtual method
+#pragma clang diagnostic ignored "-Wmissing-noreturn"       // Test cases with expected exception may be detected as [[noreturn]]
 #endif
 
+#include <limits>
 #include <map>
 #include <list>
+#include <vector>
 #include <string>
 #include <fstream>
 #include <iostream>
+#include <typeindex>
+#include <filesystem>
 #include <exception>
 #include <cstdlib>
 #include <cstdio>
@@ -98,6 +88,14 @@ namespace tsunit {
         //! Virtual destructor.
         //!
         virtual ~Test();
+        //!
+        //! Invoked once before starting the test suite (all test cases in the test class).
+        //!
+        virtual void beforeTestSuite();
+        //!
+        //! Invoked once after the completion of the test suite (all test cases in the test class).
+        //!
+        virtual void afterTestSuite();
         //!
         //! Invoked once before each individual test case.
         //!
@@ -178,11 +176,11 @@ namespace tsunit {
         int run();
 
     private:
-        std::string _argv0;       // program name
-        std::string _testName;    // name of test to run
-        bool        _listMode;    // list tests, do not execute
-        bool        _debug;       // enable debug messages
-        int         _exitStatus;  // EXIT_SUCCESS or EXIT_FAILURE
+        std::string _argv0 {};          // program name
+        std::string _testName {};       // name of test to run
+        bool        _listMode = false;  // list tests, do not execute
+        bool        _debug = false;     // enable debug messages
+        int         _exitStatus = EXIT_SUCCESS;
 
         // Inaccessible operations.
         Main() = delete;
@@ -201,80 +199,88 @@ namespace tsunit {
 //! @endcond
 
 //!
-//! Start the description of a test suite inside a test class.
-//! @hideinitializer
-//! @param classname Simple class name. The macro shall be invoked inside
-//! the class declaration. See the sample code below.
-//!
-//! @code
-//! class ExcTest: public std::exception { ... };
-//!
-//! namespace foo
-//! {
-//!     class Bar: public tsunit::Test
-//!     {
-//!     public:
-//!         void test1();
-//!         void test2();
-//!         void test3();
-//!
-//!         TSUNIT_TEST_BEGIN(Bar);
-//!         TSUNIT_TEST(test1);
-//!         TSUNIT_TEST(test2);
-//!         TSUNIT_TEST_EXCEPTION(test3, ExcTest);
-//!         TSUNIT_TEST_END();
-//!     };
-//! }
-//!
-//! TSUNIT_REGISTER(foo::Bar);
-//! @endcode
-//!
-#define TSUNIT_TEST_BEGIN(classname)                                  \
-    public:                                                           \
-        static tsunit::TestSuite* testSuite()                         \
-        {                                                             \
-            typedef classname _TestClass;                             \
-            _TestClass* instance = new _TestClass;                    \
-            tsunit::TestSuite* suite = new tsunit::TestSuite(#classname, instance)
-
-//!
-//! Add a test method to the test suite inside a test class.
-//! @hideinitializer
-//! @param method Simple name of a test method. Must be a <code>void (*)()</code> method.
-//! @see TSUNIT_TEST_BEGIN
-//!
-#define TSUNIT_TEST(method)  \
-            suite->addTestCase(new tsunit::TestCaseWrapper<_TestClass>(#method, &_TestClass::method, instance))
-
-//!
-//! Add a test method which should raise an exception to the test suite inside a test class.
-//! @hideinitializer
-//! @param method Simple name of a test method. Must be a <code>void (*)()</code> method.
-//! @param exceptclass Name
-//! @see TSUNIT_TEST_BEGIN
-//!
-#define TSUNIT_TEST_EXCEPTION(method, exceptclass)  \
-            suite->addTestCase(new tsunit::TestExceptionWrapper<_TestClass, exceptclass>(#method, #exceptclass, &_TestClass::method, instance, __FILE__, __LINE__))
-
-//!
-//! End of the test suite inside a test class.
-//! @hideinitializer
-//! @see TSUNIT_TEST_BEGIN
-//!
-#define TSUNIT_TEST_END()   \
-            return suite;   \
-        }                   \
-    private:                \
-        typedef int TSUNIT_NAME(unused)
-
-//!
 //! Register a test class as a test suite.
 //! @hideinitializer
 //! @param classname Fully qualified class name. The macro shall be invoked outside the class.
-//! @see TSUNIT_TEST_BEGIN
+//! See the sample code below.
+//!
+//! At most one test class can be registered per compilation unit. All defined methods (using
+//! TSUNIT_DEFINE_TEST for instance) implicitly belong to this class.
+//!
+//! @code
+//! namespace foo
+//! {
+//!     class BarTest: public tsunit::Test
+//!     {
+//!         TSUNIT_DECLARE_TEST(Feature1);
+//!         TSUNIT_DECLARE_TEST(Feature2);
+//!         TSUNIT_DECLARE_TEST(Feature3);
+//!     };
+//!
+//!     class Exc: public std::exception { ... };
+//! }
+//!
+//! TSUNIT_REGISTER(foo::BarTest);
+//!
+//! TSUNIT_DEFINE_TEST(Feature1)
+//! {
+//!     TSUNIT_ASSERT(...);
+//! }
+//!
+//! TSUNIT_DEFINE_TEST(Feature2)
+//! {
+//!     TSUNIT_ASSERT(...);
+//! }
+//!
+//! TSUNIT_DEFINE_TEST_EXCEPTION(Feature3, foo::Exc)
+//! {
+//!     TSUNIT_ASSERT(...);
+//! }
+//! @endcode
 //!
 #define TSUNIT_REGISTER(classname) \
-    static const tsunit::TestRepository::Register TSUNIT_NAME(_Registrar)(classname::testSuite())
+    using _TestClass = classname;  \
+    static const tsunit::TestRepository::Register TSUNIT_NAME(_Registrar)(std::type_index(typeid(_TestClass)), #classname, new _TestClass)
+
+//!
+//! Declare a test method to the test suite inside a test class.
+//! @hideinitializer
+//! @param name Simple name of a test method.
+//!
+#define TSUNIT_DECLARE_TEST(name) \
+    public:                       \
+        void test##name()
+
+//!
+//! Define a test method to the test suite outside the test class.
+//! @hideinitializer
+//! @param name Simple name of the test method, as used in TSUNIT_DECLARE_TEST().
+//! @see TSUNIT_DECLARE_TEST
+//!
+#define TSUNIT_DEFINE_TEST(name)                                          \
+    static const tsunit::TestRepository::Register TSUNIT_NAME(_Registrar) \
+        (std::type_index(typeid(_TestClass)),                             \
+         new tsunit::TestCaseWrapper<_TestClass>(#name, &_TestClass::test##name, tsunit::TestRepository::instance()->getTest<_TestClass>(std::type_index(typeid(_TestClass))))); \
+    void _TestClass::test##name()
+
+//!
+//! Define a test method which should raise an exception to the test suite outside the test class.
+//! @hideinitializer
+//! @param name Simple name of the test method, as used in TSUNIT_DECLARE_TEST().
+//! @param exceptclass Name of the exception class which is expected to be thrown.
+//! @see TSUNIT_DECLARE_TEST
+//!
+#define TSUNIT_DEFINE_TEST_EXCEPTION(name, exceptclass)                   \
+    static const tsunit::TestRepository::Register TSUNIT_NAME(_Registrar) \
+        (std::type_index(typeid(_TestClass)),                             \
+         new tsunit::TestExceptionWrapper<_TestClass, exceptclass>        \
+             (#name,                                                      \
+              #exceptclass,                                               \
+              &_TestClass::test##name,                                    \
+              tsunit::TestRepository::instance()->getTest<_TestClass>(std::type_index(typeid(_TestClass))), \
+              __FILE__,                                                   \
+              __LINE__));                                                 \
+    void _TestClass::test##name()
 
 //!
 //! Report a test case as failed.
@@ -314,6 +320,9 @@ namespace tsunit {
 //! @cond nodoxygen
 namespace tsunit {
 
+    // Generic vector of bytes.
+    using Bytes = std::vector<uint8_t>;
+
     // Generic root class for named objects.
     class Named
     {
@@ -331,8 +340,7 @@ namespace tsunit {
     class TestCase : public Named
     {
     public:
-        TestCase(const std::string& name);
-        virtual ~TestCase() override;
+        TestCase(const std::string& name) : Named(name) {}
         virtual void run() = 0;
     private:
         TestCase() = delete;
@@ -347,7 +355,7 @@ namespace tsunit {
     class TestCaseWrapper: public TestCase
     {
     public:
-        typedef void (TEST::*TestMethod)();
+        using TestMethod = void (TEST::*)();
         TestCaseWrapper(const std::string& testname, TestMethod method, TEST* test);
         virtual void run() override;
     private:
@@ -367,7 +375,7 @@ namespace tsunit {
     class TestExceptionWrapper: public TestCase
     {
     public:
-        typedef void (TEST::*TestMethod)();
+        using TestMethod = void (TEST::*)();
         TestExceptionWrapper(const std::string& testname, const std::string& excepname, TestMethod method, TEST* test, const char* sourcefile, int linenumber);
         virtual void run() override;
     private:
@@ -394,11 +402,17 @@ namespace tsunit {
         void addTestCase(TestCase* test);
         TestCase* getTestCase(const std::string& name) const;
         void getAllTestNames(std::list<std::string>&) const;
-        void runBeforeTest();
-        void runAfterTest();
+        bool runBeforeTestSuite();
+        bool runBeforeTest(const TestCase*);
+        bool runTest(TestCase*);
+        bool runAfterTest(const TestCase*);
+        bool runAfterTestSuite();
+        // Get the test class instance, as a subclass, can be nullptr.
+        template<class TEST, typename std::enable_if<std::is_base_of<Test, TEST>::value>::type* = nullptr>
+        TEST* getTest() const { return dynamic_cast<TEST*>(_test); }
     private:
-        Test* _test;
-        std::map<std::string, TestCase*> _testmap;
+        Test* _test = nullptr;
+        std::map<std::string, TestCase*> _testmap {};
         TestSuite() = delete;
         TestSuite(TestSuite&&) = delete;
         TestSuite(const TestSuite&) = delete;
@@ -411,20 +425,26 @@ namespace tsunit {
     {
     public:
         ~TestRepository();
-        void addTestSuite(TestSuite* test);
         TestSuite* getTestSuite(const std::string& name) const;
         void getAllTestSuiteNames(std::list<std::string>&) const;
-        static TestRepository* instance(); // singleton instance.
-        class Register // an inner class with constructors which register test suites.
+        // Get the test class instance of a test suite, as a Test subclass, can be nullptr.
+        template<class TEST, typename std::enable_if<std::is_base_of<Test, TEST>::value>::type* = nullptr>
+        TEST* getTest(std::type_index index) const;
+        // Singleton instance.
+        static TestRepository* instance();
+        // An inner class with constructors which register test suites.
+        class Register
         {
         public:
-            Register(TestSuite* test);
+            Register(std::type_index index, const std::string& name, Test* test);
+            Register(std::type_index index, TestCase* test);
         };
     private:
-        std::map<std::string,TestSuite*> _testsuites;
+        std::map<std::string,TestSuite*> _testsuites {};
+        std::map<std::type_index,TestSuite*> _testindex {};
         static TestRepository* _instance;
         static void cleanupInstance();
-        TestRepository();
+        TestRepository() = default;
         TestRepository(TestRepository&&) = delete;
         TestRepository(const TestRepository&) = delete;
         TestRepository& operator=(TestRepository&&) = delete;
@@ -435,15 +455,15 @@ namespace tsunit {
     class TestRunner
     {
     public:
-        TestRunner();
-        bool run(TestSuite* suite = nullptr, TestCase* test = nullptr);
+        TestRunner() = default;
+        bool run(TestSuite* suite = nullptr, TestCase* test = nullptr, bool prepost = true);
         size_t getPassedCount() const { return _passedCount; }
         size_t getFailedCount() const { return _failedCount; }
         static std::string getCurrentTestName() { return _currentTestName; }
     private:
         static std::string _currentTestName;
-        size_t _passedCount;
-        size_t _failedCount;
+        size_t _passedCount = 0;
+        size_t _failedCount = 0;
         TestRunner(TestRunner&&) = delete;
         TestRunner(const TestRunner&) = delete;
         TestRunner& operator=(TestRunner&&) = delete;
@@ -474,17 +494,17 @@ namespace tsunit {
     // A generalization of std::underlying_type which works on all types, not only enums.
     template<bool ISENUM, typename T>
     struct underlying_type_impl {
-        typedef T type;
+        using type = T;
     };
 
     template<typename T>
     struct underlying_type_impl<true,T> {
-        typedef typename std::underlying_type<T>::type type;
+        using type = typename std::underlying_type<T>::type;
     };
 
     template<typename T>
     struct underlying_type {
-        typedef typename underlying_type_impl<std::is_enum<T>::value, T>::type type;
+        using type = typename underlying_type_impl<std::is_enum<T>::value, T>::type;
     };
 
     // Converts an integer or enum into a string.
@@ -492,7 +512,7 @@ namespace tsunit {
     std::string toStringImpl(T value, const char* format);
 
     template<typename T, typename std::enable_if<std::is_floating_point<T>::value>::type* = nullptr>
-    std::string toString(T value) { return toStringImpl(static_cast<double>(value), "%lf"); }
+    std::string toString(T value) { return toStringImpl(static_cast<double>(value), static_cast<double>(std::fabs(value)) > 0.00001 && static_cast<double>(std::fabs(value)) < 10000.0 ? "%lf" :  "%le"); }
 
     template<typename T, typename std::enable_if<!std::is_floating_point<T>::value && std::is_signed<typename underlying_type<T>::type>::value>::type* = nullptr>
     std::string toString(T value) { return toStringImpl(static_cast<long long>(value), "%lld"); }
@@ -502,6 +522,8 @@ namespace tsunit {
 
     template<typename T>
     std::string toString(const T* value) { return toStringImpl<size_t>(reinterpret_cast<size_t>(value), "0x%zX"); }
+
+    std::string toString(const Bytes& value);
 
     // Explicitly convert UTF-16 to UTF-8
     std::string convertFromUTF16(const std::u16string& u16);
@@ -564,10 +586,19 @@ namespace tsunit {
         {
             equalString(std::u16string(expected), std::u16string(actual), sourcefile, linenumber);
         }
+        template<typename ETYPE,
+                 typename std::enable_if<std::is_convertible<ETYPE, std::u16string>::value>::type* = nullptr>
+        static void equal(const ETYPE& expected, const std::filesystem::path& actual, const std::string&, const std::string&, const char* sourcefile, int linenumber)
+        {
+            equalString(std::u16string(expected), actual.u16string(), sourcefile, linenumber);
+        }
 
         // Assert equal for pointer types.
         template<typename T>
         static void equal(const T* expected, const T* actual, const std::string& estring, const std::string& vstring, const char* sourcefile, int linenumber);
+
+        // Assert equal for vectors of bytes.
+        static void equal(const Bytes& expected, const Bytes& actual, const std::string& estring, const std::string& vstring, const char* sourcefile, int linenumber);
     };
 
     // Specialization for char C-strings.
@@ -632,6 +663,14 @@ void tsunit::TestExceptionWrapper<TEST,EXCEP,T1,T2>::run()
     }
 }
 
+template<class TEST, typename std::enable_if<std::is_base_of<tsunit::Test, TEST>::value>::type*>
+TEST* tsunit::TestRepository::getTest(std::type_index index) const
+{
+    const auto it = _testindex.find(index);
+    return it == _testindex.end() || it->second == nullptr ? nullptr : it->second->getTest<TEST>();
+}
+
+
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -656,7 +695,7 @@ template<typename ETYPE,
          typename std::enable_if<tsunit::is_intenum<ATYPE>::value>::type*>
 void tsunit::Assertions::equal(const ETYPE& expected, const ATYPE& actual, const std::string& estr, const std::string& astr, const char* file, int line)
 {
-    typedef typename underlying_type<ATYPE>::type valuetype;
+    using valuetype = typename underlying_type<ATYPE>::type;
     if (valuetype(expected) == valuetype(actual)) {
         ++_passedCount;
     }
@@ -674,7 +713,11 @@ template<typename ETYPE,
          typename std::enable_if<std::is_floating_point<ATYPE>::value>::type*>
 void tsunit::Assertions::equal(const ETYPE& expected, const ATYPE& actual, const std::string& estr, const std::string& astr, const char* file, int line)
 {
-    if (std::fabs(static_cast<double>(expected) - static_cast<double>(actual)) < 0.000001) { // precision ?
+    constexpr double epsilon = 100.0 * static_cast<double>(std::numeric_limits<ATYPE>::epsilon());
+    const double diff = std::fabs(static_cast<double>(expected) - static_cast<double>(actual));
+    const double aexp = static_cast<double>(std::fabs(expected));
+    const double aact = static_cast<double>(std::fabs(actual));
+    if (diff <= (aexp < aact ? aact : aexp) * epsilon) {
         ++_passedCount;
     }
     else {

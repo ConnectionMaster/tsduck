@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -40,7 +19,7 @@
 #include "tsSpliceInformationTable.h"
 #include "tsRegistrationDescriptor.h"
 #include "tsSCTE35.h"
-#include "tsNames.h"
+#include "tsFileUtils.h"
 
 
 //----------------------------------------------------------------------------
@@ -50,10 +29,9 @@
 namespace ts {
     class PCRExtractPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(PCRExtractPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PCRExtractPlugin);
     public:
         // Implementation of plugin API
-        PCRExtractPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -62,43 +40,61 @@ namespace ts {
     private:
         // Description of one PID carrying PCR, PTS or DTS.
         class PIDContext;
-        typedef SafePtr<PIDContext> PIDContextPtr;
-        typedef std::map<PID,PIDContextPtr> PIDContextMap;
+        using PIDContextPtr = std::shared_ptr<PIDContext>;
+        using PIDContextMap = std::map<PID,PIDContextPtr>;
 
         // Description of one PID carrying SCTE 35 splice information.
         class SpliceContext;
-        typedef SafePtr<SpliceContext> SpliceContextPtr;
-        typedef std::map<PID,SpliceContextPtr> SpliceContextMap;
+        using SpliceContextPtr = std::shared_ptr<SpliceContext>;
+        using SpliceContextMap = std::map<PID,SpliceContextPtr>;
 
-        // PCRExtractPlugin private members
-        PIDSet           _pids;           // List of PID's to analyze
-        UString          _separator;      // Field separator
-        bool             _all_pids;       // Analyze all PID's
-        bool             _noheader;       // Suppress header
-        bool             _good_pts_only;  // Keep "good" PTS only
-        bool             _get_pcr;        // Get PCR
-        bool             _get_opcr;       // Get OPCR
-        bool             _get_pts;        // Get PTS
-        bool             _get_dts;        // Get DTS
-        bool             _csv_format;     // Output in CSV format
-        bool             _log_format;     // Output in log format
-        bool             _evaluate_pcr;   // Evaluate PCR offset for packets with PTS/DTS without PCR
-        bool             _scte35;         // Detect SCTE 35 PTS values
-        UString          _output_name;    // Output file name (empty means stderr)
-        std::ofstream    _output_stream;  // Output stream file
-        std::ostream*    _output;         // Reference to actual output stream file
-        PIDContextMap    _stats;          // Per-PID statistics
-        SpliceContextMap _splices;        // Per-PID splice information
-        SectionDemux     _demux;          // Section demux for service and SCTE 35 analysis
+        // Command line options:
+        fs::path         _output_name {};         // Output file name (empty means stderr)
+        PIDSet           _pids {};                // List of PID's to analyze
+        UString          _separator {};           // Field separator
+        bool             _all_pids = false;       // Analyze all PID's
+        bool             _noheader = false;       // Suppress header
+        bool             _good_pts_only = false;  // Keep "good" PTS only
+        bool             _get_pcr = false;        // Get PCR
+        bool             _get_opcr = false;       // Get OPCR
+        bool             _get_pts = false;        // Get PTS
+        bool             _get_dts = false;        // Get DTS
+        bool             _csv_format = false;     // Output in CSV format
+        bool             _log_format = false;     // Output in log format
+        bool             _evaluate_pcr = false;   // Evaluate PCR offset for packets with PTS/DTS without PCR
+        bool             _scte35 = false;         // Detect SCTE 35 PTS values
+        bool             _input_time = false;     // Add an input timestamp of the TS packet
+
+        // Working data:
+        std::ofstream    _output_stream {};       // Output stream file
+        std::ostream*    _output = nullptr;       // Reference to actual output stream file
+        PIDContextMap    _stats {};               // Per-PID statistics
+        SpliceContextMap _splices {};             // Per-PID splice information
+        SectionDemux     _demux {duck, this};     // Section demux for service and SCTE 35 analysis
+
+        // GCC complains that PCR, DTS, PTS shadow the global types of the same name.
+        // However this is irrelevant because DataType is an enum class and the declared
+        // identifiers must be prefixed. ts::DataType::PCR is an enum identifier, ts::PCR
+        // is a type, without ambiguity.
+        TS_PUSH_WARNING()
+        TS_GCC_NOWARNING(shadow)
 
         // Types of time stamps.
-        enum DataType {PCR, OPCR, PTS, DTS};
+        enum class DataType {PCR, OPCR, PTS, DTS};
         static const Enumeration _type_names;
+
+        TS_POP_WARNING()
 
         // Get the subfactor from PCR for a given data type.
         static uint32_t pcrSubfactor(DataType type)
         {
-            return (type == PTS || type == DTS) ? SYSTEM_CLOCK_SUBFACTOR : 1;
+            return (type == DataType::PTS || type == DataType::DTS) ? SYSTEM_CLOCK_SUBFACTOR : 1;
+        }
+
+        // Get the number of ticks per millisecond for a given data type.
+        static std::intmax_t ticksPerMS(DataType type)
+        {
+            return ((type == DataType::PTS || type == DataType::DTS) ? PTS::period::den : PCR::period::den) / 1000;
         }
 
         // Description of one type of data in a PID: PCR, OPCR, PTS, DTS.
@@ -106,12 +102,12 @@ namespace ts {
         {
             TS_NOBUILD_NOCOPY(PIDData);
         public:
-            PIDData(DataType);             // Constructor.
-            const DataType type;           // Data type.
-            PacketCounter  count;          // Number of data of this type in this PID.
-            uint64_t       first_value;    // First data value of this type in this PID.
-            uint64_t       last_value;     // First data value of this type in this PID.
-            PacketCounter  last_packet;    // Packet index in TS of last value.
+            PIDData(DataType t) : type(t) {}
+            const DataType type;                       // Data type.
+            PacketCounter  count = 0;                  // Number of data of this type in this PID.
+            uint64_t       first_value = INVALID_PCR;  // First data value of this type in this PID.
+            uint64_t       last_value = INVALID_PCR;   // First data value of this type in this PID.
+            PacketCounter  last_packet = 0;            // Packet index in TS of last value.
         };
 
         // Description of one PID carrying PCR, PTS or DTS.
@@ -119,15 +115,15 @@ namespace ts {
         {
             TS_NOBUILD_NOCOPY(PIDContext);
         public:
-            PIDContext(PID);              // Constructor.
-            const PID     pid;            // PID value.
-            PacketCounter packet_count;   // Number of packets in this PID.
-            PID           pcr_pid;        // PID containing PCR in the same service.
-            uint64_t      last_good_pts;
-            PIDData       pcr;
-            PIDData       opcr;
-            PIDData       pts;
-            PIDData       dts;
+            PIDContext(PID p) : pid(p) {}
+            const PID     pid;                 // PID value.
+            PacketCounter packet_count = 0;    // Number of packets in this PID.
+            PID           pcr_pid = PID_NULL;  // PID containing PCR in the same service.
+            uint64_t      last_good_pts = INVALID_PTS;
+            PIDData       pcr {DataType::PCR};
+            PIDData       opcr {DataType::OPCR};
+            PIDData       pts {DataType::PTS};
+            PIDData       dts {DataType::DTS};
         };
 
         // Description of one PID carrying SCTE 35 splice information.
@@ -135,8 +131,8 @@ namespace ts {
         {
             TS_NOCOPY(SpliceContext);
         public:
-            SpliceContext();    // Constructor.
-            PIDSet components;  // All service components for this slice info PID.
+            SpliceContext() = default;
+            PIDSet components {};  // All service components for this slice info PID.
         };
 
         // Implementation of TableHandlerInterface.
@@ -153,7 +149,7 @@ namespace ts {
 
         // Report a value in csv or log format.
         void csvHeader();
-        void processValue(PIDContext&, PIDData PIDContext::*, uint64_t value, uint64_t pcr, bool report_it);
+        void processValue(PIDContext&, PIDData PIDContext::*, uint64_t value, uint64_t pcr, bool report_it, const TSPacketMetadata& mdata);
     };
 }
 
@@ -165,26 +161,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pcrextract", ts::PCRExtractPlugin);
 //----------------------------------------------------------------------------
 
 ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Extracts PCR, OPCR, PTS, DTS from TS packet for analysis", u"[options]"),
-    _pids(),
-    _separator(),
-    _all_pids(false),
-    _noheader(false),
-    _good_pts_only(false),
-    _get_pcr(false),
-    _get_opcr(false),
-    _get_pts(false),
-    _get_dts(false),
-    _csv_format(false),
-    _log_format(false),
-    _evaluate_pcr(false),
-    _scte35(false),
-    _output_name(),
-    _output_stream(),
-    _output(nullptr),
-    _stats(),
-    _splices(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Extracts PCR, OPCR, PTS, DTS from TS packet for analysis", u"[options]")
 {
     option(u"csv", 'c');
     help(u"csv",
@@ -207,6 +184,11 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
     help(u"good-pts-only",
          u"Keep only \"good\" PTS, ie. PTS which have a higher value than the "
          u"previous good PTS. This eliminates PTS from out-of-sequence B-frames.");
+
+    option(u"input-timestamp", 'i');
+    help(u"input-timestamp",
+         u"Add an input timestamp of the corresponding TS packet, if available. "
+         u"This can be an RTP, SRT, kernel timestamp. It is always converted in PCR units.");
 
     option(u"log", 'l');
     help(u"log",
@@ -250,7 +232,7 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
 
     option(u"separator", 's', STRING);
     help(u"separator", u"string",
-         u"Field separator string in CSV output (default: '" TS_DEFAULT_CSV_SEPARATOR u"').");
+         u"Field separator string in CSV output (default: '" + UString(DEFAULT_CSV_SEPARATOR) + u"').");
 }
 
 
@@ -259,37 +241,11 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
 //----------------------------------------------------------------------------
 
 const ts::Enumeration ts::PCRExtractPlugin::_type_names({
-    {u"PCR",  PCR},
-    {u"OPCR", OPCR},
-    {u"DTS",  DTS},
-    {u"PTS",  PTS}
+    {u"PCR",  DataType::PCR},
+    {u"OPCR", DataType::OPCR},
+    {u"DTS",  DataType::DTS},
+    {u"PTS",  DataType::PTS}
 });
-
-ts::PCRExtractPlugin::PIDData::PIDData(DataType type_) :
-    type(type_),
-    count(0),
-    first_value(INVALID_PCR), // Same as INVALID_PTS and INVALID_DTS
-    last_value(INVALID_PCR),
-    last_packet(0)
-{
-}
-
-ts::PCRExtractPlugin::PIDContext::PIDContext(PID pid_) :
-    pid(pid_),
-    packet_count(0),
-    pcr_pid(PID_NULL),
-    last_good_pts(INVALID_PTS),
-    pcr(PCR),
-    opcr(OPCR),
-    pts(PTS),
-    dts(DTS)
-{
-}
-
-ts::PCRExtractPlugin::SpliceContext::SpliceContext() :
-    components()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -300,10 +256,10 @@ bool ts::PCRExtractPlugin::getOptions()
 {
     // Get command line options.
     getIntValues(_pids, u"pid", true);
+    getPathValue(_output_name, u"output-file");
+    getValue(_separator, u"separator", DEFAULT_CSV_SEPARATOR);
     _all_pids = !present(u"pid");
-    _separator = value(u"separator", TS_DEFAULT_CSV_SEPARATOR);
     _noheader = present(u"noheader");
-    _output_name = value(u"output-file");
     _scte35 = present(u"scte35");
     _good_pts_only = present(u"good-pts-only");
     _get_pts = present(u"pts") || _scte35;
@@ -313,6 +269,7 @@ bool ts::PCRExtractPlugin::getOptions()
     _evaluate_pcr = present(u"evaluate-pcr-offset");
     _csv_format = present(u"csv") || !_output_name.empty();
     _log_format = present(u"log") || _scte35;
+    _input_time = present(u"input-timestamp");
 
     if (!_get_pts && !_get_dts && !_get_pcr && !_get_opcr) {
         // Report them all by default
@@ -346,9 +303,9 @@ bool ts::PCRExtractPlugin::start()
     }
     else {
         _output = &_output_stream;
-        _output_stream.open(_output_name.toUTF8().c_str());
+        _output_stream.open(_output_name);
         if (!_output_stream) {
-            tsp->error(u"cannot create file %s", {_output_name});
+            error(u"cannot create file %s", _output_name);
             return false;
         }
     }
@@ -417,11 +374,11 @@ ts::ProcessorPlugin::Status ts::PCRExtractPlugin::processPacket(TSPacket& pkt, T
     if (_pids.test(pid)) {
 
         if (has_pcr) {
-            processValue(pc, &PIDContext::pcr, pcr, INVALID_PCR, _get_pcr);
+            processValue(pc, &PIDContext::pcr, pcr, INVALID_PCR, _get_pcr, pkt_data);
         }
 
         if (pkt.hasOPCR()) {
-            processValue(pc, &PIDContext::opcr, pkt.getOPCR(), pcr, _get_opcr);
+            processValue(pc, &PIDContext::opcr, pkt.getOPCR(), pcr, _get_opcr, pkt_data);
         }
 
         if (pkt.hasPTS()) {
@@ -432,11 +389,11 @@ ts::ProcessorPlugin::Status ts::PCRExtractPlugin::processPacket(TSPacket& pkt, T
             if (good_pts) {
                 pc.last_good_pts = pts;
             }
-            processValue(pc, &PIDContext::pts, pts, pcr, _get_pts && (good_pts || !_good_pts_only));
+            processValue(pc, &PIDContext::pts, pts, pcr, _get_pts && (good_pts || !_good_pts_only), pkt_data);
         }
 
         if (pkt.hasDTS()) {
-            processValue(pc, &PIDContext::dts, pkt.getDTS(), pcr, _get_dts);
+            processValue(pc, &PIDContext::dts, pkt.getDTS(), pcr, _get_dts, pkt_data);
         }
 
         pc.packet_count++;
@@ -460,7 +417,14 @@ void ts::PCRExtractPlugin::csvHeader()
                  << "Count in PID" << _separator
                  << "Value" << _separator
                  << "Value offset in PID" << _separator
-                 << "Offset from PCR" << std::endl;
+                 << "Offset from PCR";
+        if (_input_time) {
+            *_output << _separator
+                     << "Input timestamp" << _separator
+                     << "Input source" << _separator
+                     << "Input offset";
+        }
+        *_output << std::endl;
     }
 }
 
@@ -469,11 +433,12 @@ void ts::PCRExtractPlugin::csvHeader()
 // Report a value in CSV and/or log format.
 //----------------------------------------------------------------------------
 
-void ts::PCRExtractPlugin::processValue(PIDContext& ctx, PIDData PIDContext::* pdata, uint64_t value, uint64_t pcr, bool report_it)
+void ts::PCRExtractPlugin::processValue(PIDContext& ctx, PIDData PIDContext::* pdata, uint64_t value, uint64_t pcr, bool report_it, const TSPacketMetadata& mdata)
 {
     PIDData& data(ctx.*pdata);
     const UString name(_type_names.name(data.type));
     const uint32_t pcr_subfactor = pcrSubfactor(data.type);
+    const std::intmax_t ticks = ticksPerMS(data.type);
 
     // Count values and remember first value.
     if (data.count++ == 0) {
@@ -496,20 +461,33 @@ void ts::PCRExtractPlugin::processValue(PIDContext& ctx, PIDData PIDContext::* p
         if (pcr != INVALID_PCR) {
             *_output << (int64_t(value) - int64_t(pcr / pcr_subfactor));
         }
+        if (_input_time) {
+            *_output << _separator;
+            if (mdata.hasInputTimeStamp()) {
+                *_output << mdata.getInputTimeStamp().count();
+            }
+            *_output << _separator;
+            if (mdata.hasInputTimeStamp()) {
+                *_output << TimeSourceEnum.name(mdata.getInputTimeSource()).toLower();
+            }
+            *_output << _separator;
+            if (mdata.hasInputTimeStamp()) {
+                *_output << (int64_t(value) - int64_t(mdata.getInputTimeStamp().count() / pcr_subfactor));
+            }
+        }
         *_output << std::endl;
     }
 
     // Report in log format.
     if (_log_format && report_it) {
+        UString trailer;
+        if (_input_time && mdata.hasInputTimeStamp()) {
+            trailer.format(u", input: 0x%011X", mdata.getInputTimeStamp().count());
+        }
         // Number of hexa digits: 11 for PCR (42 bits) and 9 for PTS/DTS (33 bits).
-        const uint32_t frequency = SYSTEM_CLOCK_FREQ / pcr_subfactor;
         const size_t width = pcr_subfactor == 1 ? 11 : 9;
-        tsp->info(u"PID: 0x%X (%d), %s: 0x%0*X, (0x%0*X, %'d ms from start of PID, %'d ms from previous)", {
-                  ctx.pid, ctx.pid,
-                  name, width, value,
-                  width, since_start,
-                  (since_start * MilliSecPerSec) / frequency,
-                  (since_previous * MilliSecPerSec) / frequency});
+        info(u"PID: %n, %s: 0x%0*X, (0x%0*X, %'d ms from start of PID, %'d ms from previous)%s",
+                  ctx.pid, name, width, value, width, since_start, since_start / ticks, since_previous / ticks, trailer);
     }
 
     // Remember last value.
@@ -525,9 +503,8 @@ void ts::PCRExtractPlugin::processValue(PIDContext& ctx, PIDData PIDContext::* p
 ts::PCRExtractPlugin::PIDContextPtr ts::PCRExtractPlugin::getPIDContext(PID pid)
 {
     PIDContextPtr& pc(_stats[pid]);
-    if (pc.isNull()) {
-        pc = new PIDContext(pid);
-        CheckNonNull(pc.pointer());
+    if (pc == nullptr) {
+        pc = std::make_shared<PIDContext>(pid);
     }
     return pc;
 }
@@ -540,14 +517,13 @@ ts::PCRExtractPlugin::PIDContextPtr ts::PCRExtractPlugin::getPIDContext(PID pid)
 ts::PCRExtractPlugin::SpliceContextPtr ts::PCRExtractPlugin::getSpliceContext(PID pid)
 {
     SpliceContextPtr& pc(_splices[pid]);
-    if (pc.isNull()) {
+    if (pc == nullptr) {
         // Found a new splicing info PID.
-        pc = new SpliceContext;
-        CheckNonNull(pc.pointer());
+        pc = std::make_shared<SpliceContext>();
 
         // Add this PID to the demux.
         _demux.addPID(pid);
-        tsp->verbose(u"Found SCTE 35 info PID 0x%X (%d)", {pid, pid});
+        verbose(u"Found SCTE 35 info PID %n", pid);
     }
     return pc;
 }
@@ -595,8 +571,8 @@ void ts::PCRExtractPlugin::handleTable(SectionDemux& demux, const BinaryTable& t
 void ts::PCRExtractPlugin::processPAT(const PAT& pat)
 {
     // Add all PMT PID's to the demux.
-    for (auto it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
-        _demux.addPID(it->second);
+    for (const auto& it : pat.pmts) {
+        _demux.addPID(it.second);
     }
 }
 
@@ -619,15 +595,15 @@ void ts::PCRExtractPlugin::processPMT(const PMT& pmt)
     // Detect all service PID's and all potential SCTE 35 PID's.
     PIDSet servicePIDs;
     PIDSet splicePIDs;
-    for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-        const PID pid = it->first;
+    for (const auto& it : pmt.streams) {
+        const PID pid = it.first;
 
         // Associate a PCR PID with all PID's in the service.
         getPIDContext(pid)->pcr_pid = pmt.pcr_pid;
 
         // Track all components and splice information PID's in the service.
         if (_scte35) {
-            if (it->second.stream_type == ST_SCTE35_SPLICE) {
+            if (it.second.stream_type == ST_SCTE35_SPLICE) {
                 // This is a PID carrying splice information.
                 splicePIDs.set(pid);
                 scte35_found = true;
@@ -682,7 +658,7 @@ void ts::PCRExtractPlugin::processSpliceCommand(PID pid, SpliceInformationTable&
     const uint64_t command_pts = sit.splice_command_type == SPLICE_INSERT ? sit.splice_insert.lowestPTS() : INVALID_PTS;
 
     // Start of message.
-    UString msg(UString::Format(u"PID: 0x%X (%d), SCTE 35 command %s", {pid, pid, NameFromSection(u"SpliceCommandType", sit.splice_command_type)}));
+    UString msg(UString::Format(u"PID: %n, SCTE 35 command %s", pid, NameFromDTV(u"SpliceCommandType", sit.splice_command_type)));
     if (sit.splice_command_type == SPLICE_INSERT) {
         if (sit.splice_insert.canceled) {
             msg += u" canceled";
@@ -697,18 +673,19 @@ void ts::PCRExtractPlugin::processSpliceCommand(PID pid, SpliceInformationTable&
     // Add service PTS if there is one.
     if (service_pts != INVALID_PTS) {
         // No PTS in command but we know the last PTS in the service.
-        msg += UString::Format(u", at PTS 0x%09X in service", {service_pts});
+        msg += UString::Format(u", at PTS 0x%09X in service", service_pts);
     }
 
     // Add command PTS if there is one.
     if (command_pts != INVALID_PTS) {
-        msg += UString::Format(u", exec at PTS 0x%09X", {command_pts});
+        msg += UString::Format(u", exec at PTS 0x%09X", command_pts);
         if (service_pts != INVALID_PTS && service_pts < command_pts) {
             // Add real time difference.
-            msg += UString::Format(u", in %'d ms", {(MilliSecPerSec * (command_pts - service_pts)) / SYSTEM_CLOCK_SUBFREQ});
+            msg += u", in ";
+            msg += UString::Chrono(cn::duration_cast<cn::milliseconds>(ts::PTS(command_pts - service_pts)), true);
         }
     }
 
     // Finally report the message.
-    tsp->info(msg);
+    info(msg);
 }

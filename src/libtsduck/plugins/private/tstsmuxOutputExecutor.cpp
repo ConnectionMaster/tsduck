@@ -1,35 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstsmuxOutputExecutor.h"
-#include "tsGuardCondition.h"
-#include "tsGuardMutex.h"
 
 
 //----------------------------------------------------------------------------
@@ -69,10 +46,8 @@ bool ts::tsmux::OutputExecutor::send(const TSPacket* pkt, const TSPacketMetadata
     while (!_terminate && count > 0) {
 
         // Loop until there is some free space in the buffer.
-        GuardCondition lock(_mutex, _got_freespace);
-        while (!_terminate && _packets_count >= _buffer_size) {
-            lock.waitCondition();
-        }
+        std::unique_lock<std::recursive_mutex> lock(_mutex);
+        _got_freespace.wait(lock, [this]() { return _terminate || _packets_count < _buffer_size; });
 
         // Fill what can be filled in the buffer. We are still under the mutex protection.
         if (!_terminate) {
@@ -94,7 +69,7 @@ bool ts::tsmux::OutputExecutor::send(const TSPacket* pkt, const TSPacketMetadata
             // Signal that there are some packets to send.
             // The mutex was initially locked for the _got_freespace condition because we needed to wait
             // for that condition but we can also use it to signal the _got_packets condition.
-            _got_packets.signal();
+            _got_packets.notify_one();
         }
     }
     return !_terminate;
@@ -116,10 +91,8 @@ void ts::tsmux::OutputExecutor::main()
         size_t first = 0;
         size_t count = 0;
         {
-            GuardCondition lock(_mutex, _got_packets);
-            while (_packets_count == 0 && !_terminate) {
-                lock.waitCondition();
-            }
+            std::unique_lock<std::recursive_mutex> lock(_mutex);
+            _got_packets.wait(lock, [this]() { return _packets_count > 0 || _terminate; });
             // We can output these packets.
             first = _packets_first;
             count = _packets_count;
@@ -132,13 +105,13 @@ void ts::tsmux::OutputExecutor::main()
             const size_t send_count = std::min(std::min(count, _opt.maxOutputPackets), _buffer_size - _packets_first);
             if (_output->send(&_packets[first], &_metadata[first], send_count)) {
                 // Packets successfully sent.
-                GuardCondition lock(_mutex, _got_freespace);
+                std::lock_guard<std::recursive_mutex> lock(_mutex);
                 _packets_count -= send_count;
                 _packets_first = (_packets_first + send_count) % _buffer_size;
                 count -= send_count;
                 first = (first + send_count) % _buffer_size;
                 // Signal that there are some free space in the buffer.
-                lock.signal();
+                _got_freespace.notify_one();
             }
             else if (_opt.outputOnce) {
                 // Terminates when the output plugin fails.
@@ -146,10 +119,10 @@ void ts::tsmux::OutputExecutor::main()
             }
             else {
                 // Restart when the plugin fails.
-                verbose(u"restarting output plugin '%s' after failure", {pluginName()});
+                verbose(u"restarting output plugin '%s' after failure", pluginName());
                 _output->stop();
                 while (!_terminate && !_output->start()) {
-                    SleepThread(_opt.outputRestartDelay);
+                    std::this_thread::sleep_for(_opt.outputRestartDelay);
                 }
             }
         }

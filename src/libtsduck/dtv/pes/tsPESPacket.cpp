@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -37,7 +16,7 @@
 #include "tsAVCAccessUnitDelimiter.h"
 #include "tsHEVCAccessUnitDelimiter.h"
 #include "tsVVCAccessUnitDelimiter.h"
-#include "tsStaticInstance.h"
+#include "tsSingleton.h"
 
 
 //----------------------------------------------------------------------------
@@ -45,12 +24,7 @@
 //----------------------------------------------------------------------------
 
 ts::PESPacket::PESPacket(PID source_pid) :
-    SuperClass(),
-    _is_valid(false),
-    _header_size(0),
-    _stream_type(ST_NULL),
-    _codec(CodecType::UNDEFINED),
-    _pcr(INVALID_PCR)
+    SuperClass(source_pid)
 {
 }
 
@@ -75,34 +49,19 @@ ts::PESPacket::PESPacket(PESPacket&& pp) noexcept :
 }
 
 ts::PESPacket::PESPacket(const void* content, size_t content_size, PID source_pid) :
-    SuperClass(content, content_size, source_pid),
-    _is_valid(false),
-    _header_size(0),
-    _stream_type(ST_NULL),
-    _codec(CodecType::UNDEFINED),
-    _pcr(INVALID_PCR)
+    SuperClass(content, content_size, source_pid)
 {
     validate();
 }
 
 ts::PESPacket::PESPacket(const ByteBlock& content, PID source_pid) :
-    SuperClass(content, source_pid),
-    _is_valid(false),
-    _header_size(0),
-    _stream_type(ST_NULL),
-    _codec(CodecType::UNDEFINED),
-    _pcr(INVALID_PCR)
+    SuperClass(content, source_pid)
 {
     validate();
 }
 
 ts::PESPacket::PESPacket(const ByteBlockPtr& content_ptr, PID source_pid) :
-    SuperClass(content_ptr, source_pid),
-    _is_valid(false),
-    _header_size(0),
-    _stream_type(ST_NULL),
-    _codec(CodecType::UNDEFINED),
-    _pcr(INVALID_PCR)
+    SuperClass(content_ptr, source_pid)
 {
     validate();
 }
@@ -330,19 +289,17 @@ bool ts::PESPacket::operator==(const PESPacket& pp) const
 // List of functions to check the compatibility of PES content and codec.
 //----------------------------------------------------------------------------
 
-namespace {
-    typedef bool (*ContentCheckFunction)(const uint8_t* data, size_t size, uint8_t stream_type);
-    typedef std::map<ts::CodecType, ContentCheckFunction> CodecCheckMap;
-    TS_STATIC_INSTANCE(CodecCheckMap, ({
-        std::make_pair(ts::CodecType::MPEG1_VIDEO, ts::PESPacket::IsMPEG2Video),
-        std::make_pair(ts::CodecType::MPEG2_VIDEO, ts::PESPacket::IsMPEG2Video),
-        std::make_pair(ts::CodecType::AC3, ts::PESPacket::IsAC3),
-        std::make_pair(ts::CodecType::EAC3, ts::PESPacket::IsAC3),
-        std::make_pair(ts::CodecType::AVC, ts::PESPacket::IsAVC),
-        std::make_pair(ts::CodecType::HEVC, ts::PESPacket::IsHEVC),
-        std::make_pair(ts::CodecType::VVC, ts::PESPacket::IsVVC),
-    }), StaticCodecCheckMap)
-}
+using ContentCheckFunction = bool (*)(const uint8_t* data, size_t size, uint8_t stream_type);
+using CodecCheckMap = std::map<ts::CodecType, ContentCheckFunction>;
+TS_STATIC_INSTANCE(CodecCheckMap, ({
+    std::make_pair(ts::CodecType::MPEG1_VIDEO, ts::PESPacket::IsMPEG2Video),
+    std::make_pair(ts::CodecType::MPEG2_VIDEO, ts::PESPacket::IsMPEG2Video),
+    std::make_pair(ts::CodecType::AC3, ts::PESPacket::IsAC3),
+    std::make_pair(ts::CodecType::EAC3, ts::PESPacket::IsAC3),
+    std::make_pair(ts::CodecType::AVC, ts::PESPacket::IsAVC),
+    std::make_pair(ts::CodecType::HEVC, ts::PESPacket::IsHEVC),
+    std::make_pair(ts::CodecType::VVC, ts::PESPacket::IsVVC),
+}), StaticCodecCheckMap);
 
 
 //----------------------------------------------------------------------------
@@ -570,8 +527,8 @@ size_t ts::PESPacket::FindIntraImage(const uint8_t* data, size_t size, uint8_t s
         // The beginning of the PES payload is already a start code prefix in MPEG-1/2.
         while (pl_size > 0) {
             // Look for next start code
-            static const uint8_t StartCodePrefix[] = {0x00, 0x00, 0x01};
-            const uint8_t* pl_next = LocatePattern(pl_data + 1, pl_size - 1, StartCodePrefix, sizeof(StartCodePrefix));
+            constexpr uint8_t StartCodePrefixThird = 0x01;
+            const uint8_t* pl_next = LocateZeroZero(pl_data + 1, pl_size - 1, StartCodePrefixThird);
             if (pl_next == nullptr) {
                 // No next start code, current one extends up to the end of the payload.
                 pl_next = pl_data + pl_size;

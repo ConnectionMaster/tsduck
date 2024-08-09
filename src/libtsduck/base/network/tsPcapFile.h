@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -37,6 +16,7 @@
 #include "tsMemory.h"
 #include "tsTime.h"
 #include "tsIPv4Packet.h"
+#include "tsPcap.h"
 
 namespace ts {
     //!
@@ -59,7 +39,7 @@ namespace ts {
         //!
         //! Default constructor.
         //!
-        PcapFile();
+        PcapFile() = default;
 
         //!
         //! Destructor.
@@ -72,7 +52,7 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True on success, false on error.
         //!
-        virtual bool open(const UString& filename, Report& report);
+        virtual bool open(const fs::path& filename, Report& report);
 
         //!
         //! Check if the file is open.
@@ -85,7 +65,7 @@ namespace ts {
         //! @return The file name as specified in open().
         //! If the standard input is used, return "standard input".
         //!
-        UString fileName() const { return _name; }
+        fs::path fileName() const { return _name; }
 
         //!
         //! Read the next IPv4 packet (headers included).
@@ -96,7 +76,7 @@ namespace ts {
         //! @param [in,out] report Where to report error.
         //! @return True on success, false on error.
         //!
-        virtual bool readIPv4(IPv4Packet& packet, MicroSecond& timestamp, Report& report);
+        virtual bool readIPv4(IPv4Packet& packet, cn::microseconds& timestamp, Report& report);
 
         //!
         //! Get the number of captured packets so far.
@@ -104,7 +84,7 @@ namespace ts {
         //! This value is the number of the last returned packet, as seen in the left-most column in Wireshark interface.
         //! @return The number of captured packets so far.
         //!
-        size_t packetCount() const { return _packet_count; }
+        uint64_t packetCount() const { return _packet_count; }
 
         //!
         //! Check if the end of file (or other error) has been reached.
@@ -116,59 +96,65 @@ namespace ts {
         //! Get the number of valid captured IPv4 packets so far.
         //! @return The number of valid captured IPv4 packets so far.
         //!
-        size_t ipv4PacketCount() const { return _ipv4_packet_count; }
+        uint64_t ipv4PacketCount() const { return _ipv4_packet_count; }
 
         //!
         //! Get the total file size in bytes so far.
         //! @return The total file size in bytes so far.
         //!
-        size_t fileSize() const { return _file_size; }
+        uint64_t fileSize() const { return _file_size; }
 
         //!
         //! Get the total size in bytes of captured packets so far.
         //! This includes all packets, including link-layer headers when present.
         //! @return The total size in bytes of captured packets so far.
         //!
-        size_t totalPacketsSize() const { return _packets_size; }
+        uint64_t totalPacketsSize() const { return _packets_size; }
 
         //!
         //! Get the total size in bytes of valid captured IPv4 packets so far.
         //! This includes all IPv4 headers but not link-layer headers when present.
         //! @return The total size in bytes of valid captured IPv4 packets so far.
         //!
-        size_t totalIPv4PacketsSize() const { return _ipv4_packets_size; }
+        uint64_t totalIPv4PacketsSize() const { return _ipv4_packets_size; }
 
         //!
         //! Get the capture timestamp of the first packet in the file.
         //! @return Capture timestamp in microseconds since Unix epoch or -1 if none is available.
         //!
-        MicroSecond firstTimestamp() const { return _first_timestamp; }
+        cn::microseconds firstTimestamp() const { return _first_timestamp; }
 
         //!
         //! Get the capture timestamp of the last packet which was read from the file.
         //! @return Capture timestamp in microseconds since Unix epoch or -1 if none is available.
         //!
-        MicroSecond lastTimestamp() const { return _last_timestamp; }
+        cn::microseconds lastTimestamp() const { return _last_timestamp; }
 
         //!
         //! Compute the time offset from the beginning of the file of a packet timestamp.
         //! @param [in] timestamp Capture timestamp of a packet in the file.
         //! @return Time offset in microseconds of the packet from the beginning of the file.
         //!
-        MicroSecond timeOffset(MicroSecond timestamp) const { return timestamp < 0 || _first_timestamp < 0 ? 0 : timestamp - _first_timestamp; }
+        cn::microseconds timeOffset(cn::microseconds timestamp) const
+        {
+            return timestamp < cn::microseconds::zero() || _first_timestamp < cn::microseconds::zero() ? cn::microseconds::zero() : timestamp - _first_timestamp;
+        }
 
         //!
         //! Compute the date and time from a packet timestamp.
         //! @param [in] timestamp Capture timestamp of a packet in a file.
         //! @return Corresponding date or Epoch in case of error.
         //!
-        static Time ToTime(MicroSecond timestamp) { return timestamp < 0 ? Time::Epoch : Time::UnixEpoch + (timestamp / MicroSecPerMilliSec); }
+        static Time ToTime(cn::microseconds timestamp)
+        {
+            return timestamp < cn::microseconds::zero() ? Time::Epoch : Time::UnixEpoch + timestamp;
+        }
 
         //!
         //! Close the file.
         //! Do not reset counters, file names, etc. The last values before close() are still accessible.
         //!
-        void close();
+        virtual void close();
 
     private:
         // Descriptioon of one capture interface.
@@ -176,32 +162,42 @@ namespace ts {
         class InterfaceDesc
         {
         public:
-            InterfaceDesc();          // Constructor.
-            uint16_t    link_type;    // A pcap LINKTYPE_ value.
-            size_t      fcs_size;     // Number of Frame Cyclic Sequences bytes after each packet.
-            SubSecond   time_units;   // Time units per second.
-            MicroSecond time_offset;  // Offset to add to all time stamps.
+            InterfaceDesc() = default;
+            uint16_t         link_type {LINKTYPE_UNKNOWN};
+            size_t           fcs_size = 0;     // Number of Frame Cyclic Sequences bytes after each packet.
+            std::intmax_t    time_units = 0;   // Time units per second.
+            cn::microseconds time_offset {0};  // Offset to add to all time stamps.
         };
 
-        bool          _error;              // Error was set, may be logical error, not a file error.
-        std::istream* _in;                 // Point to actual input stream.
-        std::ifstream _file;               // Input file (when it is a named file).
-        UString       _name;               // Saved file name for messages.
-        bool          _be;                 // The file use a big-endian representation.
-        bool          _ng;                 // Pcapng format (not pcap).
-        uint16_t      _major;              // File format major version.
-        uint16_t      _minor;              // File format minor version.
-        size_t        _file_size;          // Number of bytes read so far.
-        size_t        _packet_count;       // Count of captured packets.
-        size_t        _ipv4_packet_count;  // Count of captured IPv4 packets.
-        size_t        _packets_size;       // Total size in bytes of captured packets.
-        size_t        _ipv4_packets_size;  // Total size in bytes of captured IPv4 packets.
-        MicroSecond   _first_timestamp;    // Timestamp of first packet in file.
-        MicroSecond   _last_timestamp;     // Timestamp of last packet in file.
-        std::vector<InterfaceDesc> _if;    // Capture interfaces by index, only one in pcap files.
+        bool             _error = false;          // Error was set, may be logical error, not a file error.
+        std::istream*    _in = nullptr;           // Point to actual input stream.
+        std::ifstream    _file {};                // Input file (when it is a named file).
+        UString          _name {};                // Saved file name for messages.
+        bool             _be = false;             // The file use a big-endian representation.
+        bool             _ng = false;             // Pcapng format (not pcap).
+        uint16_t         _major = 0;              // File format major version.
+        uint16_t         _minor = 0;              // File format minor version.
+        uint64_t         _file_size = 0;          // Number of bytes read so far.
+        uint64_t         _packet_count = 0;       // Count of captured packets.
+        uint64_t         _ipv4_packet_count = 0;  // Count of captured IPv4 packets.
+        uint64_t         _packets_size = 0;       // Total size in bytes of captured packets.
+        uint64_t         _ipv4_packets_size = 0;  // Total size in bytes of captured IPv4 packets.
+        cn::microseconds _first_timestamp {-1};   // Timestamp of first packet in file.
+        cn::microseconds _last_timestamp {-1};    // Timestamp of last packet in file.
+        std::vector<InterfaceDesc> _if {};        // Capture interfaces by index, only one in pcap files.
 
         // Report an error (if fmt is not empty), set error indicator, return false.
-        bool error(Report& report, const UString& fmt = UString(), std::initializer_list<ArgMixIn> args = {});
+        bool error()
+        {
+            _error = true;
+            return false;
+        }
+        template <class... Args>
+        bool error(Report& report, const UChar* fmt, Args&&... args)
+        {
+            report.error(fmt, std::forward<ArgMixIn>(args)...);
+            return error();
+        }
 
         // Read exactly "size" bytes. Return false if not enough bytes before eof.
         bool readall(uint8_t* data, size_t size, Report& report);

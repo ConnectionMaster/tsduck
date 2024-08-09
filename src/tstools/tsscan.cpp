@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,9 +22,6 @@
 #include "tsNIT.h"
 #include "tsTransportStreamId.h"
 #include "tsDescriptorList.h"
-#include "tsTime.h"
-#include "tsFileUtils.h"
-#include "tsNullReport.h"
 TS_MAIN(MainCode);
 
 #define DEFAULT_PSI_TIMEOUT   10000 // ms
@@ -64,51 +40,31 @@ namespace {
     public:
         ScanOptions(int argc, char *argv[]);
 
-        ts::DuckContext   duck;
-        ts::TunerArgs     tuner_args;
-        bool              uhf_scan;
-        bool              vhf_scan;
-        bool              nit_scan;
-        bool              no_offset;
-        bool              use_best_strength;
-        uint32_t          first_channel;
-        uint32_t          last_channel;
-        int32_t           first_offset;
-        int32_t           last_offset;
-        int64_t           min_strength;
-        bool              show_modulation;
-        bool              list_services;
-        bool              global_services;
-        ts::MilliSecond   psi_timeout;
-        const ts::HFBand* hfband;
-        ts::UString       channel_file;
-        bool              update_channel_file;
-        bool              default_channel_file;
+        ts::DuckContext   duck {this};
+        ts::TunerArgs     tuner_args {false};
+        bool              uhf_scan = false;
+        bool              vhf_scan = false;
+        bool              nit_scan = false;
+        bool              no_offset = false;
+        bool              use_best_strength = false;
+        uint32_t          first_channel = 0;
+        uint32_t          last_channel = 0;
+        int32_t           first_offset = 0;
+        int32_t           last_offset = 0;
+        int64_t           min_strength = 0;
+        bool              show_modulation = false;
+        bool              list_services = false;
+        bool              global_services = false;
+        cn::milliseconds  psi_timeout {};
+        const ts::HFBand* hfband = nullptr;
+        ts::UString       channel_file {};
+        bool              update_channel_file = false;
+        bool              default_channel_file = false;
     };
 }
 
 ScanOptions::ScanOptions(int argc, char *argv[]) :
-    Args(u"Scan a DTV network frequencies and services", u"[options]"),
-    duck(this),
-    tuner_args(false),
-    uhf_scan(false),
-    vhf_scan(false),
-    nit_scan(false),
-    no_offset(false),
-    use_best_strength(false),
-    first_channel(0),
-    last_channel(0),
-    first_offset(0),
-    last_offset(0),
-    min_strength(0),
-    show_modulation(false),
-    list_services(false),
-    global_services(false),
-    psi_timeout(0),
-    hfband(),
-    channel_file(),
-    update_channel_file(false),
-    default_channel_file(false)
+    Args(u"Scan a DTV network frequencies and services", u"[options]")
 {
     duck.defineArgsForCharset(*this);
     duck.defineArgsForHFBand(*this);
@@ -191,8 +147,8 @@ ScanOptions::ScanOptions(int argc, char *argv[]) :
          u"With this option, tsscan checks all offsets and reports that the signal is at offset +1. "
          u"By default, tsscan reports that the signal is found at the central frequency of the channel (offset zero).");
 
-    option(u"psi-timeout", 0, UNSIGNED);
-    help(u"psi-timeout", u"milliseconds",
+    option<cn::milliseconds>(u"psi-timeout");
+    help(u"psi-timeout",
          u"Specifies the timeout, in milli-seconds, for PSI/SI table collection. "
          u"Useful only with --service-list. The default is " +
          ts::UString::Decimal(DEFAULT_PSI_TIMEOUT) + u" milli-seconds.");
@@ -245,16 +201,22 @@ ScanOptions::ScanOptions(int argc, char *argv[]) :
     hfband = vhf_scan ? duck.vhfBand() : duck.uhfBand();
 
     use_best_strength = present(u"best-strength");
-    first_channel     = intValue(u"first-channel", hfband->firstChannel());
-    last_channel      = intValue(u"last-channel", hfband->lastChannel());
-    show_modulation   = present(u"show-modulation");
-    no_offset         = !present(u"use-offsets");
-    first_offset      = no_offset ? 0 : intValue(u"first-offset", hfband->firstOffset(first_channel));
-    last_offset       = no_offset ? 0 : intValue(u"last-offset", hfband->lastOffset(first_channel));
-    min_strength      = intValue(u"min-strength", DEFAULT_MIN_STRENGTH);
-    list_services     = present(u"service-list");
-    global_services   = present(u"global-service-list");
-    psi_timeout       = intValue<ts::MilliSecond>(u"psi-timeout", DEFAULT_PSI_TIMEOUT);
+    list_services = present(u"service-list");
+    global_services = present(u"global-service-list");
+    show_modulation = present(u"show-modulation");
+    no_offset = !present(u"use-offsets");
+
+    getIntValue(first_channel, u"first-channel", hfband->firstChannel());
+    getIntValue(last_channel, u"last-channel", hfband->lastChannel());
+    getIntValue(min_strength, u"min-strength", DEFAULT_MIN_STRENGTH);
+    getChronoValue(psi_timeout, u"psi-timeout", cn::milliseconds(DEFAULT_PSI_TIMEOUT));
+    if (no_offset) {
+        first_offset = last_offset = 0;
+    }
+    else {
+        getIntValue(first_offset, u"first-offset", hfband->firstOffset(first_channel));
+        getIntValue(last_offset, u"last-offset", hfband->lastOffset(first_channel));
+    }
 
     const bool save_channel_file = present(u"save-channels");
     update_channel_file = present(u"update-channels");
@@ -295,13 +257,13 @@ private:
     ScanOptions&       _opt;
     ts::Tuner&         _tuner;
     const uint32_t     _channel;
-    bool               _signal_found;
-    int32_t            _best_offset;
-    int32_t            _lowest_offset;
-    int32_t            _highest_offset;
-    int64_t            _best_strength;
-    int32_t            _best_strength_offset;
-    ts::ModulationArgs _best_params;
+    bool               _signal_found = false;
+    int32_t            _best_offset = 0;
+    int32_t            _lowest_offset = 0;
+    int32_t            _highest_offset = 0;
+    int64_t            _best_strength = 0;
+    int32_t            _best_strength_offset = 0;
+    ts::ModulationArgs _best_params {};
 
     // Build tuning parameters for a channel.
     void buildTuningParameters(ts::ModulationArgs& params, int32_t offset);
@@ -322,16 +284,9 @@ private:
 OffsetScanner::OffsetScanner(ScanOptions& opt, ts::Tuner& tuner, uint32_t channel) :
     _opt(opt),
     _tuner(tuner),
-    _channel(channel),
-    _signal_found(false),
-    _best_offset(0),
-    _lowest_offset(0),
-    _highest_offset(0),
-    _best_strength(0),
-    _best_strength_offset(0),
-    _best_params()
+    _channel(channel)
 {
-    _opt.verbose(u"scanning channel %'d, %'d Hz", {_channel, _opt.hfband->frequency(_channel)});
+    _opt.verbose(u"scanning channel %'d, %'d Hz", _channel, _opt.hfband->frequency(_channel));
 
     if (_opt.no_offset) {
         // Only try the central frequency
@@ -412,7 +367,7 @@ bool OffsetScanner::tune(int32_t offset, ts::ModulationArgs& params)
 
 bool OffsetScanner::tryOffset(int32_t offset)
 {
-    _opt.debug(u"trying offset %d", {offset});
+    _opt.debug(u"trying offset %d", offset);
 
     // Tune to transponder and start signal acquisition.
     // Signal locking timeout is applied in start().
@@ -429,9 +384,9 @@ bool OffsetScanner::tryOffset(int32_t offset)
     // If we don't scan offsets, there is no need to consider signal strength, just use the central offset.
     if (ok && !_opt.no_offset) {
 
-        _opt.verbose(u"%s, %s", {_opt.hfband->description(_channel, offset), state});
+        _opt.verbose(u"%s, %s", _opt.hfband->description(_channel, offset), state);
 
-        if (state.signal_strength.set()) {
+        if (state.signal_strength.has_value()) {
             const int64_t strength = state.signal_strength.value().value;
             if (strength <= _opt.min_strength) {
                 // Strength is supported but too low
@@ -521,19 +476,19 @@ void ScanContext::scanTS(std::ostream& strm, const ts::UString& margin, ts::Modu
 
     // Get tuning parameters again, as TSScanner waits for a lock.
     // Also keep the original frequency and polarity since satellite tuners can only report the intermediate frequency.
-    const ts::Variable<uint64_t> saved_frequency(tparams.frequency);
-    const ts::Variable<ts::Polarization> saved_polarity(tparams.polarity);
+    const std::optional<uint64_t> saved_frequency(tparams.frequency);
+    const std::optional<ts::Polarization> saved_polarity(tparams.polarity);
     info.getTunerParameters(tparams);
-    if (!tparams.frequency.set() || tparams.frequency.value() == 0) {
+    if (!tparams.frequency.has_value() || tparams.frequency.value() == 0) {
         tparams.frequency = saved_frequency;
     }
-    if (!tparams.polarity.set()) {
+    if (!tparams.polarity.has_value()) {
         tparams.polarity = saved_polarity;
     }
 
-    ts::SafePtr<ts::PAT> pat;
-    ts::SafePtr<ts::SDT> sdt;
-    ts::SafePtr<ts::NIT> nit;
+    std::shared_ptr<ts::PAT> pat;
+    std::shared_ptr<ts::SDT> sdt;
+    std::shared_ptr<ts::NIT> nit;
 
     info.getPAT(pat);
     info.getSDT(sdt);
@@ -542,21 +497,21 @@ void ScanContext::scanTS(std::ostream& strm, const ts::UString& margin, ts::Modu
     // Get network and TS Id.
     uint16_t ts_id = 0;
     uint16_t net_id = 0;
-    if (!pat.isNull()) {
+    if (pat != nullptr) {
         ts_id = pat->ts_id;
-        strm << margin << ts::UString::Format(u"Transport stream id: %d, 0x%X", {ts_id, ts_id}) << std::endl;
+        strm << margin << ts::UString::Format(u"Transport stream id: %d, 0x%X", ts_id, ts_id) << std::endl;
     }
-    if (!nit.isNull()) {
+    if (nit != nullptr) {
         net_id = nit->network_id;
     }
 
     // Reset TS description in channels file.
     ts::ChannelFile::TransportStreamPtr ts_info;
     if (!_opt.channel_file.empty()) {
-        ts::ChannelFile::NetworkPtr net_info(_channels.networkGetOrCreate(net_id, ts::TunerTypeOf(tparams.delivery_system.value(ts::DS_UNDEFINED))));
+        ts::ChannelFile::NetworkPtr net_info(_channels.networkGetOrCreate(net_id, ts::TunerTypeOf(tparams.delivery_system.value_or(ts::DS_UNDEFINED))));
         ts_info = net_info->tsGetOrCreate(ts_id);
         ts_info->clear(); // reset all services in TS.
-        ts_info->onid = sdt.isNull() ? 0 : sdt->onetw_id;
+        ts_info->onid = sdt == nullptr ? 0 : sdt->onetw_id;
         ts_info->tune = tparams;
     }
 
@@ -566,10 +521,10 @@ void ScanContext::scanTS(std::ostream& strm, const ts::UString& margin, ts::Modu
     }
 
     // Display or collect services
-    if (get_services || !ts_info.isNull()) {
+    if (get_services || ts_info != nullptr) {
         ts::ServiceList srvlist;
         if (info.getServices(srvlist)) {
-            if (!ts_info.isNull()) {
+            if (ts_info != nullptr) {
                 // Add all services in the channels info.
                 ts_info->addServices(srvlist);
             }
@@ -631,18 +586,18 @@ void ScanContext::nitScan()
     ts::TSScanner info(_opt.duck, _tuner, _opt.psi_timeout, false);
 
     // Get the collected NIT
-    ts::SafePtr<ts::NIT> nit;
+    std::shared_ptr<ts::NIT> nit;
     info.getNIT(nit);
-    if (nit.isNull()) {
+    if (nit == nullptr) {
         _opt.error(u"cannot scan network, no NIT found on specified transponder");
         return;
     }
 
     // Process each TS descriptor list in the NIT.
-    for (auto it = nit->transports.begin(); it != nit->transports.end(); ++it) {
+    for (const auto& it : nit->transports) {
 
-        const ts::TransportStreamId& tsid(it->first);
-        const ts::DescriptorList& dlist(it->second.descs);
+        const ts::TransportStreamId& tsid(it.first);
+        const ts::DescriptorList& dlist(it.second.descs);
 
         for (size_t i = 0; i < dlist.count(); ++i) {
             // Try to get delivery system information from current descriptor
@@ -681,7 +636,7 @@ void ScanContext::main()
     }
 
     // Pre-load the existing channel file.
-    if (_opt.update_channel_file && !_opt.channel_file.empty() && ts::FileExists(_opt.channel_file) && !_channels.load(_opt.channel_file, _opt)) {
+    if (_opt.update_channel_file && !_opt.channel_file.empty() && fs::exists(_opt.channel_file) && !_channels.load(_opt.channel_file, _opt)) {
         return;
     }
 
@@ -705,7 +660,7 @@ void ScanContext::main()
 
     // Save channel file. Create intermediate directories when it is the default file.
     if (!_opt.channel_file.empty()) {
-        _opt.verbose(u"saving %s", {_opt.channel_file});
+        _opt.verbose(u"saving %s", _opt.channel_file);
         _channels.save(_opt.channel_file, _opt.default_channel_file, _opt);
     }
 }

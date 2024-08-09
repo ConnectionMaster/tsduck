@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,15 +12,8 @@
 
 #include "tsMain.h"
 #include "tsDuckContext.h"
-#include "tsBinaryTable.h"
 #include "tsSectionFileArgs.h"
-#include "tsDVBCharTable.h"
 #include "tsxmlTweaks.h"
-#include "tsxmlJSONConverter.h"
-#include "tsReportWithPrefix.h"
-#include "tsInputRedirector.h"
-#include "tsOutputRedirector.h"
-#include "tsFileUtils.h"
 #include "tsSysUtils.h"
 TS_MAIN(MainCode);
 
@@ -57,39 +29,25 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        ts::DuckContext     duck;            // Execution context.
-        ts::UStringVector   inFiles;         // Input file names.
-        ts::UString         outFile;         // Output file path.
-        bool                outIsDir;        // Output name is a directory.
-        bool                useStdIn;        // At least one input file is the standard input.
-        bool                useStdOut;       // Use standard output.
-        bool                compile;         // Explicit compilation.
-        bool                decompile;       // Explicit decompilation.
-        bool                fromJSON;        // All input files are JSON.
-        bool                toJSON;          // Decompile to JSON.
-        bool                xmlModel;        // Display XML model instead of compilation.
-        bool                withExtensions;  // XML model with extensions.
-        ts::SectionFileArgs sectionOptions;  // Section file processing options.
-        ts::xml::Tweaks     xmlTweaks;       // XML formatting options.
+        ts::DuckContext     duck {this};             // Execution context.
+        ts::UStringVector   inFiles {};              // Input file names, strings, not fs::path, can be inlined XML or JSON.
+        fs::path            outFile {};              // Output file path.
+        bool                outIsDir = false;        // Output name is a directory.
+        bool                useStdIn = false;        // At least one input file is the standard input.
+        bool                useStdOut = false;       // Use standard output.
+        bool                compile = false;         // Explicit compilation.
+        bool                decompile = false;       // Explicit decompilation.
+        bool                fromJSON = false;        // All input files are JSON.
+        bool                toJSON = false;          // Decompile to JSON.
+        bool                xmlModel = false;        // Display XML model instead of compilation.
+        bool                withExtensions = false;  // XML model with extensions.
+        ts::SectionFileArgs sectionOptions {};       // Section file processing options.
+        ts::xml::Tweaks     xmlTweaks {};            // XML formatting options.
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"PSI/SI tables compiler", u"[options] filename ..."),
-    duck(this),
-    inFiles(),
-    outFile(),
-    outIsDir(false),
-    useStdIn(false),
-    useStdOut(false),
-    compile(false),
-    decompile(false),
-    fromJSON(false),
-    toJSON(false),
-    xmlModel(false),
-    withExtensions(false),
-    sectionOptions(),
-    xmlTweaks()
+    Args(u"PSI/SI tables compiler", u"[options] filename ...")
 {
     duck.defineArgsForStandards(*this);
     duck.defineArgsForTimeReference(*this);
@@ -137,7 +95,7 @@ Options::Options(int argc, char *argv[]) :
          u"The default output file names have extension .json.");
 
     option(u"output", 'o', FILENAME);
-    help(u"output", u"filepath",
+    help(u"output",
          u"Specify the output file name. "
          u"By default, the output file has the same name as the input and extension .bin (compile), .xml or .json (decompile). "
          u"If the specified path is a directory, the output file is built from this directory and default file name. "
@@ -159,16 +117,16 @@ Options::Options(int argc, char *argv[]) :
     xmlTweaks.loadArgs(duck, *this);
 
     getValues(inFiles, u"");
-    getValue(outFile, u"output");
+    getPathValue(outFile, u"output");
     compile = present(u"compile");
     decompile = present(u"decompile");
     fromJSON = present(u"from-json");
-    toJSON = present(u"json") || outFile.endWith(ts::SectionFile::DEFAULT_JSON_SECTION_FILE_SUFFIX);
+    toJSON = present(u"json") || ts::UString(outFile.extension()).similar(ts::SectionFile::DEFAULT_JSON_SECTION_FILE_SUFFIX);
     xmlModel = present(u"xml-model");
     withExtensions = present(u"extensions");
     useStdIn = ts::UString(u"-").isContainedSimilarIn(inFiles);
-    useStdOut = outFile == u"-";
-    outIsDir = !useStdOut && !outFile.empty() && ts::IsDirectory(outFile);
+    useStdOut = outFile.empty() || outFile == u"-";
+    outIsDir = !useStdOut && fs::is_directory(outFile);
 
     if (useStdOut) {
         outFile.clear();
@@ -198,19 +156,18 @@ namespace {
     bool DisplayModel(Options& opt)
     {
         // Save to a file. Default to stdout.
-        ts::UString outName(opt.outFile);
+        fs::path outName(opt.outFile);
         if (opt.outIsDir) {
             // Specified output is a directory, add default name.
-            outName.push_back(ts::PathSeparator);
-            outName.append(ts::SectionFile::XML_TABLES_MODEL);
+            outName /= ts::SectionFile::XML_TABLES_MODEL;
         }
         if (!outName.empty()) {
-            opt.verbose(u"saving model file to %s", {outName});
+            opt.verbose(u"saving model file to %s", outName);
         }
 
         // Load and save the model.
         ts::xml::Document doc;
-        return ts::SectionFile::LoadModel(doc, opt.withExtensions) && doc.save(outName, 2, true);
+        return ts::SectionFile::LoadModel(doc, opt.withExtensions) && doc.save(outName);
     }
 }
 
@@ -222,7 +179,7 @@ namespace {
 namespace {
     bool ProcessFile(Options& opt, const ts::UString& infile)
     {
-        typedef ts::SectionFile::FileType FType;
+        using FType = ts::SectionFile::FileType;
 
         const FType inType = opt.fromJSON ? FType::JSON : ts::SectionFile::GetFileType(infile);
         const bool useStdIn = infile.empty() || infile == u"-";
@@ -240,13 +197,14 @@ namespace {
         }
 
         // Compute output file name with default file type.
-        ts::UString outname(opt.outFile);
+        fs::path outname(opt.outFile);
+        const fs::path inname(infile);
         if (!useStdOut) {
             if (outname.empty()) {
-                outname = ts::SectionFile::BuildFileName(infile, outType);
+                outname = ts::SectionFile::BuildFileName(inname, outType);
             }
             else if (opt.outIsDir) {
-                outname += ts::PathSeparator + ts::SectionFile::BuildFileName(ts::BaseName(infile), outType);
+                outname /= ts::SectionFile::BuildFileName(inname.filename(), outType);
             }
         }
 
@@ -254,31 +212,29 @@ namespace {
         file.setTweaks(opt.xmlTweaks);
         file.setCRCValidation(ts::CRC32::CHECK);
 
-        ts::ReportWithPrefix report(opt, (useStdIn ? u"stdin" : ts::BaseName(infile)) + u": ");
-
         // Process the input file, starting with error cases.
         if (!compile && !decompile) {
-            opt.error(u"don't know what to do with file %s, unknown file type, specify --compile or --decompile", {infile});
+            opt.error(u"don't know what to do with file %s, unknown file type, specify --compile or --decompile", infile);
             return false;
         }
         else if (compile && inType == FType::BINARY) {
-            opt.error(u"cannot compile binary file %s", {infile});
+            opt.error(u"cannot compile binary file %s", infile);
             return false;
         }
         else if (decompile && (inType == FType::XML || inType == FType::JSON)) {
-            opt.error(u"cannot decompile XML or JSON file %s", {infile});
+            opt.error(u"cannot decompile XML or JSON file %s", infile);
             return false;
         }
         else if (compile) {
             // Load XML file and save binary sections.
-            opt.verbose(u"Compiling %s to %s", {infile, outname});
+            opt.verbose(u"Compiling %s to %s", infile, outname);
             return (inType == FType::JSON ? file.loadJSON(infile) : file.loadXML(infile)) &&
                    opt.sectionOptions.processSectionFile(file, opt) &&
                    file.saveBinary(outname);
         }
         else {
             // Load binary sections and save XML file.
-            opt.verbose(u"Decompiling %s to %s", {infile, outname});
+            opt.verbose(u"Decompiling %s to %s", infile, outname);
             return file.loadBinary(infile) &&
                    opt.sectionOptions.processSectionFile(file, opt) &&
                    (opt.toJSON ? file.saveJSON(outname) : file.saveXML(outname));

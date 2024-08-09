@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,19 +11,8 @@
 #include "tsxmlElement.h"
 #include "tsFatal.h"
 #include "tsArgs.h"
+#include "tsEIT.h"
 #include "tsDuckContext.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors
-//----------------------------------------------------------------------------
-
-ts::TablePatchXML::TablePatchXML(DuckContext& duck) :
-    _duck(duck),
-    _patchFiles(),
-    _patches()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -112,14 +80,14 @@ bool ts::TablePatchXML::loadPatchFiles(const xml::Tweaks& tweaks)
     bool ok = true;
     for (size_t i = 0; i < _patchFiles.size(); ++i) {
         PatchDocumentPtr doc(new xml::PatchDocument(_duck.report()));
-        CheckNonNull(doc.pointer());
+        CheckNonNull(doc.get());
         doc->setTweaks(tweaks);
         if (doc->load(_patchFiles[i], false)) {
             _patches.push_back(doc);
         }
         else {
             ok = false;
-            _duck.report().error(u"error loading patch file %s", {xml::Document::DisplayFileName(_patchFiles[i])});
+            _duck.report().error(u"error loading patch file %s", xml::Document::DisplayFileName(_patchFiles[i]));
         }
     }
     return ok;
@@ -171,13 +139,15 @@ bool ts::TablePatchXML::applyPatches(BinaryTable& table) const
     xml::Element* xtable = root == nullptr ? nullptr : root->firstChildElement();
     xml::Element* xnext = xtable == nullptr ? nullptr : xtable->nextSiblingElement();
 
-    // Check that the XML transformation let exactly one table.
+    // If the table was deleted, invalidate the table parameter and return true.
     if (xtable == nullptr) {
-        _duck.report().error(u"XML patching left no table in the document");
-        return false;
+        table.clear();
+        return true;
     }
+
+    // Check that the XML transformation created exactly one table.
     if (xnext != nullptr) {
-        _duck.report().warning(u"XML patching left more than one table in the document, first is <%s>, second if <%s>", {xtable->name(), xnext->name()});
+        _duck.report().warning(u"XML patching left more than one table in the document, first is <%s>, second if <%s>", xtable->name(), xnext->name());
     }
 
     // Serialize the modified document as a binary table.
@@ -187,5 +157,64 @@ bool ts::TablePatchXML::applyPatches(BinaryTable& table) const
     }
 
     // Successful completion.
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Apply the XML patch files to a binary section.
+//----------------------------------------------------------------------------
+
+bool ts::TablePatchXML::applyPatches(ts::SectionPtr& sp) const
+{
+    // If no patch is loaded, nothing to do.
+    if (_patches.empty()) {
+        return true;
+    }
+    if (sp == nullptr || !sp->isValid()) {
+        return false;
+    }
+
+    // We save the original section numbers from that section. EIT also need some specific save/restore.
+    const bool is_long = sp->isLongSection();
+    const bool is_eit = EIT::IsEIT(sp->tableId());
+    const uint8_t section_number = sp->sectionNumber();
+    const uint8_t last_section_number = sp->lastSectionNumber();
+    const uint8_t eit_segment_last_section_number = is_eit && sp->payloadSize() >= 5 ? sp->payload()[4] : 0;
+
+    // Then, pretend that this section is alone in its table.
+    if (is_long) {
+        sp->setSectionNumber(0, false);
+        sp->setLastSectionNumber(0, true);
+    }
+    BinaryTable table;
+    table.addSection(sp);
+
+    // Apply the patches on the fake table.
+    if (!applyPatches(table)) {
+        return false;
+    }
+
+    // Check if the section was deleted. This is not an error, return true.
+    if (!table.isValid()) {
+        sp.reset();
+        return true;
+    }
+    if (table.sectionCount() == 0) {
+        return false;
+    }
+
+    // Collect the first section of the patched table.
+    sp = table.sectionAt(0);
+
+    // Restore previous section numbers.
+    if (is_long) {
+        if (is_eit && sp->payloadSize() >= 5) {
+            sp->setUInt8(4, eit_segment_last_section_number, false);
+        }
+        sp->setSectionNumber(section_number, false);
+        sp->setLastSectionNumber(last_section_number, true);
+    }
+
     return true;
 }

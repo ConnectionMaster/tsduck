@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,7 +10,6 @@
 #include "tsTeletextFrame.h"
 #include "tsTeletextDescriptor.h"
 #include "tsPluginRepository.h"
-#if !defined(TS_NO_TELETEXT)
 
 TS_REGISTER_PROCESSOR_PLUGIN(u"teletext", ts::TeletextPlugin);
 
@@ -41,17 +19,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"teletext", ts::TeletextPlugin);
 //----------------------------------------------------------------------------
 
 ts::TeletextPlugin::TeletextPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Extract Teletext subtitles in SRT format", u"[options]"),
-    _abort(false),
-    _pid(PID_NULL),
-    _page(-1),
-    _maxFrames(0),
-    _language(),
-    _outFile(),
-    _service(duck, this),
-    _demux(duck, this, NoPID),
-    _srtOutput(),
-    _pages()
+    ProcessorPlugin(tsp_, u"Extract Teletext subtitles in SRT format", u"[options]")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -109,11 +77,11 @@ bool ts::TeletextPlugin::start()
     // Get command line arguments.
     duck.loadArgs(*this);
     _service.set(value(u"service"));
-    _pid = intValue<PID>(u"pid", PID_NULL);
-    _page = intValue<int>(u"page", -1);
-    _maxFrames = intValue<int>(u"max-frames", 0);
+    getIntValue(_pid, u"pid", PID_NULL);
+    getIntValue(_page, u"page", -1);
+    getIntValue(_maxFrames, u"max-frames", 0);
     getValue(_language, u"language");
-    getValue(_outFile, u"output-file");
+    getPathValue(_outFile, u"output-file");
     _demux.setAddColors(present(u"colors"));
 
     // Create the output file.
@@ -121,7 +89,7 @@ bool ts::TeletextPlugin::start()
         // No output file specified, use standard output.
         _srtOutput.setStream(&std::cout);
     }
-    else if (!_srtOutput.open(_outFile, *tsp)) {
+    else if (!_srtOutput.open(_outFile, *this)) {
         // Output file creation error.
         return false;
     }
@@ -193,18 +161,18 @@ void ts::TeletextPlugin::handlePMT(const PMT& pmt, PID)
     if (_pid != PID_NULL) {
         // Found a Teletext PID, demux it.
         _demux.addPID(_pid);
-        tsp->verbose(u"using Teletext PID 0x%X (%d)", {_pid, _pid});
+        verbose(u"using Teletext PID %n", _pid);
     }
     else {
         // Display error if you could not find any appropriate Teletext PID
         if (!pageOK) {
-            tsp->error(u"no Teletext page %d declared in PMT", {_page});
+            error(u"no Teletext page %d declared in PMT", _page);
         }
         if (!languageOK) {
-            tsp->error(u"no Teletext subtitles found for language \"%s\"", {_language});
+            error(u"no Teletext subtitles found for language \"%s\"", _language);
         }
         if (pageOK && languageOK) {
-            tsp->error(u"no Teletext subtitles found for service 0x%X (%d)", {pmt.service_id, pmt.service_id});
+            error(u"no Teletext subtitles found for service %n", pmt.service_id);
         }
         _abort = true;
     }
@@ -221,13 +189,13 @@ void ts::TeletextPlugin::handleTeletextMessage(TeletextDemux& demux, const Telet
     if (_page < 0) {
         _page = frame.page();
         _pages.insert(_page);
-        tsp->verbose(u"using Teletext page %d", {_page});
+        verbose(u"using Teletext page %d", _page);
     }
 
     // For information, report all Teletext pages in the PID.
     if (_pages.count(frame.page()) == 0) {
         _pages.insert(frame.page());
-        tsp->verbose(u"Teletext page %d found in PID 0x%X (%d)", {frame.page(), frame.pid(), frame.pid()});
+        verbose(u"Teletext page %d found in PID %n", frame.page(), frame.pid());
     }
 
     // Save only frames from the selected Teletext page.
@@ -260,5 +228,3 @@ ts::ProcessorPlugin::Status ts::TeletextPlugin::processPacket(TSPacket& pkt, TSP
     // Do not change packet but abort on error.
     return _service.nonExistentService() || _abort ? TSP_END : TSP_OK;
 }
-
-#endif // TS_NO_TELETEXT

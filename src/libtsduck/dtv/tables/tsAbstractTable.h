@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,7 +14,9 @@
 #pragma once
 #include "tsAbstractSignalization.h"
 #include "tsTablesPtr.h"
+#include "tsSection.h"
 #include "tsDescriptorList.h"
+#include "tsAlgorithm.h"
 
 namespace ts {
     //!
@@ -63,6 +44,7 @@ namespace ts {
     //!
     class TSDUCKDLL AbstractTable: public AbstractSignalization
     {
+        TS_RULE_OF_FIVE(AbstractTable, override);
     public:
         //!
         //! Get the table_id.
@@ -97,15 +79,22 @@ namespace ts {
         bool deserialize(DuckContext& duck, const BinaryTable& bin);
 
         //!
-        //! Virtual destructor
-        //!
-        virtual ~AbstractTable() override;
-
-        //!
         //! Base inner class for table entries with one or more descriptor lists.
         //!
         class TSDUCKDLL EntryBase
         {
+        public:
+            //!
+            //! Preferred insertion index when serializing the table or NPOS if unspecified.
+            //! This is an informational hint which can be used or ignored.
+            //!
+            size_t order_hint;
+
+            //!
+            //! Default constructor.
+            //! @param [in] order Ordering hint, unspecified by default.
+            //!
+            explicit EntryBase(size_t order = NPOS) : order_hint(order) {}
         };
 
         //!
@@ -140,6 +129,13 @@ namespace ts {
             EntryWithDescriptors(const AbstractTable* table, const EntryWithDescriptors& other);
 
             //!
+            //! Basic move-like constructor.
+            //! @param [in] table Parent table. A descriptor list is always attached to a table.
+            //! @param [in,out] other Another instance to move.
+            //!
+            EntryWithDescriptors(const AbstractTable* table, EntryWithDescriptors&& other);
+
+            //!
             //! Assignment operator.
             //! The parent table remains unchanged.
             //! @param [in] other Another instance to copy.
@@ -150,7 +146,7 @@ namespace ts {
             //!
             //! Move assignment operator.
             //! The parent table remains unchanged.
-            //! @param [in,out] other Another instance to copy.
+            //! @param [in,out] other Another instance to move.
             //! @return A reference to this object.
             //!
             EntryWithDescriptors& operator=(EntryWithDescriptors&& other) noexcept;
@@ -174,20 +170,31 @@ namespace ts {
             //!
             //! Explicit reference to the super class.
             //!
-            typedef std::map<KEY, ENTRY> SuperClass;
+            using SuperClass = std::map<KEY, ENTRY>;
 
             //!
             //! Basic constructor.
             //! @param [in] table Parent table. A descriptor list is always attached to a table.
+            //! @param [in] auto_ordering If true, each time an entry is added, its @a order_hint, if previously unset
+            //! (meaning set to NPOS) is set to one higher than the highest @a order_hint in all entries. This ensures
+            //! that the order of insertion is preserved, at the expense of a small performance penalty
+            //! each time an entry is added.
             //!
-            explicit EntryWithDescriptorsMap(const AbstractTable* table);
+            explicit EntryWithDescriptorsMap(const AbstractTable* table, bool auto_ordering = false);
 
             //!
             //! Basic copy-like constructor.
             //! @param [in] table Parent table. A descriptor list is always attached to a table.
             //! @param [in] other Another instance to copy.
             //!
-            EntryWithDescriptorsMap(const AbstractTable* table, const SuperClass& other);
+            EntryWithDescriptorsMap(const AbstractTable* table, const EntryWithDescriptorsMap& other);
+
+            //!
+            //! Basic move-like constructor.
+            //! @param [in] table Parent table. A descriptor list is always attached to a table.
+            //! @param [in,out] other Another instance to move.
+            //!
+            EntryWithDescriptorsMap(const AbstractTable* table, EntryWithDescriptorsMap&& other);
 
             //!
             //! Assignment operator.
@@ -200,7 +207,7 @@ namespace ts {
             //!
             //! Move assignment operator.
             //! The parent table remains unchanged.
-            //! @param [in,out] other Another instance to copy.
+            //! @param [in,out] other Another instance to move.
             //! @return A reference to this object.
             //!
             EntryWithDescriptorsMap& operator=(EntryWithDescriptorsMap&& other);
@@ -226,9 +233,31 @@ namespace ts {
             //!
             const ENTRY& operator[](const KEY& key) const;
 
+            //!
+            //! Get the insertion order of entries in the table.
+            //! The result is based on the @a order_hint fields in the EntryBase structures.
+            //! @param [out] order Order of entries by key in the table.
+            //!
+            void getOrder(std::vector<KEY>& order) const;
+
+            //!
+            //! Define the insertion order of entries in the table.
+            //! This can be precisely set using the @a order_hint fields in the EntryBase structures.
+            //! This method is a helper which sets these fields.
+            //! @param [in] order Order of entries by key in the table.
+            //!
+            void setOrder(const std::vector<KEY>& order);
+
+            //!
+            //! Get the next ordering hint to be used in an entry to make sure it is considered the last one.
+            //! @return The next ordering hint to be used.
+            //!
+            size_t nextOrder() const;
+
         private:
             // Parent table (zero for descriptor list object outside a table).
             const AbstractTable* const _table;
+            bool _auto_ordering = false;
 
             // Inaccessible operations.
             EntryWithDescriptorsMap() = delete;
@@ -249,7 +278,7 @@ namespace ts {
             //!
             //! Explicit reference to the super class.
             //!
-            typedef EntryWithDescriptorsMap<size_t, ENTRY> SuperClass;
+            using SuperClass = EntryWithDescriptorsMap<size_t, ENTRY>;
 
             //!
             //! Basic constructor.
@@ -281,7 +310,7 @@ namespace ts {
         //!
         //! The table id can be modified by subclasses only.
         //!
-        TID _table_id;
+        TID _table_id = TID_NULL;
 
         //!
         //! Protected constructor for subclasses.
@@ -354,7 +383,7 @@ namespace ts {
         //!
         //! For long tables, the section number is always one more than the current last section in the table.
         //!
-        //! It the @a payload buffer has a pushed read/write state, this state is restored and immediately pushed again.
+        //! If the @a payload buffer has a pushed read/write state, this state is restored and immediately pushed again.
         //! The typical use case is the following:
         //! - A table may create more than one section.
         //! - The payload of all sections starts with the same fixed data.
@@ -390,4 +419,201 @@ namespace ts {
     };
 }
 
-#include "tsAbstractTableTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::EntryWithDescriptorsMap(const AbstractTable* table, bool auto_ordering) :
+    SuperClass(),
+    _table(table),
+    _auto_ordering(auto_ordering)
+{
+}
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::EntryWithDescriptorsMap(const AbstractTable* table, const EntryWithDescriptorsMap& other) :
+    SuperClass(),
+    _table(table),
+    _auto_ordering(other._auto_ordering)
+{
+    // Copy each entry one by one to ensure that the copied entries actually point to the constructed table.
+    for (auto& it : other) {
+        (*this)[it.first] = it.second;
+    }
+}
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ts::AbstractTable::EntryWithDescriptorsMap<KEY, ENTRY, N>::EntryWithDescriptorsMap(const AbstractTable* table, EntryWithDescriptorsMap&& other) :
+    SuperClass(),
+    _table(table),
+    _auto_ordering(other._auto_ordering)
+{
+    // Clear and move each entry one by one to ensure that the copied entries actually point to the target table.
+    for (auto& it : other) {
+        (*this)[it.first] = std::move(it.second);
+    }
+    // The other instance is still a valid map with valid entries.
+    // But all entries have unspecified values.
+    // Just clear the other it to get a deterministic state.
+    other.clear();
+}
+
+//----------------------------------------------------------------------------
+// Template list of subclasses of EntryWithDescriptors - Assignment.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>& ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::operator=(const EntryWithDescriptorsMap& other)
+{
+    if (&other != this) {
+        // Use same auto ordering as copied map.
+        _auto_ordering = other._auto_ordering;
+        // Clear and copy each entry one by one to ensure that the copied entries actually point to the target table.
+        this->clear();
+        for (auto& it : other) {
+            (*this)[it.first] = it.second;
+        }
+    }
+    return *this;
+}
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ts::AbstractTable::EntryWithDescriptorsMap<KEY, ENTRY, N>& ts::AbstractTable::EntryWithDescriptorsMap<KEY, ENTRY, N>::operator=(EntryWithDescriptorsMap&& other)
+{
+    if (&other != this) {
+        // Use same auto ordering as copied map.
+        _auto_ordering = other._auto_ordering;
+        // Clear and move each entry one by one to ensure that the copied entries actually point to the target table.
+        this->clear();
+        for (auto& it : other) {
+            (*this)[it.first] = std::move(it.second);
+        }
+        // The other instance is still a valid map with valid entries.
+        // But all entries have unspecified values.
+        // Just clear the other it to get a deterministic state.
+        other.clear();
+    }
+    return *this;
+}
+
+//----------------------------------------------------------------------------
+// Template map of subclasses of EntryWithDescriptors - Swap.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+void ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::swap(EntryWithDescriptorsMap& other)
+{
+    if (&other != this) {
+        // Unefficient but functionally correct.
+        const EntryWithDescriptorsMap tmp(nullptr, other);
+        other = *this;
+        *this = tmp;
+    }
+}
+
+//----------------------------------------------------------------------------
+// Template map of subclasses of EntryWithDescriptors - Subscripts.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+ENTRY& ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::operator[](const KEY& key)
+{
+    // The emplace operation ensures that the object is constructed with the supplied arguments (and not copied).
+    // This form is more complex but the simplest form of emplace (without the piecewise_construct and tuples)
+    // does not compile with LLVM. Not sure if this is a problem with LLVM or if the other compilers are too
+    // permissive.
+    ENTRY& entry(this->emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple(_table)).first->second);
+
+    // When not already specified otherwise, keep the order of entry creation.
+    if (_auto_ordering && entry.order_hint == NPOS) {
+        entry.order_hint = this->nextOrder();
+    }
+    return entry;
+}
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+const ENTRY& ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::operator[](const KEY& key) const
+{
+    // Here, we must not create any element (the instance is read-only).
+    const auto it = this->find(key);
+    if (it == this->end()) {
+        // Same exception as std::map::at().
+        throw std::out_of_range("unknown key in ts::AbstractTable::EntryWithDescriptorsMap");
+    }
+    return it->second;
+}
+
+
+//----------------------------------------------------------------------------
+// Template map of subclasses of EntryWithDescriptors.
+// Get the insertion order of entrie in the table.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+void ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::getOrder(std::vector<KEY>& order) const
+{
+    // Build a multimap of keys, indexed by order_hint.
+    std::multimap<size_t, KEY> kmap;
+    for (const auto& entry : *this) {
+        kmap.insert(std::make_pair(entry.second.order_hint, entry.first));
+    }
+
+    // Build a vector of keys from this order.
+    order.clear();
+    order.reserve(kmap.size());
+    for (const auto& it : kmap) {
+        order.push_back(it.second);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Template map of subclasses of EntryWithDescriptors.
+// Set the insertion order of entrie in the table.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+void ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::setOrder(const std::vector<KEY>& order)
+{
+    // First pass: get initial ordering.
+    std::vector<KEY> input;
+    this->getOrder(input);
+
+    // Second pass: Assign ordering hints to explicitly sorted keys.
+    size_t count = 0;
+    for (const KEY& key : order) {
+        const auto it = this->find(key);
+        if (it != this->end()) {
+            it->second.order_hint = count++;
+        }
+    }
+
+    // Third pass: reassign increasing ordering numbers for unspecified keys, same order as previously.
+    for (const KEY& key : input) {
+        if (!Contains(order, key)) {
+            const auto it = this->find(key);
+            if (it != this->end()) {
+                it->second.order_hint = count++;
+            }
+        }
+    }
+}
+
+//----------------------------------------------------------------------------
+// Template map of subclasses of EntryWithDescriptors.
+// Get the next ordering hint to be used in an entry.
+//----------------------------------------------------------------------------
+
+template<typename KEY, class ENTRY, typename std::enable_if<std::is_base_of<ts::AbstractTable::EntryBase, ENTRY>::value>::type* N>
+size_t ts::AbstractTable::EntryWithDescriptorsMap<KEY,ENTRY,N>::nextOrder() const
+{
+    size_t next = 0;
+    for (const auto& entry : *this) {
+        if (entry.second.order_hint != NPOS) {
+            next = std::max(next, entry.second.order_hint + 1);
+        }
+    }
+    return next;
+}

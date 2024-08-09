@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,21 +22,25 @@
 namespace ts {
     class ContinuityPlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(ContinuityPlugin);
+        TS_PLUGIN_CONSTRUCTORS(ContinuityPlugin);
     public:
         // Implementation of plugin API
-        ContinuityPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        UString            _tag;          // Message tag
-        bool               _fix;          // Fix incorrect continuity counters
-        bool               _no_replicate; // Option --no-replicate-duplicated
-        int                _log_level;    // Log level for discontinuity messages
-        PIDSet             _pids;         // PID values to check or fix
-        ContinuityAnalyzer _cc_analyzer;  // Continuity counters analyzer
+        // Command line options.
+        UString _tag {};                      // Message tag
+        bool    _fix = false;                 // Fix incorrect continuity counters
+        bool    _no_replicate = false;        // Option --no-replicate-duplicated
+        bool    _json_line = false;           // Use JSON log style.
+        UString _json_prefix {};              // Prefix before JSON line.
+        int     _log_level = Severity::Info;  // Log level for discontinuity messages
+        PIDSet  _pids {};                     // PID values to check or fix
+
+        // Working data.
+        ContinuityAnalyzer _cc_analyzer {NoPID, this};
     };
 }
 
@@ -69,17 +52,17 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"continuity", ts::ContinuityPlugin);
 //----------------------------------------------------------------------------
 
 ts::ContinuityPlugin::ContinuityPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Check or fix continuity counters on TS packets", u"[options]"),
-    _tag(),
-    _fix(false),
-    _no_replicate(false),
-    _log_level(Severity::Info),
-    _pids(),
-    _cc_analyzer(NoPID, tsp)
+    ProcessorPlugin(tsp_, u"Check or fix continuity counters on TS packets", u"[options]")
 {
     option(u"fix", 'f');
     help(u"fix",
          u"Fix incorrect continuity counters. By default, only display discontinuities.");
+
+    option(u"json-line", 0, Args::STRING, 0, 1, 0, Args::UNLIMITED_VALUE, true);
+    help(u"json-line", u"'prefix'",
+         u"Report the continuity information as one single line in JSON format. "
+         u"The optional string parameter specifies a prefix to prepend on the log "
+         u"line before the JSON text to locate the appropriate line in the logs.");
 
     option(u"no-replicate-duplicated");
     help(u"no-replicate-duplicated",
@@ -111,6 +94,8 @@ bool ts::ContinuityPlugin::getOptions()
 {
     // Command line arguments
     getIntValues(_pids, u"pid", true);
+    getValue(_json_prefix, u"json-line");
+    _json_line = present(u"json-line");
     _fix = present(u"fix");
     _no_replicate = present(u"no-replicate-duplicated");
     _tag = value(u"tag");
@@ -138,7 +123,8 @@ bool ts::ContinuityPlugin::start()
     _cc_analyzer.reset();
     _cc_analyzer.setPIDFilter(_pids);
     _cc_analyzer.setDisplay(true);
-    _cc_analyzer.setMessagePrefix(_tag);
+    _cc_analyzer.setJSON(_json_line);
+    _cc_analyzer.setMessagePrefix(_json_line ? _json_prefix : _tag);
     _cc_analyzer.setMessageSeverity(_log_level);
     _cc_analyzer.setFix(_fix);
     _cc_analyzer.setReplicateDuplicated(!_no_replicate);

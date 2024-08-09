@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -34,10 +13,9 @@
 
 #include "tsWebRequest.h"
 #include "tsFatal.h"
-#include "tsIntegerUtils.h"
 #include "tsFileUtils.h"
-#include "tsSysUtils.h"
-#include "tsSingletonManager.h"
+#include "tsErrCodeReport.h"
+#include "tsSingleton.h"
 #include "tsURL.h"
 
 
@@ -63,15 +41,10 @@ namespace {
 }
 
 // WebRequest static fields:
-ts::UString ts::WebRequest::_defaultProxyHost(DefaultProxy::Instance()->url.getHost());
-uint16_t    ts::WebRequest::_defaultProxyPort = DefaultProxy::Instance()->url.getPort();
-ts::UString ts::WebRequest::_defaultProxyUser(DefaultProxy::Instance()->url.getUserName());
-ts::UString ts::WebRequest::_defaultProxyPassword(DefaultProxy::Instance()->url.getPassword());
-const ts::UString ts::WebRequest::DEFAULT_USER_AGENT(u"tsduck");
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::WebRequest::DEFAULT_CHUNK_SIZE;
-#endif
+ts::UString ts::WebRequest::_defaultProxyHost(DefaultProxy::Instance().url.getHost());
+uint16_t    ts::WebRequest::_defaultProxyPort = DefaultProxy::Instance().url.getPort();
+ts::UString ts::WebRequest::_defaultProxyUser(DefaultProxy::Instance().url.getUserName());
+ts::UString ts::WebRequest::_defaultProxyPassword(DefaultProxy::Instance().url.getPassword());
 
 
 //----------------------------------------------------------------------------
@@ -79,28 +52,7 @@ constexpr size_t ts::WebRequest::DEFAULT_CHUNK_SIZE;
 //----------------------------------------------------------------------------
 
 ts::WebRequest::WebRequest(Report& report) :
-    _report(report),
-    _userAgent(DEFAULT_USER_AGENT),
-    _autoRedirect(true),
-    _originalURL(),
-    _finalURL(),
-    _connectionTimeout(0),
-    _receiveTimeout(0),
-    _proxyHost(),
-    _proxyPort(0),
-    _proxyUser(),
-    _proxyPassword(),
-    _cookiesFileName(),
-    _useCookies(false),
-    _deleteCookiesFile(false),
-    _requestHeaders(),
-    _responseHeaders(),
-    _httpStatus(0),
-    _contentSize(0),
-    _headerContentSize(0),
-    _isOpen(false),
-    _interrupted(false),
-    _guts(nullptr)
+    _report(report)
 {
     allocateGuts();
     CheckNonNull(_guts);
@@ -120,31 +72,6 @@ ts::WebRequest::~WebRequest()
     if (_deleteCookiesFile) {
         deleteCookiesFile();
     }
-}
-
-
-//----------------------------------------------------------------------------
-// Set the user agent name to use in HTTP headers.
-//----------------------------------------------------------------------------
-
-void ts::WebRequest::setUserAgent(const UString& name)
-{
-    _userAgent = name.empty() ? DEFAULT_USER_AGENT : name;
-}
-
-
-//----------------------------------------------------------------------------
-// Set timeout options.
-//----------------------------------------------------------------------------
-
-void ts::WebRequest::setConnectionTimeout(MilliSecond timeout)
-{
-    _connectionTimeout = timeout;
-}
-
-void ts::WebRequest::setReceiveTimeout(MilliSecond timeout)
-{
-    _receiveTimeout = timeout;
 }
 
 
@@ -201,7 +128,7 @@ const ts::UString& ts::WebRequest::proxyPassword() const
 // Set global cookie management.
 //----------------------------------------------------------------------------
 
-void ts::WebRequest::enableCookies(const UString& fileName)
+void ts::WebRequest::enableCookies(const fs::path& fileName)
 {
     _useCookies = true;
     // Delete previous cookies file.
@@ -221,20 +148,20 @@ void ts::WebRequest::disableCookies()
     }
 }
 
-ts::UString ts::WebRequest::getCookiesFileName() const
+fs::path ts::WebRequest::getCookiesFileName() const
 {
     return _cookiesFileName;
 }
 
 bool ts::WebRequest::deleteCookiesFile() const
 {
-    if (_cookiesFileName.empty() || !FileExists(_cookiesFileName)) {
+    if (_cookiesFileName.empty() || !fs::exists(_cookiesFileName)) {
         // No cookies file to delete.
         return true;
     }
     else {
-        _report.debug(u"deleting cookies file %s", {_cookiesFileName});
-        return DeleteFile(_cookiesFileName, _report);
+        _report.debug(u"deleting cookies file %s", _cookiesFileName);
+        return fs::remove(_cookiesFileName, &ErrCodeReport(_report, u"error deleting", _cookiesFileName));
     }
 }
 
@@ -254,14 +181,20 @@ void ts::WebRequest::setArgs(const ts::WebRequestArgs& args)
     if (!args.userAgent.empty()) {
         setUserAgent(args.userAgent);
     }
-    if (args.connectionTimeout > 0) {
+    if (args.connectionTimeout > cn::milliseconds::zero()) {
         setConnectionTimeout(args.connectionTimeout);
     }
-    if (args.receiveTimeout > 0) {
+    if (args.receiveTimeout > cn::milliseconds::zero()) {
         setReceiveTimeout(args.receiveTimeout);
     }
     if (args.useCookies) {
         enableCookies(args.cookiesFile);
+    }
+    if (args.useCompression) {
+        enableCompression();
+    }
+    for (const auto& it : args.headers) {
+        setRequestHeader(it.first, it.second);
     }
 }
 
@@ -272,6 +205,12 @@ void ts::WebRequest::setArgs(const ts::WebRequestArgs& args)
 
 void ts::WebRequest::setRequestHeader(const UString& name, const UString& value)
 {
+    // Check for duplicates on key AND value (multiple headers with the same key are permitted)
+    for (const auto& header : _requestHeaders) {
+        if (header.first == name && header.second == value) {
+            return;
+        }
+    }
     _requestHeaders.insert(std::make_pair(name, value));
 }
 
@@ -338,7 +277,7 @@ void ts::WebRequest::processReponseHeaders(const UString& text)
     // Process headers one by one.
     for (const auto& line : lines) {
 
-        _report.debug(u"HTTP header: %s", {line});
+        _report.debug(u"HTTP header: %s", line);
         const size_t colon = line.find(u':');
         size_t size = 0;
 
@@ -354,7 +293,7 @@ void ts::WebRequest::processReponseHeaders(const UString& text)
             UStringVector fields;
             line.split(fields, u' ', true, true);
             if (fields.size() < 2 || !fields[1].toInteger(_httpStatus)) {
-                _report.warning(u"no HTTP status found in header: %s", {line});
+                _report.warning(u"no HTTP status found in header: %s", line);
             }
         }
         else if (colon != NPOS) {
@@ -369,8 +308,8 @@ void ts::WebRequest::processReponseHeaders(const UString& text)
 
             // Process specific headers.
             if (name.similar(u"Location")) {
-                _finalURL = value;
-                _report.debug(u"redirected to %s", {_finalURL});
+                _finalURL = std::move(value);
+                _report.debug(u"redirected to %s", _finalURL);
             }
             else if (name.similar(u"Content-length") && value.toInteger(size)) {
                 _headerContentSize = size;
@@ -392,7 +331,7 @@ bool ts::WebRequest::open(const UString& url)
     }
 
     if (_isOpen) {
-        _report.error(u"internal error, transfer already started, cannot download %s", {url});
+        _report.error(u"internal error, transfer already started, cannot download %s", url);
         return false;
     }
 
@@ -480,7 +419,7 @@ bool ts::WebRequest::downloadTextContent(const UString& url, UString& text, size
 // Download the content of the URL in a file.
 //----------------------------------------------------------------------------
 
-bool ts::WebRequest::downloadFile(const UString& url, const UString& fileName, size_t chunkSize)
+bool ts::WebRequest::downloadFile(const UString& url, const fs::path& fileName, size_t chunkSize)
 {
     // Transfer initialization.
     if (!open(url)) {
@@ -488,9 +427,9 @@ bool ts::WebRequest::downloadFile(const UString& url, const UString& fileName, s
     }
 
     // Create the output file.
-    std::ofstream file(fileName.toUTF8().c_str(), std::ios::out | std::ios::binary);
+    std::ofstream file(fileName, std::ios::out | std::ios::binary);
     if (!file) {
-        _report.error(u"error creating file %s", {fileName});
+        _report.error(u"error creating file %s", fileName);
         close();
         return false;
     }
@@ -510,7 +449,7 @@ bool ts::WebRequest::downloadFile(const UString& url, const UString& fileName, s
 
         file.write(buffer.data(), thisSize);
         if (!file) {
-            _report.error(u"error saving download to %s", {fileName});
+            _report.error(u"error saving download to %s", fileName);
             success = false;
             break;
         }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -38,19 +17,23 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"debug", ts::DebugPlugin);
 //----------------------------------------------------------------------------
 
 ts::DebugPlugin::DebugPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Debug traces", u"[options]"),
-    _tag(),
-    _null(nullptr),
-    _segfault(false),
-    _exit(false),
-    _exit_code(0)
+    ProcessorPlugin(tsp_, u"Debug traces", u"[options]")
 {
     setIntro(u"A number of debug actions are executed for each packet. "
              u"By default, a debug-level message is displayed for each packet. "
              u"Use --only-label to select packets to debug.");
 
+    option(u"bad-alloc");
+    help(u"bad-alloc", u"Simulate a memory allocation failure on the first debugged packet.");
+
+    option(u"exception");
+    help(u"exception", u"Throw an exception on the first debugged packet.");
+
     option(u"exit", 0, INT32);
     help(u"exit", u"Exit application with the specified integer code on the first debugged packet.");
+
+    option(u"packet", 'p', UNSIGNED);
+    help(u"packet", u"Index of the first debugged packet. Zero by default.");
 
     option(u"segfault");
     help(u"segfault", u"Simulate a segmentation fault on the first debugged packet.");
@@ -68,9 +51,12 @@ ts::DebugPlugin::DebugPlugin(TSP* tsp_) :
 
 bool ts::DebugPlugin::getOptions()
 {
+    _bad_alloc = present(u"bad-alloc");
     _segfault = present(u"segfault");
+    _exception = present(u"exception");
     _exit = present(u"exit");
-    getIntValue(_exit_code, u"exit");
+    getIntValue(_exit_code, u"exit", EXIT_SUCCESS);
+    getIntValue(_packet, u"packet", 0);
     getValue(_tag, u"tag");
     if (!_tag.empty()) {
         _tag += u": ";
@@ -85,17 +71,29 @@ bool ts::DebugPlugin::getOptions()
 
 ts::ProcessorPlugin::Status ts::DebugPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
+    if (tsp->pluginPackets() < _packet) {
+        return TSP_OK; // not yet the first debugged packet
+    }
+    if (_exception) {
+        throw std::exception();
+    }
     if (_segfault) {
         *_null = 0;
     }
-    if (_exit) {
-        ::exit(_exit_code);
+    if (_bad_alloc) {
+        info(u"simulating a memory allocation failure");
+        for (;;) {
+            new std::vector<uint8_t>(1'000'000'000);
+        }
     }
-    tsp->verbose(u"%sPID: 0x%0X, labels: %s, timestamp: %s, packets in plugin: %'d, in thread: %'d", {
-                 _tag, pkt.getPID(),
-                 pkt_data.labelsString(),
-                 pkt_data.inputTimeStampString(),
-                 tsp->pluginPackets(),
-                 tsp->totalPacketsInThread()});
+    if (_exit) {
+        std::exit(_exit_code);
+    }
+    verbose(u"%sPID: 0x%0X, labels: %s, timestamp: %s, packets in plugin: %'d, in thread: %'d",
+            _tag, pkt.getPID(),
+            pkt_data.labelsString(),
+            pkt_data.inputTimeStampString(),
+            tsp->pluginPackets(),
+            tsp->totalPacketsInThread());
     return TSP_OK;
 }

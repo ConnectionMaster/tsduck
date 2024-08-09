@@ -2,29 +2,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -71,7 +50,7 @@ namespace ts {
         //!
         //! Reference to the superclass.
         //!
-        typedef AbstractVideoStructure SuperClass;
+        using SuperClass = AbstractVideoStructure;
 
         //!
         //! Constructor from a binary area.
@@ -87,22 +66,19 @@ namespace ts {
         //!
         //! Reset this object, makes it valid, resize the vector with empty st_ref_pic_set structures.
         //! @param [in] num_short_term_ref_pic_sets The corresponding HEVC parameter.
+        //! @return True on success, false on invalid size.
         //!
-        void reset(uint32_t num_short_term_ref_pic_sets);
+        bool reset(uint32_t num_short_term_ref_pic_sets);
 
         //!
         //! Get the @a num_short_term_ref_pic_sets parameter of the list of st_ref_pic_set structures.
+        //! In practice, this is the size of the list of the ShortTermReferencePictureSet.
+        //! The ShortTermReferencePictureSet index 0 to num_short_term_ref_pic_sets - 1 are stored
+        //! in the HEVCSequenceParameterSet. The one with index num_short_term_ref_pic_sets, when
+        //! present, is directly stored in the slice header.
         //! @return The @a num_short_term_ref_pic_sets parameter of the list of st_ref_pic_set structures.
         //!
-        uint32_t num_short_term_ref_pic_sets() const { return list.empty() ? 0 : uint32_t(list.size() - 1); }
-
-        //!
-        //! Compute the NumDeltaPocs[RefRpsIdx] variable.
-        //! @param [in] RefRpsIdx Index in the list.
-        //! @return The NumDeltaPocs[RefRpsIdx] variable.
-        //! @see ITU-T Rec. H.265, 7.4.8 (7-71).
-        //!
-        uint32_t NumDeltaPocs(uint32_t RefRpsIdx) const;
+        uint32_t num_short_term_ref_pic_sets() const { return uint32_t(list.size()); }
 
         // Inherited methods
         virtual void clear() override;
@@ -112,58 +88,60 @@ namespace ts {
 
         //!
         //! HEVC short-term reference picture set.
-        //! @see ITU-T Rec. H.265, 7.3.7 and 7.4.8.
+        //! @see ITU-T Rec. H.265, 7.3.7 and 7.4.8.from
         //!
         class TSDUCKDLL ShortTermReferencePictureSet
         {
         public:
+            //!
             //! Constructor.
-            ShortTermReferencePictureSet();
-
+            //!
+            ShortTermReferencePictureSet() = default;
+            //!
             //! Clear structure content.
+            //!
             void clear();
 
-            //! Current / delta structure.
-            struct TSDUCKDLL CurrDelta {
-                CurrDelta();                      //!< Constructor.
-                uint8_t used_by_curr_pic_flag;    //!< used_by_curr_pic_flag
-                // if (!used_by_curr_pic_flag) {
-                    uint8_t use_delta_flag;       //!< use_delta_flag
-                // }
-            };
-
-            //! Delta picture structure.
-            struct TSDUCKDLL DeltaPicture {
-                DeltaPicture();                   //!< Constructor.
-                uint32_t delta_poc_minus1;        //!< delta_poc_minus1
-                uint8_t  used_by_curr_pic_flag;   //!< used_by_curr_pic_flag
-            };
-
-            bool valid;                                     //!< This structure is valid.
+            // Inline data:
+            bool valid = false;                                     //!< This structure is valid.
             // if (stRpsIdx != 0) {
-                uint8_t inter_ref_pic_set_prediction_flag;  //!< inter_ref_pic_set_prediction_flag
+                uint8_t inter_ref_pic_set_prediction_flag = 0;      //!< inter_ref_pic_set_prediction_flag
             // }
             // if (inter_ref_pic_set_prediction_flag) {
                 // if (stRpsIdx == num_short_term_ref_pic_sets) {
-                    uint32_t delta_idx_minus1;              //!< delta_idx_minus1
+                    uint32_t delta_idx_minus1 = 0;                  //!< delta_idx_minus1
                 // }
-                uint8_t delta_rps_sign;                     //!< delta_rps_sign
-                uint32_t abs_delta_rps_minus1;              //!< abs_delta_rps_minus1
+                uint8_t delta_rps_sign = 0;                         //!< delta_rps_sign
+                uint32_t abs_delta_rps_minus1 = 0;                  //!< abs_delta_rps_minus1
                 // for (j = 0; j <= NumDeltaPocs[RefRpsIdx]; j++)
-                std::vector<CurrDelta> use_cur_delta;       //!< use_cur_delta
+                std::vector<uint8_t> used_by_curr_pic_flag {};      //!< used_by_curr_pic_flag
+                // if (!used_by_curr_pic_flag) {
+                    std::vector<uint8_t> use_delta_flag {};         //!< use_delta_flag
+                // }
             // } else {
-                uint32_t num_negative_pics;                 //!< num_negative_pics
-                uint32_t num_positive_pics;                 //!< num_positive_pics
+                uint32_t num_negative_pics = 0;                     //!< num_negative_pics
+                uint32_t num_positive_pics = 0;                     //!< num_positive_pics
                 // for (i = 0; i < num_negative_pics; i++) {
-                std::vector<DeltaPicture> negative_pics;    //!< negative_pics
+                std::vector<uint32_t> delta_poc_s0_minus1 {};       //!< delta_poc_minus1
+                std::vector<uint8_t> used_by_curr_pic_s0_flag {};   //!< used_by_curr_pic_flag
                 // for (i = 0; i < num_positive_pics; i++) {
-                std::vector<DeltaPicture> positive_pics;    //!< positive_pics
+                std::vector<uint32_t> delta_poc_s1_minus1 {};       //!< delta_poc_minus1
+                std::vector<uint8_t> used_by_curr_pic_s1_flag {};   //!< used_by_curr_pic_flag
             // }
+
+            // Synthetic variables:
+            uint32_t             NumNegativePics = 0;  //!< ITU-T Rec. H.265, 7.4.8 (7-61, 7-63)
+            uint32_t             NumPositivePics = 0;  //!< ITU-T Rec. H.265, 7.4.8 (7-62, 7-64)
+            std::vector<uint8_t> UsedByCurrPicS0 {};   //!< ITU-T Rec. H.265, 7.4.8 (7-65)
+            std::vector<uint8_t> UsedByCurrPicS1 {};   //!< ITU-T Rec. H.265, 7.4.8 (7-66)
+            std::vector<int32_t> DeltaPocS0 {};        //!< ITU-T Rec. H.265, 7.4.8 (7-67)
+            std::vector<int32_t> DeltaPocS1 {};        //!< ITU-T Rec. H.265, 7.4.8 (7-68)
+            uint32_t             NumDeltaPocs = 0;     //!< ITU-T Rec. H.265, 7.4.8 (7-71)
         };
 
         //!
         //! The list of ShortTermReferencePictureSet is organized as a vector.
         //!
-        std::vector<ShortTermReferencePictureSet> list;
+        std::vector<ShortTermReferencePictureSet> list {};
     };
 }

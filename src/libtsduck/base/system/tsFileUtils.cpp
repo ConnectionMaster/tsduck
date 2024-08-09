@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,6 +10,7 @@
 #include "tsSysUtils.h"
 #include "tsMemory.h"
 #include "tsUID.h"
+#include "tsErrCodeReport.h"
 
 #if defined(TS_WINDOWS)
     #include "tsBeforeStandardHeaders.h"
@@ -56,38 +36,6 @@
 #if defined(TS_WINDOWS) && defined(TS_MSC)
     #pragma comment(lib, "userenv.lib")  // GetUserProfileDirectory
 #endif
-
-
-//----------------------------------------------------------------------------
-// Get the current working directory.
-//----------------------------------------------------------------------------
-
-ts::UString ts::CurrentWorkingDirectory()
-{
-#if defined(TS_WINDOWS)
-
-    // Window implementation.
-    std::array<::WCHAR, 2048> name;
-    const ::DWORD length = ::GetCurrentDirectoryW(::DWORD(name.size()), name.data());
-    return UString(name, length);
-
-#else
-
-    // Unix implementation.
-    TS_PUSH_WARNING()
-    TS_GCC_NOWARNING(maybe-uninitialized) // stupid warning, name is uninitialized on purpose
-    std::array<char, 2048> name;
-    if (::getcwd(name.data(), name.size() - 1) == nullptr) {
-        name[0] = '\0'; // error
-    }
-    else {
-        name[name.size() - 1] = '\0'; // enforce null termination.
-    }
-    TS_POP_WARNING()
-    return UString::FromUTF8(name.data());
-
-#endif
-}
 
 
 //----------------------------------------------------------------------------
@@ -125,7 +73,7 @@ ts::UString ts::VernacularFilePath(const UString& path)
     // Normalize path separators.
     for (size_t i = 0; i < vern.length(); ++i) {
         if (vern[i] == u'/' || vern[i] == u'\\') {
-            vern[i] = PathSeparator;
+            vern[i] = fs::path::preferred_separator;
         }
     }
 
@@ -155,12 +103,12 @@ ts::UString ts::CleanupFilePath(const UString& path)
 {
     // Include a trailing slash for subsequent substitutions.
     UString clean(path);
-    clean.append(PathSeparator);
+    clean.append(fs::path::preferred_separator);
 
     // Patterns to clean.
-    const UString parent{PathSeparator, u'.', u'.', PathSeparator};  //  /../
-    const UString current{PathSeparator, u'.', PathSeparator};       //  /./
-    const UString dslash{PathSeparator, PathSeparator};              //  //
+    const UString parent{fs::path::preferred_separator, u'.', u'.', fs::path::preferred_separator};  //  /../
+    const UString current{fs::path::preferred_separator, u'.', fs::path::preferred_separator};       //  /./
+    const UString dslash{fs::path::preferred_separator, fs::path::preferred_separator};              //  //
     size_t pos = NPOS;
     size_t up = NPOS;
 
@@ -178,7 +126,7 @@ ts::UString ts::CleanupFilePath(const UString& path)
             // Path starting with "/../" -> can be removed.
             clean.erase(0, 3);
         }
-        else if ((up = clean.rfind(PathSeparator, pos - 1)) == NPOS) {
+        else if ((up = clean.rfind(fs::path::preferred_separator, pos - 1)) == NPOS) {
             // No "/" before "/../" -> the start of the string is the parent.
             clean.erase(0, pos + 4);
         }
@@ -189,7 +137,7 @@ ts::UString ts::CleanupFilePath(const UString& path)
     }
 
     // Remove trailing slashes.
-    while (!clean.empty() && clean.back() == PathSeparator) {
+    while (!clean.empty() && clean.back() == fs::path::preferred_separator) {
         clean.pop_back();
     }
     return clean;
@@ -210,7 +158,7 @@ ts::UString ts::AbsoluteFilePath(const UString& path, const UString& base)
         return CleanupFilePath(full);
     }
     else {
-        return CleanupFilePath((base.empty() ? CurrentWorkingDirectory() : base) + PathSeparator + full);
+        return CleanupFilePath((base.empty() ? UString(fs::current_path(&ErrCodeReport())) : base) + fs::path::preferred_separator + full);
     }
 }
 
@@ -225,15 +173,15 @@ ts::UString ts::RelativeFilePath(const ts::UString &path, const ts::UString &bas
     UString target(AbsoluteFilePath(path));
 
     // Build absolute file path of the base directory, with a trailing path separator.
-    UString ref(AbsoluteFilePath(base.empty() ? CurrentWorkingDirectory() : base));
-    ref.append(PathSeparator);
+    UString ref(AbsoluteFilePath(base.empty() ? UString(fs::current_path(&ErrCodeReport())) : base));
+    ref.append(fs::path::preferred_separator);
 
     // See how many leading characters are matching.
     size_t same = target.commonPrefixSize(ref, caseSensitivity);
 
     // Move backward right after the previous path separator to
     // get the length of the common directory parts
-    while (same > 0 && target[same - 1] != PathSeparator) {
+    while (same > 0 && target[same - 1] != fs::path::preferred_separator) {
         --same;
     }
 
@@ -248,17 +196,17 @@ ts::UString ts::RelativeFilePath(const ts::UString &path, const ts::UString &bas
         target.erase(0, same);
 
         // For each remaining directory level in reference, insert a "../" in target.
-        const UString up{u'.', u'.', PathSeparator};
+        const UString up{u'.', u'.', fs::path::preferred_separator};
         for (size_t i = same; i < ref.length(); ++i) {
-            if (ref[i] == PathSeparator) {
+            if (ref[i] == fs::path::preferred_separator) {
                 target.insert(0, up);
             }
         }
     }
 
     // Convert portable slashes.
-    if (portableSlashes && PathSeparator != u'/') {
-        target.substitute(PathSeparator, u'/');
+    if (portableSlashes && fs::path::preferred_separator != u'/') {
+        target.substitute(fs::path::preferred_separator, u'/');
     }
 
     return target;
@@ -283,7 +231,7 @@ namespace {
         return ts::NPOS;
 #else
         // Only one possibility.
-        return path.rfind(ts::PathSeparator);
+        return path.rfind(fs::path::preferred_separator);
 #endif
     }
 }
@@ -317,69 +265,8 @@ ts::UString ts::BaseName(const UString& path, const UString& suffix)
 {
     const UString::size_type sep = LastPathSeparator(path);
     const UString base(path.substr(sep == NPOS ? 0 : sep + 1));
-    const bool suffixFound = !suffix.empty() && base.endWith(suffix, FileSystemCaseSensitivity);
+    const bool suffixFound = !suffix.empty() && base.endWith(suffix, FILE_SYSTEM_CASE_SENSITVITY);
     return suffixFound ? base.substr(0, base.size() - suffix.size()) : base;
-}
-
-
-//----------------------------------------------------------------------------
-// Return the suffix of a file path (eg. "dir/foo.bar" => ".bar")
-//----------------------------------------------------------------------------
-
-ts::UString ts::PathSuffix(const UString& path)
-{
-    UString::size_type sep = LastPathSeparator(path);
-    UString::size_type dot = path.rfind(u'.');
-
-    if (dot == NPOS) {
-        return ts::UString();  // no dot in path
-    }
-    else if (sep != NPOS && dot < sep) {
-        return ts::UString();  // dot in directory part, not in base name
-    }
-    else {
-        return path.substr(dot); // dot in base name
-    }
-}
-
-
-//----------------------------------------------------------------------------
-// If the file path does not contain a suffix, add the specified one.
-// Otherwise, return the name unchanged.
-//----------------------------------------------------------------------------
-
-ts::UString ts::AddPathSuffix(const UString& path, const UString& suffix)
-{
-    UString::size_type sep = LastPathSeparator(path);
-    UString::size_type dot = path.rfind(u'.');
-
-    if (dot == NPOS || (sep != NPOS && dot < sep)) {
-        return path + suffix;
-    }
-    else {
-        return path;
-    }
-}
-
-
-//----------------------------------------------------------------------------
-// Return the prefix of a file path (eg. "dir/foo.bar" => "dir/foo")
-//----------------------------------------------------------------------------
-
-ts::UString ts::PathPrefix(const UString& path)
-{
-    UString::size_type sep = LastPathSeparator(path);
-    UString::size_type dot = path.rfind(u'.');
-
-    if (dot == NPOS) {
-        return path;  // no dot in path
-    }
-    else if (sep != NPOS && dot < sep) {
-        return path;  // dot in directory part, not in base name
-    }
-    else {
-        return path.substr(0, dot); // dot in base name
-    }
 }
 
 
@@ -387,7 +274,7 @@ ts::UString ts::PathPrefix(const UString& path)
 // Get the current user's home directory.
 //----------------------------------------------------------------------------
 
-ts::UString ts::UserHomeDirectory()
+fs::path ts::UserHomeDirectory()
 {
 #if defined(TS_WINDOWS)
 
@@ -414,76 +301,14 @@ ts::UString ts::UserHomeDirectory()
 
 
 //----------------------------------------------------------------------------
-// Create a directory
-//----------------------------------------------------------------------------
-
-bool ts::CreateDirectory(const UString& path, bool intermediate, Report& report)
-{
-    // Create intermediate directories.
-    if (intermediate) {
-        const UString parent(DirectoryName(path));
-        // Create recursively only if does not exist or is not identical to path (meaning root).
-        if (parent != path && !IsDirectory(parent) && !CreateDirectory(parent, true, report)) {
-            return false;
-        }
-    }
-
-    // Create the final directory.
-#if defined(TS_WINDOWS)
-    if (::CreateDirectoryW(path.wc_str(), nullptr)) {
-        return true;
-    }
-#else
-    if (::mkdir(path.toUTF8().c_str(), 0777) == 0) {
-        return true;
-    }
-#endif
-    const SysErrorCode err = LastSysErrorCode();
-    report.error(u"error creating directory %s: %s", { path, SysErrorCodeMessage(err) });
-    return false;
-}
-
-
-//----------------------------------------------------------------------------
-// Return the name of a directory for temporary files.
-//----------------------------------------------------------------------------
-
-ts::UString ts::TempDirectory()
-{
-#if defined(TS_WINDOWS)
-    std::array<::WCHAR, 2048> buf;
-    ::DWORD status = ::GetTempPathW(::DWORD(buf.size()), buf.data());
-    return status <= 0 ? u"C:\\" : UString(buf);
-#else
-    return u"/tmp";
-#endif
-}
-
-
-//----------------------------------------------------------------------------
 // Return the name of a unique temporary file name.
 //----------------------------------------------------------------------------
 
-ts::UString ts::TempFile(const UString& suffix)
+fs::path ts::TempFile(const UString& suffix)
 {
-    return TempDirectory() + PathSeparator + UString::Format(u"tstmp-%X", {UID::Instance()->newUID()}) + suffix;
-}
-
-
-//----------------------------------------------------------------------------
-// Get the size in byte of a file. Return -1 in case of error.
-//----------------------------------------------------------------------------
-
-int64_t ts::GetFileSize(const UString& path)
-{
-#if defined(TS_WINDOWS)
-    ::WIN32_FILE_ATTRIBUTE_DATA info;
-    return ::GetFileAttributesExW(path.wc_str(), ::GetFileExInfoStandard, &info) == 0 ? -1 :
-        (int64_t(info.nFileSizeHigh) << 32) | (int64_t(info.nFileSizeLow) & 0xFFFFFFFFL);
-#else
-    struct stat st;
-    return ::stat(path.toUTF8().c_str(), &st) < 0 ? -1 : int64_t(st.st_size);
-#endif
+    fs::path name(fs::temp_directory_path());
+    name /= UString::Format(u"tstmp-%X%s", UID::Instance().newUID(), suffix);
+    return name;
 }
 
 
@@ -495,10 +320,10 @@ int64_t ts::GetFileSize(const UString& path)
 ts::Time ts::GetFileModificationTimeUTC(const UString& path)
 {
 #if defined(TS_WINDOWS)
-    ::WIN32_FILE_ATTRIBUTE_DATA info;
+    ::WIN32_FILE_ATTRIBUTE_DATA info {};
     return ::GetFileAttributesExW(path.wc_str(), ::GetFileExInfoStandard, &info) == 0 ? Time::Epoch : Time::Win32FileTimeToUTC(info.ftLastWriteTime);
 #else
-    struct stat st;
+    struct stat st {};
     return ::stat(path.toUTF8().c_str(), &st) < 0 ? Time::Epoch : Time::UnixTimeToUTC(st.st_mtime);
 #endif
 }
@@ -511,119 +336,43 @@ ts::Time ts::GetFileModificationTimeLocal(const UString& path)
 
 
 //----------------------------------------------------------------------------
-// Check if a file or directory exists
+// Search an executable file.
 //----------------------------------------------------------------------------
 
-bool ts::FileExists(const UString& path)
+ts::UString ts::SearchExecutableFile(const UString& fileName, const UString& pathName)
 {
-#if defined(TS_WINDOWS)
-    return ::GetFileAttributesW(path.wc_str()) != INVALID_FILE_ATTRIBUTES;
-#else
-    // Flawfinder: ignore
-    return ::access(path.toUTF8().c_str(), F_OK) == 0;
-#endif
-}
+    // Don't search if empty.
+    if (fileName.empty()) {
+        return UString();
+    }
 
+    // Adjust file name with the executable suffix.
+    UString name(fileName);
+    if (!name.endWith(EXECUTABLE_FILE_SUFFIX, FILE_SYSTEM_CASE_SENSITVITY)) {
+        name.append(EXECUTABLE_FILE_SUFFIX);
+    }
 
-//----------------------------------------------------------------------------
-// Check if a path exists and is a directory
-//----------------------------------------------------------------------------
+    // Executable mask at any level.
+    const fs::perms exec = fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec;
 
-bool ts::IsDirectory(const UString& path)
-{
-#if defined(TS_WINDOWS)
-    const ::DWORD attr = ::GetFileAttributesW(path.wc_str());
-    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
-#else
-    struct stat st;
-    return ::stat(path.toUTF8().c_str(), &st) == 0 && S_ISDIR(st.st_mode);
-#endif
-}
+    // If there is at least one path separator in the middle, there is a directory specified, don't search.
+    if (LastPathSeparator(fileName) != NPOS) {
+        // If the file does not exist or is not executable, not suitable.
+        return fs::exists(name) && (fs::status(name, &ErrCodeReport()).permissions() & exec) != fs::perms::none ? name : UString();
+    }
 
-
-//----------------------------------------------------------------------------
-// Delete a file. Return an error code.
-//----------------------------------------------------------------------------
-
-bool ts::DeleteFile(const UString& path, Report& report)
-{
-#if defined(TS_WINDOWS)
-    if (IsDirectory(path)) {
-        if (::RemoveDirectoryW(path.wc_str())) {
-            return true;
+    // Search in the path.
+    UStringList dirs;
+    GetEnvironmentPath(dirs, pathName);
+    for (const auto& dir : dirs) {
+        const UString full(dir + fs::path::preferred_separator + name);
+        if (fs::exists(full) && (fs::status(full, &ErrCodeReport()).permissions() & exec) != fs::perms::none) {
+            return full;
         }
     }
-    else {
-        if (::DeleteFileW(path.wc_str())) {
-            return true;
-        }
-    }
-#else
-    if (::remove(path.toUTF8().c_str()) == 0) {
-        return true;
-    }
-#endif
-    const SysErrorCode err = LastSysErrorCode();
-    report.error(u"error deleting %s: %s", {path, SysErrorCodeMessage(err)});
-    return false;
-}
 
-
-//----------------------------------------------------------------------------
-// Truncate a file to the specified size. Return an error code.
-//----------------------------------------------------------------------------
-
-bool ts::TruncateFile(const UString& path, uint64_t size, Report& report)
-{
-    SysErrorCode err = SYS_SUCCESS;
-
-#if defined(TS_WINDOWS)
-
-    ::LONG size_high = ::LONG(size >> 32);
-    ::HANDLE h = ::CreateFileW(path.wc_str(), GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
-    if (h == INVALID_HANDLE_VALUE ||
-        ::SetFilePointer(h, ::LONG(size), &size_high, FILE_BEGIN) == INVALID_SET_FILE_POINTER ||
-        ::SetEndOfFile(h) == 0)
-    {
-        err = ::GetLastError();
-    }
-    ::CloseHandle(h);
-
-#else
-
-    err = ::truncate(path.toUTF8().c_str(), off_t(size)) < 0 ? errno : 0;
-
-#endif
-
-    if (err == SYS_SUCCESS) {
-        return true;
-    }
-    else {
-        report.error(u"error truncating %s: %s", {path, SysErrorCodeMessage(err)});
-        return false;
-    }
-}
-
-
-//----------------------------------------------------------------------------
-// Rename / move a file. Return an error code.
-// Not guaranteed to work across volumes or file systems.
-//----------------------------------------------------------------------------
-
-bool ts::RenameFile(const UString& old_path, const UString& new_path, Report& report)
-{
-#if defined(TS_WINDOWS)
-    if (::MoveFileW(old_path.wc_str(), new_path.wc_str())) {
-        return true;
-    }
-#else
-    if (::rename(old_path.toUTF8().c_str(), new_path.toUTF8().c_str()) == 0) {
-        return true;
-    }
-#endif
-    const SysErrorCode err = LastSysErrorCode();
-    report.error(u"error renaming %s: %s", {old_path, SysErrorCodeMessage(err)});
-    return false;
+    // Not found.
+    return UString();
 }
 
 
@@ -637,7 +386,7 @@ ts::UString ts::SearchConfigurationFile(const UString& fileName)
         // No file specified, no file found...
         return UString();
     }
-    if (FileExists(fileName)) {
+    if (fs::exists(fileName)) {
         // The file exists as is, no need to search.
         return fileName;
     }
@@ -649,7 +398,7 @@ ts::UString ts::SearchConfigurationFile(const UString& fileName)
     // At this point, the file name has no directory and is not found in the current directory.
     // Build the list of directories to search. First, start with all directories from $TSPLUGINS_PATH.
     UStringList dirList;
-    GetEnvironmentPathAppend(dirList, TS_PLUGINS_PATH);
+    GetEnvironmentPathAppend(dirList, PLUGINS_PATH_ENVIRONMENT_VARIABLE);
 
     // Then, try in same directory as executable.
     const UString execDir(DirectoryName(ExecutableFile()));
@@ -671,7 +420,7 @@ ts::UString ts::SearchConfigurationFile(const UString& fileName)
 #endif
 
     // Finally try all directories from $PATH.
-    GetEnvironmentPathAppend(dirList, TS_COMMAND_PATH);
+    GetEnvironmentPathAppend(dirList, PATH_ENVIRONMENT_VARIABLE);
 
     // Add default system locations of the configuration files. This is useful when the
     // application is not a TSDuck one but a third-party application which uses the
@@ -689,8 +438,8 @@ ts::UString ts::SearchConfigurationFile(const UString& fileName)
 
     // Search the file.
     for (const auto& dir : dirList) {
-        const UString path(dir + PathSeparator + fileName);
-        if (FileExists(path)) {
+        const UString path(dir + fs::path::preferred_separator + fileName);
+        if (fs::exists(path)) {
             return path;
         }
     }
@@ -718,71 +467,4 @@ ts::UString ts::UserConfigurationFileName(const UString& fileName, const UString
 #else
     return UserHomeDirectory() + u"/" + fileName;
 #endif
-}
-
-
-//----------------------------------------------------------------------------
-// Check if a file path is a symbolic link.
-//----------------------------------------------------------------------------
-
-bool ts::IsSymbolicLink(const UString& path)
-{
-#if defined(TS_UNIX)
-    struct stat st;
-    TS_ZERO(st);
-    if (::lstat(path.toUTF8().c_str(), &st) != 0) {
-        return false; // lstat() error
-    }
-    else {
-        return (st.st_mode & S_IFMT) == S_IFLNK;
-    }
-#else
-    // Non Unix systems, no symbolic links.
-    return false;
-#endif
-}
-
-
-//----------------------------------------------------------------------------
-// Resolve symbolic links.
-//----------------------------------------------------------------------------
-
-ts::UString ts::ResolveSymbolicLinks(const ts::UString &path, ResolveSymbolicLinksFlags flags)
-{
-    UString link((flags & LINK_ABSOLUTE) != 0 ? AbsoluteFilePath(path) : path);
-
-#if defined(TS_UNIX)
-
-    // Only on Unix systems: resolve symbolic links.
-    std::array<char, 2048> name;
-    int foolproof = 64; // Avoid endless loops in failing links.
-
-    // Loop on nested symbolic links.
-    while (IsSymbolicLink(link)) {
-
-        // Translate the symbolic link.
-        const ssize_t length = ::readlink(link.toUTF8().c_str(), name.data(), name.size());
-        if (length <= 0) {
-            // Error, cannot translate the link or empty value, return the path.
-            break;
-        }
-        assert(length <= ssize_t(name.size()));
-
-        // Next step is the translated link.
-        if ((flags & LINK_ABSOLUTE) != 0) {
-            link = AbsoluteFilePath(UString::FromUTF8(name.data(), size_t(length)), DirectoryName(link));
-        }
-        else {
-            link.assignFromUTF8(name.data(), size_t(length));
-        }
-
-        // Without recursion, do not loop.
-        if ((flags & LINK_RECURSE) == 0 || foolproof-- <= 0) {
-            break;
-        }
-    }
-
-#endif
-
-    return link;
 }

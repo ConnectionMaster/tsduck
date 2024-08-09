@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -47,27 +26,13 @@
 
 class SectionTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testTOT();
-    void testBAT();
-    void testNIT();
-    void testReload();
-    void testAssign();
-    void testPackSections();
-    void testSize();
-
-    TSUNIT_TEST_BEGIN(SectionTest);
-    TSUNIT_TEST(testTOT);
-    TSUNIT_TEST(testBAT);
-    TSUNIT_TEST(testNIT);
-    TSUNIT_TEST(testReload);
-    TSUNIT_TEST(testAssign);
-    TSUNIT_TEST(testPackSections);
-    TSUNIT_TEST(testSize);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(TOT);
+    TSUNIT_DECLARE_TEST(BAT);
+    TSUNIT_DECLARE_TEST(NIT);
+    TSUNIT_DECLARE_TEST(Reload);
+    TSUNIT_DECLARE_TEST(Assign);
+    TSUNIT_DECLARE_TEST(PackSections);
+    TSUNIT_DECLARE_TEST(Size);
 
 private:
     // Create a dummy long section.
@@ -78,25 +43,10 @@ TSUNIT_REGISTER(SectionTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void SectionTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void SectionTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void SectionTest::testTOT()
+TSUNIT_DEFINE_TEST(TOT)
 {
     ts::Section sec(psi_tot_tnt_sections, sizeof(psi_tot_tnt_sections), ts::PID_TOT, ts::CRC32::CHECK);
 
@@ -106,7 +56,7 @@ void SectionTest::testTOT()
     TSUNIT_ASSERT(!sec.isLongSection());
 }
 
-void SectionTest::testBAT()
+TSUNIT_DEFINE_TEST(BAT)
 {
     ts::Section sec(psi_bat_tvnum_sections, sizeof(psi_bat_tvnum_sections), ts::PID_BAT, ts::CRC32::CHECK);
 
@@ -116,7 +66,7 @@ void SectionTest::testBAT()
     TSUNIT_ASSERT(sec.isLongSection());
 }
 
-void SectionTest::testNIT()
+TSUNIT_DEFINE_TEST(NIT)
 {
     ts::Section sec(psi_nit_tntv23_sections, sizeof(psi_nit_tntv23_sections), ts::PID_NIT, ts::CRC32::CHECK);
 
@@ -126,7 +76,7 @@ void SectionTest::testNIT()
     TSUNIT_ASSERT(sec.isLongSection());
 }
 
-void SectionTest::testReload()
+TSUNIT_DEFINE_TEST(Reload)
 {
     ts::Section sec(psi_tot_tnt_sections, sizeof(psi_tot_tnt_sections), ts::PID_TOT, ts::CRC32::CHECK);
 
@@ -143,7 +93,7 @@ void SectionTest::testReload()
     TSUNIT_ASSERT(sec.isLongSection());
 }
 
-void SectionTest::testAssign()
+TSUNIT_DEFINE_TEST(Assign)
 {
     ts::Section sec(psi_tot_tnt_sections, sizeof(psi_tot_tnt_sections), ts::PID_TOT, ts::CRC32::CHECK);
 
@@ -167,20 +117,20 @@ void SectionTest::testAssign()
     TSUNIT_ASSERT(sec.isLongSection());
 }
 
-void SectionTest::testPackSections()
+TSUNIT_DEFINE_TEST(PackSections)
 {
     ts::BinaryTable table;
     TSUNIT_ASSERT(!table.isValid());
 
     static const uint8_t data[] = {0, 1, 2, 3, 4, 5, 6, 7};
 
-    table.addSection(new ts::Section(150, true, 102, 12, true, 3, 7, data + 1, 2, 2000));
+    table.addNewSection(150, true, 102, 12, true, 3, 7, data + 1, 2, 2000);
     TSUNIT_ASSERT(!table.isValid());
 
-    table.addSection(new ts::Section(150, true, 102, 12, true, 5, 7, data + 3, 3, 2000));
+    table.addNewSection(150, true, 102, 12, true, 5, 7, data + 3, 3, 2000);
     TSUNIT_ASSERT(!table.isValid());
 
-    table.addSection(new ts::Section(150, true, 102, 12, true, 6, 7, data + 4, 4, 2000));
+    table.addNewSection(150, true, 102, 12, true, 6, 7, data + 4, 4, 2000);
     TSUNIT_ASSERT(!table.isValid());
 
     table.packSections();
@@ -194,7 +144,7 @@ void SectionTest::testPackSections()
     TSUNIT_EQUAL(3, table.sectionCount());
 
     ts::SectionPtr sec(table.sectionAt(0));
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_ASSERT(sec->isLongSection());
     TSUNIT_ASSERT(!sec->isShortSection());
@@ -212,7 +162,7 @@ void SectionTest::testPackSections()
     TSUNIT_EQUAL(1, *sec->payload());
 
     sec = table.sectionAt(1);
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_ASSERT(sec->isLongSection());
     TSUNIT_ASSERT(!sec->isShortSection());
@@ -230,7 +180,7 @@ void SectionTest::testPackSections()
     TSUNIT_EQUAL(3, *sec->payload());
 
     sec = table.sectionAt(2);
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_ASSERT(sec->isLongSection());
     TSUNIT_ASSERT(!sec->isShortSection());
@@ -253,10 +203,10 @@ ts::SectionPtr SectionTest::NewSection(size_t size, uint8_t secnum, ts::TID tid)
 {
     const size_t overhead = ts::LONG_SECTION_HEADER_SIZE + ts::SECTION_CRC32_SIZE;
     ts::ByteBlock payload(size >= overhead ? size - overhead : 0);
-    return new ts::Section(tid, true, 0x0000, 0, true, secnum, secnum, payload.data(), payload.size());
+    return std::make_shared<ts::Section>(tid, true, uint16_t(0), uint8_t(0), true, secnum, secnum, payload.data(), payload.size());
 }
 
-void SectionTest::testSize()
+TSUNIT_DEFINE_TEST(Size)
 {
     ts::BinaryTable table;
     table.addSection(NewSection(183, 0));

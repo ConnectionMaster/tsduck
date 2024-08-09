@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,14 +14,9 @@
 //----------------------------------------------------------------------------
 
 ts::TSPacketStream::TSPacketStream(TSPacketFormat format, AbstractReadStreamInterface* reader, AbstractWriteStreamInterface* writer) :
-    _total_read(0),
-    _total_write(0),
     _format(format),
     _reader(reader),
-    _writer(writer),
-    _last_timestamp(0),
-    _trail_size(0),
-    _trail()
+    _writer(writer)
 {
 }
 
@@ -62,7 +36,7 @@ void ts::TSPacketStream::resetPacketStream(TSPacketFormat format, AbstractReadSt
     _format = format;
     _reader = reader;
     _writer = writer;
-    _last_timestamp = 0;
+    _last_timestamp = PCR::zero();
     _trail_size = 0;
 }
 
@@ -135,7 +109,8 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
         }
         else if (buffer->b[4] == SYNC_BYTE) {
             _format = TSPacketFormat::M2TS;
-            mdata.setInputTimeStamp(GetUInt32(buffer) & 0x3FFFFFFF, SYSTEM_CLOCK_FREQ, TimeSource::M2TS);
+            // M2TS timestamps are in PCR units.
+            mdata.setInputTimeStamp(PCR(GetUInt32(buffer) & 0x3FFFFFFF), TimeSource::M2TS);
         }
         else if (buffer->b[0] == TSPacketMetadata::SERIALIZATION_MAGIC && buffer->b[TSPacketMetadata::SERIALIZATION_SIZE] == SYNC_BYTE) {
             _format = TSPacketFormat::DUCK;
@@ -150,9 +125,8 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
         header_size = packetHeaderSize();
         assert(header_size <= sizeof(header));
         if (header_size > 0) {
-            // memmove() can move overlapping areas.
             char* data = reinterpret_cast<char*>(buffer);
-            ::memmove(data, data + header_size, PKT_SIZE - header_size);
+            MemCopy(data, data + header_size, PKT_SIZE - header_size);
             if (!_reader->readStreamComplete(data + PKT_SIZE - header_size, header_size, read_size, report) || read_size < header_size) {
                 return 0; // less than one packet in that file
             }
@@ -181,7 +155,7 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
             }
         }
 
-        report.debug(u"detected TS file format %s", {packetFormatString()});
+        report.debug(u"detected TS file format %s", packetFormatString());
     }
 
     // Repeat reading packets until the buffer is full or error.
@@ -199,7 +173,7 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
                 // Bulk read in TS format.
                 // Make sure that the trailer buffer from first packet is used in second packet.
                 uint8_t* const cbuffer = reinterpret_cast<uint8_t*>(buffer);
-                ::memmove(cbuffer, _trail, _trail_size);
+                MemCopy(cbuffer, _trail, _trail_size);
                 success = _reader->readStreamComplete(cbuffer + _trail_size, max_packets * PKT_SIZE - _trail_size, read_size, report);
                 read_size += _trail_size;
                 _trail_size = 0;
@@ -218,7 +192,7 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
             case TSPacketFormat::RS204: {
                 // Read packet. Make sure that the trailer buffer from first packet is used in second packet.
                 uint8_t* const cbuffer = reinterpret_cast<uint8_t*>(buffer);
-                ::memmove(cbuffer, _trail, _trail_size);
+                MemCopy(cbuffer, _trail, _trail_size);
                 success = _reader->readStreamComplete(cbuffer + _trail_size, PKT_SIZE - _trail_size, read_size, report);
                 read_size += _trail_size;
                 _trail_size = 0;
@@ -247,8 +221,9 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
                         max_packets--;
                         if (metadata != nullptr) {
                             if (_format == TSPacketFormat::M2TS) {
+                                // M2TS timestamps are in PCR units.
                                 metadata->reset();
-                                metadata->setInputTimeStamp(GetUInt32(header) & 0x3FFFFFFF, SYSTEM_CLOCK_FREQ, TimeSource::M2TS);
+                                metadata->setInputTimeStamp(PCR(GetUInt32(header) & 0x3FFFFFFF), TimeSource::M2TS);
                             }
                             else {
                                 metadata->deserialize(header, TSPacketMetadata::SERIALIZATION_SIZE);
@@ -260,7 +235,7 @@ size_t ts::TSPacketStream::readPackets(TSPacket *buffer, TSPacketMetadata *metad
                 break;
             }
             default: {
-                report.error(u"internal error, invalid TS file format %s", {packetFormatString()});
+                report.error(u"internal error, invalid TS file format %s", packetFormatString());
                 return 0;
             }
         }
@@ -322,7 +297,7 @@ bool ts::TSPacketStream::writePackets(const TSPacket *buffer, const TSPacketMeta
                 // Build header.
                 if (_format == TSPacketFormat::M2TS) {
                     // 30-bit time stamp in PCR units (2 most-significant bits are copy-control).
-                    PutUInt32(header, uint32_t(_last_timestamp & 0x3FFFFFFF));
+                    PutUInt32(header, uint32_t(_last_timestamp.count()) & 0x3FFFFFFF);
                 }
                 else if (metadata != nullptr) {
                     // DUCK format with application-provided metadata.
@@ -344,7 +319,7 @@ bool ts::TSPacketStream::writePackets(const TSPacket *buffer, const TSPacketMeta
             break;
         }
         default: {
-            report.error(u"internal error, invalid TS file format %s", {packetFormatString()});
+            report.error(u"internal error, invalid TS file format %s", packetFormatString());
             return false;
         }
     }

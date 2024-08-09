@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -35,11 +14,9 @@
 #include "tsPluginRepository.h"
 #include "tsTSSpeedMetrics.h"
 #include "tsSingleDataStatistics.h"
-#include "tsSafePtr.h"
-#include "tsFatal.h"
 #include "tsFileNameGenerator.h"
 #include "tsFileUtils.h"
-#include <cmath>
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -49,10 +26,9 @@
 namespace ts {
     class StatsPlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(StatsPlugin);
+        TS_PLUGIN_CONSTRUCTORS(StatsPlugin);
     public:
         // Implementation of plugin API
-        StatsPlugin (TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -62,28 +38,28 @@ namespace ts {
         // Each category of packets (PID or lable) is described by a structure like this.
         // The map is indexed by PID or label.
         class Context;
-        typedef SafePtr<Context> ContextPtr;
-        typedef std::map<size_t, ContextPtr> ContextMap;
+        using ContextPtr = std::shared_ptr<Context>;
+        using ContextMap = std::map<size_t, ContextPtr>;
 
         // Command line options.
-        bool       _track_pids;        // Track PID's, not labels.
-        bool       _log;               // Report statistics through the logger, not files.
-        bool       _csv;               // Use CSV format for statistics.
-        bool       _header;            // Display header lines.
-        bool       _multiple_output;   // Don't rewrite output files with --interval.
-        UString    _csv_separator;     // Separator character in CSV lines.
-        UString    _output_name;       // Output file name.
-        NanoSecond _output_interval;   // Recreate output at this time interval.
-        PIDSet     _pids;              // List of PID's to track.
-        TSPacketMetadata::LabelSet _labels;  // List of labels to track.
+        bool             _track_pids = true;       // Track PID's, not labels.
+        bool             _log = false;             // Report statistics through the logger, not files.
+        bool             _csv = false;             // Use CSV format for statistics.
+        bool             _header = false;          // Display header lines.
+        bool             _multiple_output = false; // Don't rewrite output files with --interval.
+        UString          _csv_separator {DEFAULT_CSV_SEPARATOR}; // Separator character in CSV lines.
+        fs::path         _output_name {};          // Output file name.
+        cn::nanoseconds  _output_interval {};      // Recreate output at this time interval.
+        PIDSet           _pids {};                 // List of PID's to track.
+        TSPacketLabelSet _labels {};               // List of labels to track.
 
         // Working data.
-        std::ofstream     _output_stream;  // Output file stream.
-        std::ostream*     _output;         // Point to actual output stream.
-        ContextMap        _ctx_map;        // Description of all tracked categories of packets.
-        TSSpeedMetrics    _metrics;        // Timing to synchronize next output files.
-        NanoSecond        _next_report;    // Next time to create next output.
-        FileNameGenerator _name_gen;       // Generate multiple output file names.
+        std::ofstream     _output_stream {};  // Output file stream.
+        std::ostream*     _output = nullptr;  // Point to actual output stream.
+        ContextMap        _ctx_map {};        // Description of all tracked categories of packets.
+        TSSpeedMetrics    _metrics {};        // Timing to synchronize next output files.
+        cn::nanoseconds   _next_report {};   // Next time to create next output.
+        FileNameGenerator _name_gen {};       // Generate multiple output file names.
 
         // Get or create the description of a tracked PID or label.
         ContextPtr getContext(size_t index);
@@ -97,12 +73,10 @@ namespace ts {
         class Context
         {
         public:
-            uint64_t total_pkt;      // Total number of packets in that category.
-            uint64_t last_ts_index;  // Index in TS of last packet of the category.
-            SingleDataStatistics<uint64_t> ipkt; // Inter-packet distance statistics.
-
-            // Constructor.
-            Context();
+            Context() = default;         // Constructor.
+            uint64_t total_pkt = 0;      // Total number of packets in that category.
+            uint64_t last_ts_index = 0;  // Index in TS of last packet of the category.
+            SingleDataStatistics<uint64_t> ipkt {}; // Inter-packet distance statistics.
 
             // Add packet data to the context.
             void addPacketData(PacketCounter, const TSPacket&);
@@ -118,23 +92,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"stats", ts::StatsPlugin);
 //----------------------------------------------------------------------------
 
 ts::StatsPlugin::StatsPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Report various statistics on PID's and labels", u"[options]"),
-    _track_pids(true),
-    _log(false),
-    _csv(false),
-    _header(false),
-    _multiple_output(false),
-    _csv_separator(TS_DEFAULT_CSV_SEPARATOR),
-    _output_name(),
-    _output_interval(0),
-    _pids(),
-    _labels(),
-    _output_stream(),
-    _output(nullptr),
-    _ctx_map(),
-    _metrics(),
-    _next_report(0),
-    _name_gen()
+    ProcessorPlugin(tsp_, u"Report various statistics on PID's and labels", u"[options]")
 {
     option(u"csv", 'c');
     help(u"csv",
@@ -142,14 +100,14 @@ ts::StatsPlugin::StatsPlugin(TSP* tsp_) :
          u"All values are reported in decimal. "
          u"It is suitable for later analysis using tools such as Microsoft Excel.");
 
-    option(u"interval", 'i', POSITIVE);
-    help(u"interval", u"seconds",
+    option<cn::seconds>(u"interval", 'i');
+    help(u"interval",
          u"Produce a new output file at regular intervals. "
          u"The interval value is in seconds. "
          u"After outputting a file, the statistics are reset, "
          u"ie. each output file contains a fully independent analysis.");
 
-    option(u"label", 'l', INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    option(u"label", 'l', INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketLabelSet::MAX);
     help(u"label", u"label1[-label2]",
          u"Analyze packets with the specified label or range of labels. "
          u"Several -l or --label options may be specified. "
@@ -172,7 +130,7 @@ ts::StatsPlugin::StatsPlugin(TSP* tsp_) :
          u"Do not output initial header line in CSV and text format.");
 
     option(u"output-file", 'o', FILENAME);
-    help(u"output-file", u"filename",
+    help(u"output-file",
          u"Specify the output text file for the analysis result. "
          u"By default, use the standard output.");
 
@@ -184,7 +142,7 @@ ts::StatsPlugin::StatsPlugin(TSP* tsp_) :
 
     option(u"separator", 's', STRING);
     help(u"separator", u"string",
-         u"Field separator string in CSV output (default: '" TS_DEFAULT_CSV_SEPARATOR u"').");
+         u"Field separator string in CSV output (default: '" + UString(DEFAULT_CSV_SEPARATOR) + u"').");
 }
 
 
@@ -198,14 +156,14 @@ bool ts::StatsPlugin::getOptions()
     _csv = present(u"csv");
     _header = !present(u"noheader");
     _multiple_output = present(u"multiple-files");
-    _output_interval = NanoSecPerSec * intValue<Second>(u"interval", 0);
-    getValue(_csv_separator, u"separator", TS_DEFAULT_CSV_SEPARATOR);
-    getValue(_output_name, u"output-file");
+    getChronoValue(_output_interval, u"interval");
+    getValue(_csv_separator, u"separator", DEFAULT_CSV_SEPARATOR);
+    getPathValue(_output_name, u"output-file");
     getIntValues(_pids, u"pid");
     getIntValues(_labels, u"label");
 
     if (_pids.any() && _labels.any()) {
-        tsp->error(u"options --pid and --label are mutually exclusive");
+        error(u"options --pid and --label are mutually exclusive");
         return false;
     }
     if (_pids.none() && _labels.none()) {
@@ -213,7 +171,7 @@ bool ts::StatsPlugin::getOptions()
         _pids.set();
     }
     if (_log && !_output_name.empty()) {
-        tsp->error(u"options --log and --output-file are mutually exclusive");
+        error(u"options --log and --output-file are mutually exclusive");
         return false;
     }
 
@@ -237,7 +195,7 @@ bool ts::StatsPlugin::start()
     // method and could be created there. However, if the file cannot be
     // created, we do not want to wait all along the analysis and finally fail.
     _output = _output_name.empty() ? &std::cout : &_output_stream;
-    if (_output_interval == 0 && !openOutput()) {
+    if (_output_interval <= cn::nanoseconds::zero() && !openOutput()) {
         return false;
     }
 
@@ -258,16 +216,16 @@ bool ts::StatsPlugin::openOutput()
     }
 
     // Build file name in case of --multiple-files
-    const UString name(_multiple_output ? _name_gen.newFileName() : _output_name);
+    const fs::path name(_multiple_output ? _name_gen.newFileName() : _output_name);
 
     // Create the file
-    _output_stream.open(name.toUTF8().c_str());
+    _output_stream.open(name);
     if (_output_stream) {
-        tsp->verbose(u"created %s", {name});
+        verbose(u"created %s", name);
         return true;
     }
     else {
-        tsp->error(u"cannot create file %s", {name});
+        error(u"cannot create file %s", name);
         return false;
     }
 }
@@ -318,15 +276,15 @@ bool ts::StatsPlugin::produceReport()
     }
 
     // Loop on all categories.
-    for (auto it = _ctx_map.begin(); it != _ctx_map.end(); ++it) {
+    for (const auto& it : _ctx_map) {
 
         // PID context.
-        const size_t index = it->first;
-        const Context& ctx(*(it->second));
+        const size_t index = it.first;
+        const Context& ctx(*(it.second));
 
         if (_log) {
-            tsp->info(u"%s: 0x%X  Total: %8'd  IPD min: %3d  max: %5d  mean: %s  std-dev: %s",
-                      {name, index, ctx.total_pkt, ctx.ipkt.minimum(), ctx.ipkt.maximum(), ctx.ipkt.meanString(7), ctx.ipkt.standardDeviationString(7)});
+            info(u"%s: 0x%X  Total: %8'd  IPD min: %3d  max: %5d  mean: %s  std-dev: %s",
+                 name, index, ctx.total_pkt, ctx.ipkt.minimum(), ctx.ipkt.maximum(), ctx.ipkt.meanString(7), ctx.ipkt.standardDeviationString(7));
         }
         else if (_csv) {
             out << index << _csv_separator
@@ -337,8 +295,8 @@ bool ts::StatsPlugin::produceReport()
                 << ctx.ipkt.standardDeviationString() << std::endl;
         }
         else {
-            out << UString::Format(_track_pids ? u"0x%04X" : u"%-6d", {index})
-                << UString::Format(u"  %10'd  %6d  %6d  %s  %s", {ctx.total_pkt, ctx.ipkt.minimum(), ctx.ipkt.maximum(), ctx.ipkt.meanString(8), ctx.ipkt.standardDeviationString(8)})
+            out << UString::Format(_track_pids ? u"0x%04X" : u"%-6d", index)
+                << UString::Format(u"  %10'd  %6d  %6d  %s  %s", ctx.total_pkt, ctx.ipkt.minimum(), ctx.ipkt.maximum(), ctx.ipkt.meanString(8), ctx.ipkt.standardDeviationString(8))
                 << std::endl;
         }
     }
@@ -385,7 +343,7 @@ ts::ProcessorPlugin::Status ts::StatsPlugin::processPacket(TSPacket& pkt, TSPack
     }
 
     // With --interval, check if it is time to produce a report
-    if (_output_interval > 0 && _metrics.processedPacket() && _metrics.sessionNanoSeconds() >= _next_report) {
+    if (_output_interval > cn::nanoseconds::zero() && _metrics.processedPacket() && _metrics.sessionNanoSeconds() >= _next_report) {
         // Time to produce a report.
         if (!produceReport()) {
             return TSP_END;
@@ -412,22 +370,10 @@ ts::StatsPlugin::ContextPtr ts::StatsPlugin::getContext(size_t index)
     }
     else {
         ContextPtr ptr(new Context);
-        CheckNonNull(ptr.pointer());
+        CheckNonNull(ptr.get());
         _ctx_map[index] = ptr;
         return ptr;
     }
-}
-
-
-//----------------------------------------------------------------------------
-// Constructor of a tracked PID context.
-//----------------------------------------------------------------------------
-
-ts::StatsPlugin::Context::Context() :
-    total_pkt(0),
-    last_ts_index(0),
-    ipkt()
-{
 }
 
 

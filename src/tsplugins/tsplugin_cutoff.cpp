@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -50,10 +29,9 @@
 namespace ts {
     class CutoffPlugin: public ProcessorPlugin, private Thread
     {
-        TS_NOBUILD_NOCOPY(CutoffPlugin);
+        TS_PLUGIN_CONSTRUCTORS(CutoffPlugin);
     public:
         // Implementation of plugin API
-        CutoffPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
@@ -61,15 +39,16 @@ namespace ts {
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        typedef MessageQueue<UString, Mutex> CommandQueue;
+        using CommandQueue = MessageQueue<UString>;
 
         // Plugin private fields.
-        volatile bool _terminate;      // Force termination flag for thread.
-        size_t        _max_queued;     // Max number of queued commands.
-        IPv4AddressSet  _allowedRemote;  // Set of allowed remotes.
-        UDPReceiver   _sock;           // Incoming socket with associated command line options
-        CommandQueue  _command_queue;  // Queue of commands between the UDP server and the plugin thread.
-        TSPacketMetadata::LabelSet _set_labels;  // Labels to set on all packets.
+        volatile bool    _terminate = false;
+        size_t           _max_queued = DEFAULT_MAX_QUEUED_COMMANDS;
+        IPv4AddressSet   _allowedRemote {};
+        UDPReceiverArgs  _sock_args {};
+        UDPReceiver      _sock {*this};
+        CommandQueue     _command_queue {DEFAULT_MAX_QUEUED_COMMANDS};
+        TSPacketLabelSet _set_labels {};
 
         // Invoked in the context of the server thread.
         virtual void main() override;
@@ -85,16 +64,10 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"cutoff", ts::CutoffPlugin);
 
 ts::CutoffPlugin::CutoffPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Set labels on TS packets upon reception of UDP messages", u"[options] [address:]port"),
-    Thread(ThreadAttributes().setStackSize(SERVER_THREAD_STACK_SIZE)),
-    _terminate(false),
-    _max_queued(DEFAULT_MAX_QUEUED_COMMANDS),
-    _allowedRemote(),
-    _sock(*tsp_),
-    _command_queue(DEFAULT_MAX_QUEUED_COMMANDS),
-    _set_labels()
+    Thread(ThreadAttributes().setStackSize(SERVER_THREAD_STACK_SIZE))
 {
     // UDP receiver common options.
-    _sock.defineArgs(*this, true, true, false);
+    _sock_args.defineArgs(*this, true, true);
 
     option(u"allow", 'a', STRING);
     help(u"allow", u"address",
@@ -114,15 +87,18 @@ ts::CutoffPlugin::CutoffPlugin(TSP* tsp_) :
 
 bool ts::CutoffPlugin::getOptions()
 {
-    bool ok = true;
     _max_queued = intValue<size_t>(u"max-queue", DEFAULT_MAX_QUEUED_COMMANDS);
+
+    // Get UDP options.
+    bool ok = _sock_args.loadArgs(duck, *this, _sock.parameters().receive_timeout);
+    _sock.setParameters(_sock_args);
 
     // Resolve all allowed remote.
     UStringVector remotes;
     getValues(remotes, u"allow");
     _allowedRemote.clear();
-    for (auto it = remotes.begin(); it != remotes.end(); ++it) {
-        const IPv4Address addr(*it, *tsp);
+    for (const auto& it : remotes) {
+        const IPv4Address addr(it, *this);
         if (addr.hasAddress()) {
             _allowedRemote.insert(addr);
         }
@@ -131,8 +107,7 @@ bool ts::CutoffPlugin::getOptions()
         }
     }
 
-    // Get UDP options.
-    return _sock.loadArgs(duck, *this) && ok;
+    return ok;
 }
 
 
@@ -143,7 +118,7 @@ bool ts::CutoffPlugin::getOptions()
 bool ts::CutoffPlugin::start()
 {
     // Create UDP socket
-    if (!_sock.open(*tsp)) {
+    if (!_sock.open(*this)) {
         return false;
     }
 
@@ -169,7 +144,7 @@ bool ts::CutoffPlugin::stop()
     // This will force the server thread to terminate on receive error.
     // In case the server does not properly notify the error, set a flag.
     _terminate = true;
-    _sock.close(*tsp);
+    _sock.close(*this);
 
     // Wait for actual thread termination
     Thread::waitForTermination();
@@ -185,8 +160,8 @@ ts::ProcessorPlugin::Status ts::CutoffPlugin::processPacket(TSPacket& pkt, TSPac
 {
     // Process all enqueued commands from the UDP listener thread.
     CommandQueue::MessagePtr cmd;
-    while (_command_queue.dequeue(cmd, 0)) {
-        if (!cmd.isNull()) {
+    while (_command_queue.dequeue(cmd, cn::milliseconds::zero())) {
+        if (cmd != nullptr) {
             // Split the command from spaces.
             UStringVector argv;
             cmd->split(argv, SPACE, true, true);
@@ -199,20 +174,20 @@ ts::ProcessorPlugin::Status ts::CutoffPlugin::processPacket(TSPacket& pkt, TSPac
                 // Terminate tsp.
                 return TSP_END;
             }
-            else if (is_int && argv[0] == u"pulse-label" && iparam <= TSPacketMetadata::LABEL_MAX) {
+            else if (is_int && argv[0] == u"pulse-label" && iparam <= TSPacketLabelSet::MAX) {
                 // Set label on one single packet.
                 pkt_data.setLabel(iparam);
             }
-            else if (is_int && argv[0] == u"start-label" && iparam <= TSPacketMetadata::LABEL_MAX) {
+            else if (is_int && argv[0] == u"start-label" && iparam <= TSPacketLabelSet::MAX) {
                 // Set this label on all packets.
                 _set_labels.set(iparam);
             }
-            else if (is_int && argv[0] == u"stop-label" && iparam <= TSPacketMetadata::LABEL_MAX) {
+            else if (is_int && argv[0] == u"stop-label" && iparam <= TSPacketLabelSet::MAX) {
                 // Stop setting this label on all packets.
                 _set_labels.reset(iparam);
             }
             else {
-                tsp->warning(u"received invalid command \"%s\"", {*cmd});
+                warning(u"received invalid command \"%s\"", *cmd);
             }
         }
     }
@@ -229,7 +204,7 @@ ts::ProcessorPlugin::Status ts::CutoffPlugin::processPacket(TSPacket& pkt, TSPac
 
 void ts::CutoffPlugin::main()
 {
-    tsp->debug(u"server thread started");
+    debug(u"server thread started");
 
     char inbuf[1024];
     size_t insize = 0;
@@ -237,14 +212,14 @@ void ts::CutoffPlugin::main()
     IPv4SocketAddress destination;
 
     // Get receive errors in a buffer since some errors are normal.
-    ReportBuffer<NullMutex> error(tsp->maxSeverity());
+    ReportBuffer<ts::ThreadSafety::None> error(tsp->maxSeverity());
 
     // Loop on incoming messages.
     while (_sock.receive(inbuf, sizeof(inbuf), insize, sender, destination, tsp, error)) {
 
         // Filter out unauthorized remote systems.
         if (!_allowedRemote.empty() && !Contains(_allowedRemote, sender)) {
-            tsp->warning(u"rejected remote command from unauthorized host %s", {sender});
+            warning(u"rejected remote command from unauthorized host %s", sender);
             continue;
         }
 
@@ -258,18 +233,18 @@ void ts::CutoffPlugin::main()
         CommandQueue::MessagePtr cmd(new UString(UString::FromUTF8(inbuf, len)));
         cmd->toLower();
         cmd->trim();
-        tsp->verbose(u"received command \"%s\", from %s (%d bytes)", {*cmd, sender, insize});
+        verbose(u"received command \"%s\", from %s (%d bytes)", *cmd, sender, insize);
 
         // Enqueue the command immediately. Never wait.
         if (!cmd->empty()) {
-            _command_queue.enqueue(cmd, 0);
+            _command_queue.enqueue(cmd, cn::milliseconds::zero());
         }
     }
 
     // If termination was requested, receive error is not an error.
-    if (!_terminate && !error.emptyMessages()) {
-        tsp->info(error.getMessages());
+    if (!_terminate && !error.empty()) {
+        info(error.messages());
     }
 
-    tsp->debug(u"server thread completed");
+    debug(u"server thread completed");
 }

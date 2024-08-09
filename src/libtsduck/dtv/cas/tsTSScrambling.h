@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -39,7 +18,7 @@
 #include "tsPSI.h"
 #include "tsDVBCSA2.h"
 #include "tsDVBCISSA.h"
-#include "tsAES.h"
+#include "tsAES128.h"
 #include "tsCBC.h"
 #include "tsCTR.h"
 #include "tsIDSA.h"
@@ -164,6 +143,12 @@ namespace ts {
         void setEntropyMode(DVBCSA2::EntropyMode mode);
 
         //!
+        //! Get the entropy mode of DVB-CSA2.
+        //! @return DVB-CSA2 entropy mode. Always return FULL_CW if the current scrambling is not DVB-CSA.
+        //!
+        DVBCSA2::EntropyMode entropyMode() const;
+
+        //!
         //! Start the scrambling session.
         //! Reinitialize list of CW's, open files, etc.
         //! @return True on success, false on error.
@@ -208,23 +193,23 @@ namespace ts {
 
     private:
         // List of control words
-        typedef std::list<ByteBlock> CWList;
+        using CWList = std::list<ByteBlock>;
 
         Report&          _report;
-        uint8_t          _scrambling_type;
-        bool             _explicit_type;
-        UString          _out_cw_name;
-        std::ofstream    _out_cw_file;
-        CWList           _cw_list;
-        CWList::iterator _next_cw;
-        uint8_t          _encrypt_scv;  // Encryption: key to use (SC_EVEN_KEY or SC_ODD_KEY).
-        uint8_t          _decrypt_scv;  // Decryption: previous scrambling_control value.
-        DVBCSA2          _dvbcsa[2];    // Index 0 = even key, 1 = odd key.
-        DVBCISSA         _dvbcissa[2];
-        IDSA             _idsa[2];
-        CBC<AES>         _aescbc[2];
-        CTR<AES>         _aesctr[2];
-        CipherChaining*  _scrambler[2];
+        uint8_t          _scrambling_type = SCRAMBLING_RESERVED;
+        bool             _explicit_type = false;
+        UString          _out_cw_name {};
+        std::ofstream    _out_cw_file {};
+        CWList           _cw_list {};
+        CWList::iterator _next_cw {};
+        uint8_t          _encrypt_scv = SC_CLEAR;  // Encryption: key to use (SC_EVEN_KEY or SC_ODD_KEY).
+        uint8_t          _decrypt_scv = SC_CLEAR;  // Decryption: previous scrambling_control value.
+        DVBCSA2          _dvbcsa[2] {};            // Index 0 = even key, 1 = odd key.
+        DVBCISSA         _dvbcissa[2] {};
+        IDSA             _idsa[2] {};
+        CBC<AES128>      _aescbc[2] {};
+        CTR<AES128>      _aesctr[2] {};
+        BlockCipher*     _scrambler[2] {nullptr, nullptr};
 
         // Set the next fixed control word as scrambling key.
         bool setNextFixedCW(int parity);

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,6 +13,8 @@
 
 #pragma once
 #include "tsBlockCipher.h"
+#include "tsECB.h"
+#include "tsCBC.h"
 
 namespace ts {
     //!
@@ -47,34 +28,57 @@ namespace ts {
         DES();                                   //!< Constructor.
         static constexpr size_t BLOCK_SIZE = 8;  //!< DES block size in bytes.
         static constexpr size_t KEY_SIZE = 8;    //!< DES key size in bytes.
-        static constexpr size_t ROUNDS = 16;     //!< DES number of rounds.
-
-        // Implementation of BlockCipher interface:
-        virtual UString name() const override;
-        virtual size_t blockSize() const override;
-        virtual size_t minKeySize() const override;
-        virtual size_t maxKeySize() const override;
-        virtual bool isValidKeySize (size_t size) const override;
-        virtual size_t minRounds() const override;
-        virtual size_t maxRounds() const override;
-        virtual size_t defaultRounds() const override;
 
     protected:
-        // Implementation of BlockCipher interface:
-        virtual bool setKeyImpl(const void* key, size_t key_length, size_t rounds) override;
-        virtual bool encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length) override;
-        virtual bool decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length) override;
+        TS_BLOCK_CIPHER_DECLARE_PROPERTIES(DES);
 
-    private:
-        uint32_t _ek[32];  // Encryption keys
-        uint32_t _dk[32];  // Decryption keys
+        //! Constructor for subclasses which add some properties, such as chaining mode.
+        //! @param [in] props Constant reference to a block of properties of this block cipher.
+        DES(const BlockCipherProperties& props);
 
-        // Computation static methods, shared with TDES
-        friend class TDES;
-        static const uint16_t EN0 = 0;
-        static const uint16_t DE1 = 1;
-        static void cookey(const uint32_t* raw1, uint32_t* keyout);
-        static void deskey(const uint8_t* key, uint16_t edf, uint32_t* keyout);
-        static void desfunc(uint32_t* block, const uint32_t* keys);
+#if defined(TS_WINDOWS)
+        virtual void getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const override;
+#else
+        virtual const EVP_CIPHER* getAlgorithm() const override;
+#endif
     };
+
+    //
+    // Chaining blocks specializations, when implemented in the system cryptographic library.
+    //
+    //! @cond nodoxygen
+    template<>
+    class TSDUCKDLL ECB<DES>: public DES
+    {
+        TS_NOCOPY(ECB);
+    public:
+        ECB();
+    protected:
+        TS_BLOCK_CIPHER_DECLARE_PROPERTIES(ECB);
+        ECB(const BlockCipherProperties& props);
+#if defined(TS_WINDOWS)
+        virtual void getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const override;
+#else
+        virtual const EVP_CIPHER* getAlgorithm() const override;
+#endif
+    };
+    //! @endcond
+
+    //! @cond nodoxygen
+    template<>
+    class TSDUCKDLL CBC<DES>: public DES
+    {
+        TS_NOCOPY(CBC);
+    public:
+        CBC();
+    protected:
+        TS_BLOCK_CIPHER_DECLARE_PROPERTIES(CBC);
+        CBC(const BlockCipherProperties& props);
+#if defined(TS_WINDOWS)
+        virtual void getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const override;
+#else
+        virtual const EVP_CIPHER* getAlgorithm() const override;
+#endif
+    };
+    //! @endcond
 }

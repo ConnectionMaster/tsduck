@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,27 +12,34 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsService.h"
-// MPEG-defined tables:
-#include "tsPAT.h"
-#include "tsCAT.h"
-#include "tsPMT.h"
-#include "tsTSDT.h"
-// DVB-defined tables:
-#include "tsNIT.h"
-#include "tsSDT.h"
-#include "tsBAT.h"
-#include "tsRST.h"
-#include "tsTDT.h"
-#include "tsTOT.h"
-// ATSC-defined tables:
-#include "tsMGT.h"
-#include "tsCVCT.h"
-#include "tsTVCT.h"
-#include "tsRRT.h"
-#include "tsSTT.h"
+#include "tsTS.h"
+#include "tsPSI.h"
 
 namespace ts {
+
+    class Time;
+    class Service;
+    // MPEG-defined tables:
+    class PAT;
+    class CAT;
+    class PMT;
+    class TSDT;
+    // DVB-defined tables:
+    class NIT;
+    class SDT;
+    class BAT;
+    class RST;
+    class TDT;
+    class TOT;
+    // ATSC-defined tables:
+    class MGT;
+    class VCT;
+    class CVCT;
+    class TVCT;
+    class RRT;
+    class STT;
+    class SAT;
+
     //!
     //! General-purpose signalization handler interface.
     //! A subclass may choose to implement any handler.
@@ -62,6 +48,7 @@ namespace ts {
     //!
     class TSDUCKDLL SignalizationHandlerInterface
     {
+        TS_INTERFACE(SignalizationHandlerInterface);
     public:
         //!
         //! This hook is invoked when a new MPEG Program Association Table (PAT) is available.
@@ -168,6 +155,12 @@ namespace ts {
         //!
         virtual void handleUTC(const Time& utc, TID tid);
         //!
+        //! This hook is invoked when a new DVB Satellite Access Table (SAT) is available.
+        //! @param [in] table A reference to the new SAT.
+        //! @param [in] pid The PID on which the table was found.
+        //!
+        virtual void handleSAT(const SAT& table, PID pid);
+        //!
         //! This hook is invoked when a service in the transport stream has changed.
         //! The change can be minor, such as name or LCN.
         //! @param [in] ts_id The transport stream id or 0xFFFF if it is unknown.
@@ -177,9 +170,5 @@ namespace ts {
         //! @param [in] removed If true, the service is removed. Otherwise, it is new or changed.
         //!
         virtual void handleService(uint16_t ts_id, const Service& service, const PMT& pmt, bool removed);
-        //!
-        //! Virtual destructor.
-        //!
-        virtual ~SignalizationHandlerInterface() = default;
     };
 }

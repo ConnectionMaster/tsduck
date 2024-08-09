@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -49,26 +28,25 @@
 namespace ts {
     class ClearPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(ClearPlugin);
+        TS_PLUGIN_CONSTRUCTORS(ClearPlugin);
     public:
         // Implementation of plugin API
-        ClearPlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        bool          _abort;           // Error (service not found, etc)
-        Service       _service;         // Service name & id
-        bool          _pass_packets;    // Pass packets trigger
-        Status        _drop_status;     // Status for dropped packets
-        bool          _video_only;      // Check video PIDs only
-        bool          _audio_only;      // Check audio PIDs only
-        TOT           _last_tot;        // Last received TOT
-        PacketCounter _drop_after;      // Number of packets after last clear
-        PacketCounter _current_pkt;     // Current TS packet number
-        PacketCounter _last_clear_pkt;  // Last clear packet number
-        PIDSet        _clear_pids;      // List of PIDs to check for clear packets
-        SectionDemux  _demux;           // Section demux
+        bool          _abort = false;         // Error (service not found, etc)
+        Service       _service {};            // Service name & id
+        bool          _pass_packets = false;  // Pass packets trigger
+        Status        _drop_status = TSP_OK;  // Status for dropped packets
+        bool          _video_only = false;    // Check video PIDs only
+        bool          _audio_only = false;    // Check audio PIDs only
+        TOT           _last_tot {};           // Last received TOT
+        PacketCounter _drop_after = 0;        // Number of packets after last clear
+        PacketCounter _current_pkt = 0;       // Current TS packet number
+        PacketCounter _last_clear_pkt = 0;    // Last clear packet number
+        PIDSet        _clear_pids {};         // List of PIDs to check for clear packets
+        SectionDemux  _demux {duck, this};    // Section demux
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable (SectionDemux&, const BinaryTable&) override;
@@ -88,19 +66,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"clear", ts::ClearPlugin);
 //----------------------------------------------------------------------------
 
 ts::ClearPlugin::ClearPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Extract clear (non scrambled) sequences of a transport stream", u"[options]"),
-    _abort(false),
-    _service(),
-    _pass_packets(false),
-    _drop_status(TSP_OK),
-    _video_only(false),
-    _audio_only(false),
-    _last_tot(Time::Epoch),
-    _drop_after(0),
-    _current_pkt(0),
-    _last_clear_pkt(0),
-    _clear_pids(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Extract clear (non scrambled) sequences of a transport stream", u"[options]")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -233,14 +199,14 @@ void ts::ClearPlugin::processSDT(SDT& sdt)
     uint16_t service_id;
     assert (_service.hasName());
     if (!sdt.findService(duck, _service.getName(), service_id)) {
-        tsp->error(u"service \"%s\" not found in SDT", {_service.getName()});
+        error(u"service \"%s\" not found in SDT", _service.getName());
         _abort = true;
         return;
     }
 
     // Remember service id
     _service.setId(service_id);
-    tsp->verbose(u"found service \"%s\", service id is 0x%X", {_service.getName(), _service.getId()});
+    verbose(u"found service \"%s\", service id is 0x%X", _service.getName(), _service.getId());
 
     // No longer need to filter the SDT
     _demux.removePID(PID_SDT);
@@ -262,7 +228,7 @@ void ts::ClearPlugin::processPAT(PAT& pat)
         const auto it = pat.pmts.find(_service.getId());
         if (it == pat.pmts.end()) {
             // Service not found, error
-            tsp->error(u"service id %d (0x%X) not found in PAT", {_service.getId(), _service.getId()});
+            error(u"service id %n not found in PAT", _service.getId());
             _abort = true;
             return;
         }
@@ -271,20 +237,20 @@ void ts::ClearPlugin::processPAT(PAT& pat)
             _demux.removePID (_service.getPMTPID());
         }
         // Found PMT PID
-        _service.setPMTPID (it->second);
-        _demux.addPID (it->second);
+        _service.setPMTPID(it->second);
+        _demux.addPID(it->second);
     }
     else if (!pat.pmts.empty()) {
         // No service specified, use first one in PAT
         const auto it = pat.pmts.begin();
-        _service.setId (it->first);
-        _service.setPMTPID (it->second);
-        _demux.addPID (it->second);
-        tsp->verbose(u"using service %d (0x%X)", {_service.getId(), _service.getId()});
+        _service.setId(it->first);
+        _service.setPMTPID(it->second);
+        _demux.addPID(it->second);
+        verbose(u"using service %n", _service.getId());
     }
     else {
         // No service specified, no service in PAT, error
-        tsp->error(u"no service in PAT");
+        error(u"no service in PAT");
         _abort = true;
     }
 }
@@ -298,11 +264,11 @@ void ts::ClearPlugin::processPMT(PMT& pmt)
 {
     // Collect all audio/video PIDS
     _clear_pids.reset();
-    for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-        const PID pid = it->first;
-        const PMT::Stream& stream (it->second);
+    for (const auto& it : pmt.streams) {
+        const PID pid = it.first;
+        const PMT::Stream& stream(it.second);
         if ((stream.isAudio(duck) && !_video_only) || (stream.isVideo(duck) && !_audio_only)) {
-            _clear_pids.set (pid);
+            _clear_pids.set(pid);
         }
     }
 }
@@ -339,10 +305,10 @@ ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket(TSPacket& pkt, TSPack
         // Number of packets in 1 second at current bitrate
         _drop_after = (tsp->bitrate() / PKT_SIZE_BITS).toInt();
         if (_drop_after == 0) {
-            tsp->error(u"bitrate unknown or too low, use option --drop-after-packets");
+            error(u"bitrate unknown or too low, use option --drop-after-packets");
             return TSP_END;
         }
-        tsp->verbose(u"will drop %'d packets after last clear packet", {_drop_after});
+        verbose(u"will drop %'d packets after last clear packet", _drop_after);
     }
 
     // If packets are passing but no clear packet recently found, drop packets
@@ -353,12 +319,12 @@ ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket(TSPacket& pkt, TSPack
 
     // Report state change in verbose mode
 
-    if (_pass_packets != previous_pass && tsp->verbose()) {
+    if (_pass_packets != previous_pass && verbose()) {
         // State has changed
         const UString curtime(_last_tot.isValid() && !_last_tot.regions.empty() ?
                               _last_tot.localTime(_last_tot.regions[0]).format(Time::DATETIME) :
                               u"unknown");
-        tsp->verbose(u"now %s all packets, last TOT local time: %s, current packet: %'d", {_pass_packets ? u"passing" : u"dropping", curtime, _current_pkt});
+        verbose(u"now %s all packets, last TOT local time: %s, current packet: %'d", _pass_packets ? u"passing" : u"dropping", curtime, _current_pkt);
     }
 
     // Count TS packets

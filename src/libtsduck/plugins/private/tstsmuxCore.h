@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -44,7 +23,6 @@
 #include "tsPAT.h"
 #include "tsCAT.h"
 #include "tsSDT.h"
-#include "tsBAT.h"
 #include "tsNIT.h"
 
 namespace ts {
@@ -110,29 +88,29 @@ namespace ts {
 
             // Core private members.
             const PluginEventHandlerRegistry& _handlers;
-            Report&             _log;               // Asynchronous log report.
-            const MuxerArgs&    _opt;               // Command line options.
-            DuckContext         _duck;              // TSDuck execution context.
-            volatile bool       _terminate;         // Termination request.
-            BitRate             _bitrate;           // Constant output bitrate.
-            PacketCounter       _output_packets;    // Count of output packets which were sent.
-            size_t              _time_input_index;  // Input plugin index containing time reference (TDT/TOT).
-            std::vector<Input*> _inputs;            // Input plugins threads.
-            OutputExecutor      _output;            // Output plugin thread.
-            std::set<size_t>    _terminated_inputs; // Set of terminated input plugins.
-            CyclingPacketizer   _pat_pzer;          // Packetizer for output PAT.
-            CyclingPacketizer   _cat_pzer;          // Packetizer for output CAT.
-            CyclingPacketizer   _nit_pzer;          // Packetizer for output NIT's.
-            CyclingPacketizer   _sdt_bat_pzer;      // Packetizer for output SDT/BAT.
-            Packetizer          _eit_pzer;          // Packetizer for output EIT's.
-            PAT                 _output_pat;        // PAT for output stream.
-            CAT                 _output_cat;        // CAT for output stream.
-            SDT                 _output_sdt;        // SDT Actual for output stream.
-            NIT                 _output_nit;        // NIT Actual for output stream.
-            size_t              _max_eits;          // Maximum number of buffered EIT sections.
-            std::list<SectionPtr>     _eits;            // List of EIT sections to insert.
-            std::map<PID,Origin>      _pid_origin;      // Map of PID's to original input stream.
-            std::map<uint16_t,Origin> _service_origin;  // Map of service ids to original input stream.
+            Report&             _log;                      // Asynchronous log report.
+            const MuxerArgs&    _opt;                      // Command line options.
+            DuckContext         _duck {&_log};             // TSDuck execution context.
+            volatile bool       _terminate = false;        // Termination request.
+            BitRate             _bitrate = 0;              // Constant output bitrate.
+            PacketCounter       _output_packets = 0;       // Count of output packets which were sent.
+            size_t              _time_input_index = 0;     // Input plugin index containing time reference (TDT/TOT).
+            std::vector<Input*> _inputs;                   // Input plugins threads.
+            OutputExecutor      _output {_opt, _handlers, _log}; // Output plugin thread.
+            std::set<size_t>    _terminated_inputs {};     // Set of terminated input plugins.
+            CyclingPacketizer   _pat_pzer {_duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS};     // Packetizer for output PAT.
+            CyclingPacketizer   _cat_pzer {_duck, PID_CAT, CyclingPacketizer::StuffingPolicy::ALWAYS};     // Packetizer for output CAT.
+            CyclingPacketizer   _nit_pzer {_duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS};     // Packetizer for output NIT's.
+            CyclingPacketizer   _sdt_bat_pzer {_duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS}; // Packetizer for output SDT/BAT.
+            Packetizer          _eit_pzer {_duck, PID_EIT, this};                                          // Packetizer for output EIT's.
+            PAT                 _output_pat {};            // PAT for output stream.
+            CAT                 _output_cat {};            // CAT for output stream.
+            SDT                 _output_sdt {};            // SDT Actual for output stream.
+            NIT                 _output_nit {};            // NIT Actual for output stream.
+            size_t              _max_eits = 128;           // Maximum number of buffered EIT sections, hard-coded for now.
+            std::list<SectionPtr>     _eits {};            // List of EIT sections to insert.
+            std::map<PID,Origin>      _pid_origin {};      // Map of PID's to original input stream.
+            std::map<uint16_t,Origin> _service_origin {};  // Map of service ids to original input stream.
 
             // Implementation of Thread.
             virtual void main() override;

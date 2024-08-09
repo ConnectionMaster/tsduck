@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -34,14 +13,6 @@
 //----------------------------------------------------------------------------
 // Internal class which tracks time stamps on one PID.
 //----------------------------------------------------------------------------
-
-ts::TimeTrackerDemux::TimeTracker::TimeTracker(uint64_t scale) :
-    _scale(scale),
-    _first(INVALID_PCR),
-    _last(INVALID_PCR),
-    _offset(0)
-{
-}
 
 // Reset all value, forget collected time stamps.
 void ts::TimeTrackerDemux::TimeTracker::reset()
@@ -85,10 +56,7 @@ uint64_t ts::TimeTrackerDemux::TimeTracker::duration() const
 //----------------------------------------------------------------------------
 
 ts::TimeTrackerDemux::TimeTrackerDemux(DuckContext& duck, const PIDSet& pid_filter) :
-    SuperClass(duck, pid_filter),
-    _pcrPID(PID_NULL),
-    _pcrTime(PCR_SCALE),
-    _pids()
+    SuperClass(duck, pid_filter)
 {
 }
 
@@ -139,19 +107,19 @@ void ts::TimeTrackerDemux::feedPacket(const TSPacket& pkt)
 // Get the number of milliseconds measured on a PID.
 //----------------------------------------------------------------------------
 
-ts::MilliSecond ts::TimeTrackerDemux::pidDuration(PID pid) const
+cn::milliseconds ts::TimeTrackerDemux::pidDuration(PID pid) const
 {
     auto it = _pids.find(pid);
     if (it != _pids.end() && it->second.isValid()) {
         // We have PTS references from the specified PID.
-        return (it->second.duration() * 1000) / SYSTEM_CLOCK_SUBFREQ;
+        return cn::milliseconds(cn::milliseconds::rep((it->second.duration() * 1000) / SYSTEM_CLOCK_SUBFREQ));
     }
     else if (_pcrTime.isValid()) {
         // Use PCR references from some other PID.
-        return (_pcrTime.duration() * 1000) / SYSTEM_CLOCK_FREQ;
+        return cn::milliseconds(cn::milliseconds::rep((_pcrTime.duration() * 1000) / SYSTEM_CLOCK_FREQ));
     }
     else {
         // No reference available, no timing information.
-        return 0;
+        return cn::milliseconds::zero();
     }
 }

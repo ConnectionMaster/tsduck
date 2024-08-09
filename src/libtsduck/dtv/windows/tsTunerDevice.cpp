@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 //
@@ -42,6 +21,7 @@
 #include "tsTunerGraph.h"
 #include "tsDirectShowUtils.h"
 #include "tsSinkFilter.h"
+#include "tsTS.h"
 
 
 //-----------------------------------------------------------------------------
@@ -49,19 +29,7 @@
 //-----------------------------------------------------------------------------
 
 ts::TunerDevice::TunerDevice(DuckContext& duck) :
-    TunerBase(duck),
-    _is_open(false),
-    _info_only(false),
-    _device_name(),
-    _device_info(),
-    _device_path(),
-    _signal_timeout(DEFAULT_SIGNAL_TIMEOUT),
-    _signal_timeout_silent(false),
-    _receive_timeout(0),
-    _delivery_systems(),
-    _aborted(false),
-    _sink_queue_size(DEFAULT_SINK_QUEUE_SIZE),
-    _graph()
+    TunerBase(duck)
 {
 }
 
@@ -115,12 +83,12 @@ ts::UString ts::TunerDevice::devicePath() const
     return _device_path;
 }
 
-ts::MilliSecond ts::TunerDevice::receiveTimeout() const
+cn::milliseconds ts::TunerDevice::receiveTimeout() const
 {
     return _receive_timeout;
 }
 
-void ts::TunerDevice::setSignalTimeout(MilliSecond t)
+void ts::TunerDevice::setSignalTimeout(cn::milliseconds t)
 {
     _signal_timeout = t;
 }
@@ -164,7 +132,7 @@ bool ts::TunerDevice::open(const UString& device_name, bool info_only)
         return false;
     }
     else {
-        _duck.report().error(u"device \"%s\" not found", {device_name});
+        _duck.report().error(u"device \"%s\" not found", device_name);
         return false;
     }
 }
@@ -236,7 +204,7 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
     }
 
     // We do not know which delivery system is current. Use default one.
-    if (!params.delivery_system.set() || !_delivery_systems.contains(params.delivery_system.value())) {
+    if (!params.delivery_system.has_value() || !_delivery_systems.contains(params.delivery_system.value())) {
         params.delivery_system = _delivery_systems.preferred();
     }
     const TunerType ttype = TunerTypeOf(params.delivery_system.value());
@@ -251,10 +219,10 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
             // returns the intermediate frequency and there is no unique satellite
             // frequency for a given intermediate frequency.
             if (reset_unknown) {
-                params.frequency.clear();
-                params.satellite_number.clear();
-                params.lnb.clear();
-                params.polarity.clear();
+                params.frequency.reset();
+                params.satellite_number.reset();
+                params.lnb.reset();
+                params.polarity.reset();
             }
             // Spectral inversion
             _graph.searchVarProperty<::SpectralInversion>(
@@ -278,11 +246,11 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
                 KSPROPSETID_BdaDigitalDemodulator, KSPROPERTY_BDA_MODULATION_TYPE);
             // Delivery system. Found no way to get DVB-S vs. DVB-S2 on Windows.
             // Make a not quite correct assumption, based on modulation type.
-            if (params.modulation.set()) {
+            if (params.modulation.has_value()) {
                 params.delivery_system = params.modulation == QPSK ? DS_DVB_S : DS_DVB_S2;
             }
             else if (reset_unknown) {
-                params.delivery_system.clear();
+                params.delivery_system.reset();
             }
             // DVB-S2 pilot
             _graph.searchVarProperty<::Pilot>(
@@ -300,7 +268,7 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
         case TT_DVB_C:
         case TT_ISDB_C: {
             if (reset_unknown) {
-                params.frequency.clear();
+                params.frequency.reset();
             }
             // Spectral inversion
             _graph.searchVarProperty<::SpectralInversion>(
@@ -328,7 +296,7 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
         case TT_DVB_T:
         case TT_ISDB_T: {
             if (reset_unknown) {
-                params.frequency.clear();
+                params.frequency.reset();
             }
             // Spectral inversion
             _graph.searchVarProperty<::SpectralInversion>(
@@ -353,7 +321,7 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
                 params.transmission_mode = ts::TransmissionMode(tm);
             }
             else if (reset_unknown) {
-                params.transmission_mode.clear();
+                params.transmission_mode.reset();
             }
             ::GuardInterval gi = ::BDA_GUARD_NOT_SET;
             found = _graph.searchTunerProperty(gi, TunerGraph::psFIRST, KSPROPSETID_BdaDigitalDemodulator, KSPROPERTY_BDA_GUARD_INTERVAL);
@@ -361,19 +329,19 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
                 params.guard_interval = ts::GuardInterval(gi);
             }
             else if (reset_unknown) {
-                params.guard_interval.clear();
+                params.guard_interval.reset();
             }
             // Other DVB-T parameters, not supported at all
-            params.bandwidth.clear();
-            params.hierarchy.clear();
-            params.fec_lp.clear();
-            params.plp.clear();
+            params.bandwidth.reset();
+            params.hierarchy.reset();
+            params.fec_lp.reset();
+            params.plp.reset();
             break;
         }
 
         case TT_ATSC: {
             if (reset_unknown) {
-                params.frequency.clear();
+                params.frequency.reset();
             }
             // Spectral inversion
             _graph.searchVarProperty<::SpectralInversion>(
@@ -390,15 +358,15 @@ bool ts::TunerDevice::getCurrentTuning(ModulationArgs& params, bool reset_unknow
 
         case TT_UNDEFINED:
         default: {
-            _duck.report().error(u"cannot convert BDA tuning parameters to %s parameters", {TunerTypeEnum.name(ttype)});
+            _duck.report().error(u"cannot convert BDA tuning parameters to %s parameters", TunerTypeEnum.name(ttype));
             return false;
         }
     }
 
     // Some drivers sometimes return weird values for spectral inversion.
     // Reset it in case of invalid value.
-    if (params.inversion.set() && params.inversion.value() != SPINV_AUTO && params.inversion.value() != SPINV_ON && params.inversion.value() != SPINV_OFF) {
-        params.inversion.clear();
+    if (params.inversion.has_value() && params.inversion.value() != SPINV_AUTO && params.inversion.value() != SPINV_ON && params.inversion.value() != SPINV_OFF) {
+        params.inversion.reset();
     }
 
     return true;
@@ -451,15 +419,15 @@ bool ts::TunerDevice::start()
     // it has been observed that remaining packets from the previous run were still
     // there. Wait a little bit and reflush after Run() to avoid that.
     // Yes, this is a horrible hack, but if you have a better fix...
-    SleepThread(50); // milliseconds
+    std::this_thread::sleep_for(cn::milliseconds(50));
     sink->Flush();
 
     // If a signal timeout was specified, read a packet with timeout
-    if (_signal_timeout > 0) {
+    if (_signal_timeout > cn::milliseconds::zero()) {
         TSPacket pack;
         if (sink->Read(&pack, sizeof(pack), _signal_timeout) == 0) {
             if (!_signal_timeout_silent) {
-                _duck.report().error(u"no input DVB signal after %'d milliseconds", {_signal_timeout});
+                _duck.report().error(u"no input DVB signal after %s", _signal_timeout);
             }
             return false;
         }
@@ -486,7 +454,7 @@ bool ts::TunerDevice::stop(bool silent)
 // Return true on success, false on errors.
 //-----------------------------------------------------------------------------
 
-bool ts::TunerDevice::setReceiveTimeout(MilliSecond timeout)
+bool ts::TunerDevice::setReceiveTimeout(cn::milliseconds timeout)
 {
     _receive_timeout = timeout;
     return true;
@@ -508,8 +476,7 @@ void ts::TunerDevice::abort(bool silent)
 
 
 //-----------------------------------------------------------------------------
-// Read complete 188-byte TS packets in the buffer and return the
-// number of actually received packets (in the range 1 to max_packets).
+// Read complete 188-byte TS packets in the buffer.
 // Returning zero means error or end of input.
 //-----------------------------------------------------------------------------
 
@@ -525,19 +492,11 @@ size_t ts::TunerDevice::receive(TSPacket* buffer, size_t max_packets, const Abor
         return 0;
     }
 
-    // Read packets from the tuner device
-    size_t got_size = 0;
-    if (_receive_timeout <= 0) {
-        got_size = sink->Read(buffer, max_packets * PKT_SIZE);
+    // Read packets from the tuner device.
+    const size_t got_size = sink->Read(buffer, max_packets * PKT_SIZE, _receive_timeout);
+    if (got_size == 0) {
+        _duck.report().error(u"receive timeout on " + _device_name);
     }
-    else {
-        const Time limit(Time::CurrentUTC() + _receive_timeout);
-        got_size = sink->Read(buffer, max_packets * PKT_SIZE, _receive_timeout);
-        if (got_size == 0 && Time::CurrentUTC() >= limit) {
-            _duck.report().error(u"receive timeout on " + _device_name);
-        }
-    }
-
     return got_size / PKT_SIZE;
 }
 
@@ -556,7 +515,7 @@ std::ostream& ts::TunerDevice::displayStatus(std::ostream& strm, const UString& 
     SignalState state;
     getSignalState(state);
     strm << margin << "Signal locked:    " << UString::YesNo(state.signal_locked) << std::endl;
-    if (state.signal_strength.set()) {
+    if (state.signal_strength.has_value()) {
         strm << margin << "Signal strength:  " << state.signal_strength.value() << std::endl;
     }
 
@@ -592,7 +551,7 @@ bool ts::TunerDevice::FindTuners(DuckContext& duck, TunerDevice* tuner, TunerPtr
     // Check if tuner device name is ":integer"
     int dvb_device_index = -1;
     if (tuner != nullptr) {
-        report.debug(u"looking for DVB adapter number \"%d\"", {tuner->_device_name});
+        report.debug(u"looking for DVB adapter number \"%d\"", tuner->_device_name);
         if (!tuner->_device_name.empty() && tuner->_device_name[0] == ':') {
             tuner->_device_name.substr(1).toInteger(dvb_device_index);
         }
@@ -603,7 +562,7 @@ bool ts::TunerDevice::FindTuners(DuckContext& duck, TunerDevice* tuner, TunerPtr
 
     // First, check if tuner device name is a device path in order to get a direct moniker.
     if (tuner != nullptr && tuner->_device_name.startWith(u"@")) {
-        report.debug(u"looking for DVB device path \"%s\"", {tuner->_device_name});
+        report.debug(u"looking for DVB device path \"%s\"", tuner->_device_name);
         IBindCtx* lpBC = nullptr;
         IMoniker* pmTuner = nullptr;
         HRESULT hr = ::CreateBindCtx(0, &lpBC);
@@ -633,7 +592,7 @@ bool ts::TunerDevice::FindTuners(DuckContext& duck, TunerDevice* tuner, TunerPtr
 
         // Get friendly name of this tuner filter
         const UString tuner_name(GetStringPropertyBag(tuner_monikers[moniker_index].pointer(), L"FriendlyName", debug_report));
-        report.debug(u"found tuner filter \"%s\"", {tuner_name});
+        report.debug(u"found tuner filter \"%s\"", tuner_name);
 
         // Get physical device path.
         UString device_path;
@@ -643,7 +602,7 @@ bool ts::TunerDevice::FindTuners(DuckContext& duck, TunerDevice* tuner, TunerPtr
             device_path = ToString(wstring);
             ::CoTaskMemFree(wstring);
         }
-        report.debug(u"tuner device path: %s", {device_path});
+        report.debug(u"tuner device path: %s", device_path);
 
         // If a device name was specified, filter this name.
         // First case: a tuner filter name was specified. In that case, there is
@@ -684,7 +643,7 @@ bool ts::TunerDevice::FindTuners(DuckContext& duck, TunerDevice* tuner, TunerPtr
                 tref._device_name = tuner_name;
                 tref._device_path = device_path;
                 tref._device_info.clear();  // none on Windows
-                report.debug(u"found tuner device \"%s\"", {tref._device_name});
+                report.debug(u"found tuner device \"%s\"", tref._device_name);
 
                 // Add tuner it to response set
                 if (tuner_list != nullptr) {

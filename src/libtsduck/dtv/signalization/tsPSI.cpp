@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,9 +14,9 @@
 //----------------------------------------------------------------------------
 
 const ts::Enumeration ts::TableScopeEnum({
-    {u"none",   int(ts::TableScope::NONE)},
-    {u"actual", int(ts::TableScope::ACTUAL)},
-    {u"all",    int(ts::TableScope::ALL)},
+    {u"none",   ts::TableScope::NONE},
+    {u"actual", ts::TableScope::ACTUAL},
+    {u"all",    ts::TableScope::ALL},
 });
 
 
@@ -56,6 +35,10 @@ const ts::Enumeration ts::PrivateDataSpecifierEnum({
     {u"CanalPlus", ts::PDS_CANALPLUS},
     {u"Eutelsat",  ts::PDS_EUTELSAT},
     {u"OFCOM",     ts::PDS_OFCOM},
+    {u"Australia", ts::PDS_AUSTRALIA},
+    {u"AVS",       ts::PDS_AVS},
+    {u"AOM",       ts::PDS_AOM},
+    {u"cuvv",      ts::PDS_CUVV},
 });
 
 
@@ -89,7 +72,11 @@ bool ts::StreamTypeIsVideo(uint8_t st)
            st == ST_J2K_VIDEO     ||
            st == ST_MPEG2_3D_VIEW ||
            StreamTypeIsAVC(st)    ||
-           StreamTypeIsHEVC(st);
+           StreamTypeIsHEVC(st)   ||
+           StreamTypeIsVVC(st)    ||
+           st == ST_JPEG_XS_VIDEO ||
+           st == ST_EVC_VIDEO     ||
+           st == ST_LCEVC_VIDEO;
 }
 
 
@@ -118,7 +105,8 @@ bool ts::StreamTypeIsHEVC(uint8_t st)
            st == ST_HEVC_SUBVIDEO_G  ||
            st == ST_HEVC_SUBVIDEO_TG ||
            st == ST_HEVC_SUBVIDEO_H  ||
-           st == ST_HEVC_SUBVIDEO_TH;
+           st == ST_HEVC_SUBVIDEO_TH ||
+           st == ST_HEVC_TILESET;
 }
 
 
@@ -128,9 +116,8 @@ bool ts::StreamTypeIsHEVC(uint8_t st)
 
 bool ts::StreamTypeIsVVC(uint8_t st)
 {
-    // Warning: at this time, the stream types for VVC / H.266 are still unclear.
-    // Be sure to verity this on further versions of the ISO 13818-1 standard.
-    return st == ST_VVC_VIDEO;
+    return st == ST_VVC_VIDEO        ||
+           st == ST_VVC_VIDEO_SUBSET;
 }
 
 
@@ -138,16 +125,35 @@ bool ts::StreamTypeIsVVC(uint8_t st)
 // Check if an ST value indicates an audio stream
 //----------------------------------------------------------------------------
 
-bool ts::StreamTypeIsAudio(uint8_t st)
+bool ts::StreamTypeIsAudio(uint8_t st, uint32_t regid)
 {
-    return st == ST_MPEG1_AUDIO     ||
-           st == ST_MPEG2_AUDIO     ||
-           st == ST_MPEG4_AUDIO     ||
-           st == ST_AAC_AUDIO       ||
-           st == ST_AC3_AUDIO       ||
-           st == ST_EAC3_AUDIO      ||
-           st == ST_MPEG4_AUDIO_RAW ||
-           st == ST_MPH3D_MAIN      ||
+    bool audio = false;
+    if (regid == REGID_HDMV) {
+        audio = st == ST_LPCM_AUDIO       ||
+                st == ST_HDMV_AC3         ||
+                st == ST_DTS_AUDIO        ||
+                st == ST_HDMV_AC3_TRUEHD  ||
+                st == ST_HDMV_AC3_PLUS    ||
+                st == ST_DTS_HS_AUDIO     ||
+                st == ST_DTS_HD_MA_AUDIO  ||
+                st == ST_HDMV_EAC3        ||
+                st == ST_DTS_AUDIO_8A     ||
+                st == ST_SDDS_AUDIO       ||
+                st == ST_HDMV_AC3_PLS_SEC ||
+                st == ST_DTS_HD_SEC;
+    }
+    return audio                     ||
+           st == ST_MPEG1_AUDIO      ||
+           st == ST_MPEG2_AUDIO      ||
+           st == ST_MPEG4_AUDIO      ||
+           st == ST_AAC_AUDIO        ||
+           st == ST_AC3_AUDIO        ||
+           st == ST_AC3_PLUS_AUDIO   ||
+           st == ST_AC3_TRUEHD_AUDIO ||
+           st == ST_A52B_AC3_AUDIO   ||
+           st == ST_EAC3_AUDIO       ||
+           st == ST_MPEG4_AUDIO_RAW  ||
+           st == ST_MPH3D_MAIN       ||
            st == ST_MPH3D_AUX;
 }
 

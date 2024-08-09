@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -35,9 +14,7 @@
 
 #pragma once
 #include "tstlvProtocol.h"
-#include "tsSingletonManager.h"
 #include "tsTablesPtr.h"
-#include "tsVariable.h"
 #include "tsSimulCryptDate.h"
 #include "tsTS.h"
 
@@ -176,10 +153,13 @@ namespace ts {
 
         class TSDUCKDLL Protocol : public tlv::Protocol
         {
-            // This class is a singleton. Use static Instance() method.
-            TS_DECLARE_SINGLETON(Protocol);
-
+            TS_NOCOPY(Protocol);
         public:
+            //!
+            //! Default constructor.
+            //!
+            Protocol();
+
             // Implementation of pure virtual methods
             virtual void factory(const tlv::MessageFactory&, tlv::MessagePtr&) const override;
             virtual void buildErrorResponse(const tlv::MessageFactory&, tlv::MessagePtr&) const override;
@@ -196,27 +176,11 @@ namespace ts {
         //!
         class TSDUCKDLL LogSection : public tlv::Message
         {
+            TS_VERSIONED_TLV_MESSAGE(LogSection, Tags::MSG_LOG_SECTION);
         public:
-            Variable<PID>            pid;        //!< PID where the section was found.
-            Variable<SimulCryptDate> timestamp;  //!< Date and time of the extraction.
-            SectionPtr               section;    //!< Content of the section.
-
-            //!
-            //! Default constructor.
-            //!
-            LogSection();
-            //!
-            //! Constructor from a message factory.
-            //! @param [in] fact Message factory.
-            //!
-            LogSection(const tlv::MessageFactory& fact);
-
-            // Implementation of Message.
-            virtual UString dump(size_t indent = 0) const override;
-
-        protected:
-            // Implementation of Message.
-            virtual void serializeParameters(tlv::Serializer& fact) const override;
+            std::optional<PID>            pid {};        //!< PID where the section was found.
+            std::optional<SimulCryptDate> timestamp {};  //!< Date and time of the extraction.
+            SectionPtr                    section {};    //!< Content of the section.
         };
 
         //!
@@ -224,27 +188,11 @@ namespace ts {
         //!
         class TSDUCKDLL LogTable : public tlv::Message
         {
+            TS_VERSIONED_TLV_MESSAGE(LogTable, Tags::MSG_LOG_TABLE);
         public:
-            Variable<PID>            pid;        //!< PID where the table was found.
-            Variable<SimulCryptDate> timestamp;  //!< Date and time of the extraction.
-            SectionPtrVector         sections;   //!< All sections in the table.
-
-            //!
-            //! Default constructor.
-            //!
-            LogTable();
-            //!
-            //! Constructor from a message factory.
-            //! @param [in] fact Message factory.
-            //!
-            LogTable(const tlv::MessageFactory& fact);
-
-            // Implementation of Message.
-            virtual UString dump(size_t indent = 0) const override;
-
-        protected:
-            // Implementation of Message.
-            virtual void serializeParameters(tlv::Serializer& fact) const override;
+            std::optional<PID>            pid {};        //!< PID where the table was found.
+            std::optional<SimulCryptDate> timestamp {};  //!< Date and time of the extraction.
+            SectionPtrVector              sections {};   //!< All sections in the table.
         };
 
         //!
@@ -252,27 +200,11 @@ namespace ts {
         //!
         class TSDUCKDLL ClearECM : public tlv::Message
         {
+            TS_VERSIONED_TLV_MESSAGE(ClearECM, Tags::MSG_ECM);
         public:
-            ByteBlock cw_even;          //!< Odd control word.
-            ByteBlock cw_odd;           //!< Odd control word.
-            ByteBlock access_criteria;  //!< Access criteria.
-
-            //!
-            //! Default constructor.
-            //!
-            ClearECM();
-            //!
-            //! Constructor from a message factory.
-            //! @param [in] fact Message factory.
-            //!
-            ClearECM(const tlv::MessageFactory& fact);
-
-            // Implementation of Message.
-            virtual UString dump(size_t indent = 0) const override;
-
-        protected:
-            // Implementation of Message.
-            virtual void serializeParameters(tlv::Serializer& fact) const override;
+            ByteBlock cw_even {};          //!< Odd control word.
+            ByteBlock cw_odd {};           //!< Odd control word.
+            ByteBlock access_criteria {};  //!< Access criteria.
         };
 
         //!
@@ -280,25 +212,9 @@ namespace ts {
         //!
         class TSDUCKDLL Error : public tlv::Message
         {
+            TS_VERSIONED_TLV_MESSAGE(Error, Tags::MSG_ERROR);
         public:
-            uint16_t error_status;   //!< Error code.
-
-            //!
-            //! Default constructor.
-            //!
-            Error();
-            //!
-            //! Constructor from a message factory.
-            //! @param [in] fact Message factory.
-            //!
-            Error(const tlv::MessageFactory& fact);
-
-            // Implementation of Message.
-            virtual UString dump(size_t indent = 0) const override;
-
-        protected:
-            // Implementation of Message.
-            virtual void serializeParameters(tlv::Serializer& fact) const override;
+            uint16_t error_status = 0;   //!< Error code.
         };
 
 
@@ -307,9 +223,9 @@ namespace ts {
         //---------------------------------------------------------------------
 
         struct TSDUCKDLL Traits {
-            typedef ts::duck::Tags     Tags;       //!< Actual set of tags for this protocol.
-            typedef ts::duck::Errors   Errors;     //!< Actual set of error codes for this protocol.
-            typedef ts::duck::Protocol Protocol;   //!< Actual protocol description.
+            using Tags = ts::duck::Tags;           //!< Actual set of tags for this protocol.
+            using Errors = ts::duck::Errors;       //!< Actual set of error codes for this protocol.
+            using Protocol = ts::duck::Protocol;   //!< Actual protocol description.
         };
     }
 }

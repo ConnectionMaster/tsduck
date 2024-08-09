@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,10 +12,12 @@
 //----------------------------------------------------------------------------
 
 #include "tsPluginRepository.h"
+#include "tsTablePatchXML.h"
 #include "tsSectionDemux.h"
 #include "tsPacketizer.h"
 #include "tsAlgorithm.h"
 #include "tsBoolPredicate.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -49,38 +30,39 @@ namespace ts {
         private SectionHandlerInterface,
         private SectionProviderInterface
     {
-        TS_NOBUILD_NOCOPY(SectionsPlugin);
+        TS_PLUGIN_CONSTRUCTORS(SectionsPlugin);
     public:
         // Implementation of plugin API
-        SectionsPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Command line options.
-        bool                   _section_stuffing;
-        bool                   _use_null_pid;
-        bool                   _reverse_eitd;
-        bool                   _keep_selected;
-        bool                   _selections_present;   // there are selection options in the command line
-        MultiBoolPredicate     _predicate;            // global "and" / "or" on all criteria, see option --and
-        MonoBoolPredicate      _valid_predicate;      // see method condition()
-        BoolPredicate          _cond_predicate;       // see method condition()
-        size_t                 _max_buffered_sections;
-        PIDSet                 _input_pids;
-        PID                    _output_pid;
-        std::set<TID>          _tids;
-        std::set<uint16_t>     _exts;
-        std::set<uint32_t>     _etids;
-        std::set<uint8_t>      _versions;
-        std::vector<ByteBlock> _contents;
-        std::vector<ByteBlock> _contents_masks;
+        bool                   _section_stuffing = false;
+        bool                   _use_null_pid = false;
+        bool                   _reverse_eitd = false;
+        bool                   _keep_selected = false;
+        bool                   _selections_present = false;    // there are selection options in the command line
+        MultiBoolPredicate     _predicate = nullptr;           // global "and" / "or" on all criteria, see option --and
+        MonoBoolPredicate      _valid_predicate = nullptr;     // see method condition()
+        BoolPredicate          _cond_predicate = nullptr;      // see method condition()
+        size_t                 _max_buffered_sections = 1024;  // hard-coded for now
+        PIDSet                 _input_pids {};
+        PID                    _output_pid = PID_NULL;
+        std::set<TID>          _tids {};
+        std::set<uint16_t>     _exts {};
+        std::set<uint32_t>     _etids {};
+        std::set<uint8_t>      _versions {};
+        std::set<uint8_t>      _section_numbers {};
+        std::vector<ByteBlock> _contents {};
+        std::vector<ByteBlock> _contents_masks {};
 
         // Working data.
-        std::list<SectionPtr> _sections;
-        SectionDemux          _demux;
-        Packetizer            _packetizer;
+        std::list<SectionPtr> _sections {};
+        SectionDemux          _demux {duck, nullptr, this};
+        Packetizer            _packetizer {duck, PID_NULL, this};
+        TablePatchXML         _patch_xml {duck};
 
         // Compute a condition in the chain of _predicate.
         // - valid: the condition needs to be checked (eg. there are some tids to remove).
@@ -107,27 +89,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"sections", ts::SectionsPlugin);
 //----------------------------------------------------------------------------
 
 ts::SectionsPlugin::SectionsPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Remove, keep or merge sections from various PID's", u"[options]"),
-    _section_stuffing(false),
-    _use_null_pid(false),
-    _reverse_eitd(false),
-    _keep_selected(false),
-    _selections_present(false),
-    _predicate(nullptr),
-    _valid_predicate(nullptr),
-    _cond_predicate(nullptr),
-    _max_buffered_sections(1024), // hard-coded for now
-    _input_pids(),
-    _output_pid(PID_NULL),
-    _tids(),
-    _exts(),
-    _etids(),
-    _versions(),
-    _contents(),
-    _contents_masks(),
-    _sections(),
-    _demux(duck, nullptr, this),
-    _packetizer(duck, PID_NULL, this)
+    ProcessorPlugin(tsp_, u"Remove, keep or merge sections from various PID's", u"[options]")
 {
     option(u"and", 'a');
     help(u"and",
@@ -199,6 +161,11 @@ ts::SectionsPlugin::SectionsPlugin(TSP* tsp_) :
          u"The first mask applies to the first content, the second mask to the second content, etc. "
          u"If there are less masks than contents, the last mask is implicitly repeated.");
 
+    option(u"section-number", 0, UINT8, 0, UNLIMITED_COUNT);
+    help(u"section-number", u"num1[-num2]",
+         u"Remove/keep all sections with the corresponding section number. "
+         u"Several options --section-number can be specified.");
+
     option(u"stuffing", 's');
     help(u"stuffing",
          u"Insert stuffing at end of each section, up to the next TS packet "
@@ -220,6 +187,18 @@ ts::SectionsPlugin::SectionsPlugin(TSP* tsp_) :
     help(u"version", u"v1[-v2]",
          u"Remove/keep all sections with the corresponding versions. "
          u"Several options --version can be specified.");
+
+    // Slightly amend the semantics of --patch-xml here.
+    _patch_xml.defineArgs(*this);
+    help(u"patch-xml",
+         u"Specify an XML patch file which is applied to all sections on the fly. "
+         u"Here, the behavior of --patch-xml is slightly different, compared to other commands or plugins. "
+         u"While XML representation and patch normally apply to a complete table, they process one single section here. "
+         u"This means that the result of the patch must fit into one single section. "
+         u"Otherwise, only the first section of the result is kept (with the original section number of the input section). "
+         u"If the name starts with \"<?xml\", it is considered as \"inline XML content\". "
+         u"Several --patch-xml options can be specified. "
+         u"Patch files are sequentially applied on each section.");
 }
 
 
@@ -239,6 +218,7 @@ bool ts::SectionsPlugin::getOptions()
     getIntValues(_exts, u"tid-ext");
     getIntValues(_etids, u"etid");
     getIntValues(_versions, u"version");
+    getIntValues(_section_numbers, u"section-number");
 
     _contents.resize(count(u"section-content"));
     for (size_t i = 0; i < _contents.size(); ++i) {
@@ -261,7 +241,7 @@ bool ts::SectionsPlugin::getOptions()
     }
 
     // If there any section to remove/keep?
-    _selections_present = !_tids.empty() || !_exts.empty() || !_etids.empty() || !_versions.empty() || !_contents.empty();
+    _selections_present = !_tids.empty() || !_exts.empty() || !_etids.empty() || !_versions.empty() || !_section_numbers.empty() || !_contents.empty();
 
     if (present(u"and")) {
         // Global "AND" on all (!valid || condition)
@@ -276,7 +256,7 @@ bool ts::SectionsPlugin::getOptions()
         _cond_predicate = And;
     }
 
-    return true;
+    return _patch_xml.loadArgs(duck, *this);
 }
 
 
@@ -291,7 +271,7 @@ bool ts::SectionsPlugin::start()
     _packetizer.reset();
     _packetizer.setPID(_output_pid);
     _sections.clear();
-    return true;
+    return _patch_xml.loadPatchFiles();
 }
 
 
@@ -331,7 +311,7 @@ void ts::SectionsPlugin::provideSection(SectionCounter counter, SectionPtr& sect
 {
     if (_sections.empty()) {
         // No section to provide.
-        section.clear();
+        section.reset();
     }
     else {
         // Remove one section from the queue for insertion.
@@ -360,17 +340,27 @@ void ts::SectionsPlugin::handleSection(SectionDemux& demux, const Section& secti
         condition(is_long && !_exts.empty(), Contains(_exts, ext)),
         condition(is_long && !_etids.empty(), Contains(_etids, etid)),
         condition(is_long && !_versions.empty(), Contains(_versions, section.version())),
+        condition(is_long && !_section_numbers.empty(), Contains(_section_numbers, section.sectionNumber())),
         condition(!_contents.empty(), matchContent(section)),
     });
 
     if (!_selections_present || (_keep_selected && selected) || (!_keep_selected && !selected)) {
         // At this point, we need to keep the section.
-        // Build a copy of it for insertion in the queue.
-        const SectionPtr sp(new Section(section, ShareMode::SHARE));
-        CheckNonNull(sp.pointer());
 
-        // Now insert the section in the queue for the packetizer.
-        _sections.push_back(sp);
+        // Build a copy of it for insertion in the queue.
+        SectionPtr sp(new Section(section, ShareMode::SHARE));
+        CheckNonNull(sp.get());
+
+        // Process XML patching.
+        if (!_patch_xml.applyPatches(sp)) {
+            // Patch error, drop that section. Errors are displayed in applyPatches().
+            return;
+        }
+
+        // Now insert the section in the queue for the packetizer (if not deleted by the patch file).
+        if (sp != nullptr) {
+            _sections.push_back(sp);
+        }
     }
 }
 
@@ -385,7 +375,7 @@ ts::ProcessorPlugin::Status ts::SectionsPlugin::processPacket(TSPacket& pkt, TSP
 
     // If the output PID is not an input one and already exists, this is an error.
     if (pid == _output_pid && !_input_pids.test(_output_pid)) {
-        tsp->error(u"output PID 0x%X (%d) already present in the stream", {_output_pid, _output_pid});
+        error(u"output PID %n already present in the stream", _output_pid);
         return TSP_END;
     }
 
@@ -397,7 +387,7 @@ ts::ProcessorPlugin::Status ts::SectionsPlugin::processPacket(TSPacket& pkt, TSP
     // there are not enough null packets, we may accumulate more and
     // more sections until the memory is exhausted.
     if (_sections.size() > _max_buffered_sections) {
-        tsp->error(u"too many accumulated buffered sections, not enough space in output PID");
+        error(u"too many accumulated buffered sections, not enough space in output PID");
         return TSP_END;
     }
 

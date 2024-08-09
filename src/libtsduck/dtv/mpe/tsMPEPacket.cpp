@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -38,14 +17,6 @@
 // Constructors.
 //----------------------------------------------------------------------------
 
-ts::MPEPacket::MPEPacket() :
-    _is_valid(false),
-    _source_pid(PID_NULL),
-    _dest_mac(),
-    _datagram()
-{
-}
-
 ts::MPEPacket::MPEPacket(const MPEPacket& other, ShareMode mode) :
     _is_valid(other._is_valid),
     _source_pid(other._source_pid),
@@ -58,7 +29,7 @@ ts::MPEPacket::MPEPacket(const MPEPacket& other, ShareMode mode) :
             break;
         case ShareMode::COPY:
             if (other._is_valid) {
-                _datagram = new ByteBlock(*other._datagram);
+                _datagram = std::make_shared<ByteBlock>(*other._datagram);
             }
             break;
         default:
@@ -76,10 +47,9 @@ ts::MPEPacket::MPEPacket(MPEPacket&& other) noexcept :
 }
 
 ts::MPEPacket::MPEPacket(ByteBlockPtr datagram, ShareMode mode, const MACAddress& mac, PID pid) :
-    _is_valid(!datagram.isNull() && FindUDP(datagram->data(), datagram->size())),
+    _is_valid(datagram != nullptr && FindUDP(datagram->data(), datagram->size())),
     _source_pid(pid),
-    _dest_mac(mac),
-    _datagram()
+    _dest_mac(mac)
 {
     if (_is_valid) {
         switch (mode) {
@@ -87,7 +57,7 @@ ts::MPEPacket::MPEPacket(ByteBlockPtr datagram, ShareMode mode, const MACAddress
                 _datagram = datagram;
                 break;
             case ShareMode::COPY:
-                _datagram = new ByteBlock(*datagram);
+                _datagram = std::make_shared<ByteBlock>(*datagram);
                 break;
             default:
                 // should not get there
@@ -96,8 +66,7 @@ ts::MPEPacket::MPEPacket(ByteBlockPtr datagram, ShareMode mode, const MACAddress
     }
 }
 
-ts::MPEPacket::MPEPacket(const Section& section) :
-    MPEPacket()
+ts::MPEPacket::MPEPacket(const Section& section)
 {
     copy(section);
 }
@@ -170,7 +139,7 @@ void ts::MPEPacket::clear()
     _is_valid = false;
     _source_pid = PID_NULL;
     _dest_mac.clear();
-    _datagram.clear();
+    _datagram.reset();
 }
 
 
@@ -206,7 +175,7 @@ ts::MPEPacket& ts::MPEPacket::copy(const MPEPacket& other)
         _is_valid = other._is_valid;
         _source_pid = other._source_pid;
         _dest_mac = other._dest_mac;
-        _datagram = other._is_valid ? new ByteBlock(*other._datagram) : nullptr;
+        _datagram = other._is_valid ? std::make_shared<ByteBlock>(*other._datagram) : nullptr;
     }
     return *this;
 }
@@ -245,7 +214,7 @@ ts::MPEPacket& ts::MPEPacket::copy(const Section& section)
 
     // Get the datagram from the rest of the section.
     // Do not include trailing 4 bytes (checksum or CRC32).
-    _datagram = new ByteBlock(data + 12, size - 16);
+    _datagram = std::make_shared<ByteBlock>(data + 12, size - 16);
 
     // Check that the datagram contains a UDP/IP packet.
     _is_valid = true;
@@ -313,10 +282,10 @@ void ts::MPEPacket::configureUDP(bool force, size_t udpSize)
         // Recreate a new datagram.
         const size_t totalSize = IPv4_MIN_HEADER_SIZE + UDP_HEADER_SIZE + udpSize;
 
-        if (_datagram.isNull()) {
+        if (_datagram == nullptr) {
             // Recreate a completely new datagram.
             // Zero is a suitable default for most fields.
-            _datagram = new ByteBlock(totalSize, 0);
+            _datagram = std::make_shared<ByteBlock>(totalSize, uint8_t(0));
         }
         else {
             // Simply resize the current packet.
@@ -350,7 +319,7 @@ ts::IPv4Address ts::MPEPacket::sourceIPAddress() const
 {
     IPv4Address addr;
     if (_is_valid) {
-        assert(!_datagram.isNull());
+        assert(_datagram != nullptr);
         assert(_datagram->size() >= IPv4_MIN_HEADER_SIZE);
         addr.setAddress(GetUInt32(_datagram->data() +  IPv4_SRC_ADDR_OFFSET));
     }
@@ -361,7 +330,7 @@ void ts::MPEPacket::setSourceIPAddress(const IPv4Address& ip)
 {
     // Make sure we have a valid datagram.
     configureUDP(false, 0);
-    assert(!_datagram.isNull());
+    assert(_datagram != nullptr);
     assert(_datagram->size() >= IPv4_MIN_HEADER_SIZE);
 
     // Replace address.
@@ -380,7 +349,7 @@ ts::IPv4Address ts::MPEPacket::destinationIPAddress() const
 {
     IPv4Address addr;
     if (_is_valid) {
-        assert(!_datagram.isNull());
+        assert(_datagram != nullptr);
         assert(_datagram->size() >= IPv4_MIN_HEADER_SIZE);
         addr.setAddress(GetUInt32(_datagram->data() +  IPv4_DEST_ADDR_OFFSET));
     }
@@ -391,7 +360,7 @@ void ts::MPEPacket::setDestinationIPAddress(const IPv4Address& ip)
 {
     // Make sure we have a valid datagram.
     configureUDP(false, 0);
-    assert(!_datagram.isNull());
+    assert(_datagram != nullptr);
     assert(_datagram->size() >= IPv4_MIN_HEADER_SIZE);
 
     // Replace address.
@@ -517,7 +486,7 @@ bool ts::MPEPacket::setUDPMessage(const uint8_t* data, size_t size)
         assert(udpSize == size);
 
         // Replace UDP payload.
-        ::memcpy(udpAddress, data, size);
+        MemCopy(udpAddress, data, size);
         return true;
     }
 }

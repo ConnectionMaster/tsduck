@@ -1,39 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsDVBCharTable.h"
-#include "tsByteBlock.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr uint8_t  ts::DVBCharTable::DVB_SINGLE_BYTE_CRLF;
-constexpr uint16_t ts::DVBCharTable::DVB_CODEPOINT_CRLF;
-#endif
+#include "tsMemory.h"
 
 
 //----------------------------------------------------------------------------
@@ -45,7 +19,7 @@ ts::DVBCharTable::DVBCharTable(const UChar* name, uint32_t tableCode) :
     _code(tableCode)
 {
     // Register the character set.
-    TableCodeRepository::Instance()->add(_code, this);
+    TableCodeRepository::Instance().add(_code, this);
 }
 
 ts::DVBCharTable::~DVBCharTable()
@@ -104,12 +78,12 @@ void ts::DVBCharTable::TableCodeRepository::remove(const DVBCharTable* charset)
 
 const ts::DVBCharTable* ts::DVBCharTable::GetTableFromLeadingCode(uint32_t code)
 {
-    return TableCodeRepository::Instance()->get(code);
+    return TableCodeRepository::Instance().get(code);
 }
 
 void ts::DVBCharTable::unregister() const
 {
-    TableCodeRepository::Instance()->remove(this);
+    TableCodeRepository::Instance().remove(this);
     Charset::unregister(); // invoke superclass
 }
 
@@ -226,7 +200,7 @@ size_t ts::DVBCharTable::encodeTableCode(uint8_t*& buffer, size_t& size) const
     if (codeSize > size) {
         codeSize = size;
     }
-    ::memcpy(buffer, buf, codeSize);
+    MemCopy(buffer, buf, codeSize);
     buffer += codeSize;
     size -= codeSize;
     return codeSize;

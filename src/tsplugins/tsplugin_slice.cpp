@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -44,10 +23,9 @@
 namespace ts {
     class SlicePlugin: public ProcessorPlugin
     {
-        TS_NOBUILD_NOCOPY(SlicePlugin);
+        TS_PLUGIN_CONSTRUCTORS(SlicePlugin);
     public:
         // Implementation of plugin API
-        SlicePlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
@@ -65,18 +43,17 @@ namespace ts {
             // Comparison, for sort algorithm
             bool operator< (const SliceEvent& e) const {return value < e.value;}
         };
-        typedef std::vector<SliceEvent> SliceEventVector;
+        using SliceEventVector = std::vector<SliceEvent>;
 
         // SlicePlugin private members
-        bool              _use_time;     // Use milliseconds in SliceEvent::value
-        bool              _ignore_pcr;   // Do not use PCR's, rely on previous plugins' bitrate
-        Status            _status;       // Current packet status to return
-        PacketCounter     _packet_cnt;   // Packet counter
-        uint64_t          _time_factor;  // Factor to apply to get milli-seconds
-        const Enumeration _status_names; // Names of packet status
-        PCRAnalyzer       _pcr_analyzer; // PCR analyzer for time stamping
-        SliceEventVector  _events;       // Sorted list of time events to apply
-        size_t            _next_index;   // Index of next SliceEvent to apply
+        bool              _use_time = false;    // Use milliseconds in SliceEvent::value
+        bool              _ignore_pcr = false;  // Do not use PCR's, rely on previous plugins' bitrate
+        Status            _status = TSP_OK;     // Current packet status to return
+        PacketCounter     _packet_cnt = 0;      // Packet counter
+        uint64_t          _time_factor = 0;     // Factor to apply to get milli-seconds
+        PCRAnalyzer       _pcr_analyzer {};     // PCR analyzer for time stamping
+        SliceEventVector  _events {};           // Sorted list of time events to apply
+        size_t            _next_index = 0;      // Index of next SliceEvent to apply
 
         // Add event in the list from one option.
         void addEvents(const UChar* option, Status status);
@@ -91,16 +68,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"slice", ts::SlicePlugin);
 //----------------------------------------------------------------------------
 
 ts::SlicePlugin::SlicePlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Pass or drop packets based on packet numbers", u"[options]"),
-    _use_time(false),
-    _ignore_pcr(false),
-    _status(TSP_OK),
-    _packet_cnt(0),
-    _time_factor(0),
-    _status_names({{u"pass", TSP_OK}, {u"stop", TSP_END}, {u"drop", TSP_DROP}, {u"null", TSP_NULL}}),
-    _pcr_analyzer(),
-   _events(),
-   _next_index(0)
+    ProcessorPlugin(tsp_, u"Pass or drop packets based on packet numbers", u"[options]")
 {
     option(u"drop",'d', UNSIGNED, 0, UNLIMITED_COUNT);
     help(u"drop",
@@ -168,10 +136,10 @@ bool ts::SlicePlugin::start()
     std::sort(_events.begin(), _events.end());
     _next_index = 0;
 
-    if (tsp->verbose()) {
-        tsp->verbose(u"initial packet processing: %s", {_status_names.name(_status)});
+    if (verbose()) {
+        verbose(u"initial packet processing: %s", StatusNames.name(_status));
         for (auto& it : _events) {
-            tsp->verbose(u"packet %s after %'d %s", {_status_names.name(it.status), it.value, _use_time ? u"ms" : u"packets"});
+            verbose(u"packet %s after %'d %s", StatusNames.name(it.status), it.value, _use_time ? u"ms" : u"packets");
         }
     }
 
@@ -226,11 +194,11 @@ ts::ProcessorPlugin::Status ts::SlicePlugin::processPacket(TSPacket& pkt, TSPack
             bitrate = _pcr_analyzer.bitrate188();
         }
         if (bitrate == 0) {
-            tsp->error(u"unknown bitrate, cannot compute time offset");
+            error(u"unknown bitrate, cannot compute time offset");
             return TSP_END;
         }
         // Compute time in milli-seconds since beginning
-        current_value = PacketInterval(bitrate, _packet_cnt);
+        current_value = PacketInterval(bitrate, _packet_cnt).count();
     }
 
     // Is it time to change the action?
@@ -238,7 +206,7 @@ ts::ProcessorPlugin::Status ts::SlicePlugin::processPacket(TSPacket& pkt, TSPack
         // Yes, we just passed a schedule
         _status = _events[_next_index].status;
         _next_index++;
-        tsp->verbose(u"new packet processing: %s after %'d packets", {_status_names.name(_status), _packet_cnt});
+        verbose(u"new packet processing: %s after %'d packets", StatusNames.name(_status), _packet_cnt);
     }
 
     // Count packets

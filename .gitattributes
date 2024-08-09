@@ -3,6 +3,7 @@
 .gitattributes text
 .editorconfig text
 *.txt text
+*.adoc text linguist-language=Asciidoc
 *.dox text linguist-language=Doxygen
 *.md text linguist-language=MarkDown
 *.h text linguist-language=C++
@@ -22,6 +23,8 @@
 *.props text eol=crlf linguist-language=VisualStudio
 *.vcxproj text eol=crlf linguist-language=VisualStudio
 *.vcxproj.filters text eol=crlf linguist-language=VisualStudio
+*.reg text eol=crlf linguist-language=WindowsRegistry
+*.rc text eol=crlf linguist-language=WindowsResource
 
 # Text files that will always have LF line endings on checkout.
 *.html text eol=lf linguist-language=HTML
@@ -45,4 +48,5 @@ Makefile* text eol=lf linguist-language=Makefile
 *.xcf binary linguist-language=GIMP
 *.pdf binary linguist-language=PDF
 *.docx binary linguist-language=Word
+*.xlsx binary linguist-language=Excel
 *.pptx binary linguist-language=PowerPoint

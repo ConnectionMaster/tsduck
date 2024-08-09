@@ -1,148 +1,126 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//
-//  Triple-DES (EDE) block cipher
-//
-//  Implementation based on LibTomCrypt (http://www.libtom.org/)
-//  by Tom St Denis (tomstdenis@gmail.com)
-//
-//  Usage in TSDuck allowed based on LibTomCrypt licence:
-//    << LibTomCrypt is public domain. The library is free for >>
-//    << all purposes without any express guarantee it works.  >>
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTDES.h"
-#include "tsDES.h"
+#include "tsSingleton.h"
+#include "tsInitCryptoLibrary.h"
 
 
 //----------------------------------------------------------------------------
-// Schedule a new key. If rounds is zero, the default is used.
+// Basic implementation (one block)
 //----------------------------------------------------------------------------
 
-bool ts::TDES::setKeyImpl(const void* key, size_t key_length, size_t rounds)
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES(ts::TDES, TDES, (u"TDES", ts::TDES::BLOCK_SIZE, ts::TDES::KEY_SIZE));
+
+ts::TDES::TDES() : BlockCipher(TDES::PROPERTIES())
 {
-    if (key_length != KEY_SIZE || (rounds != 0 && rounds != ROUNDS)) {
-        return false;
-    }
-
-    const uint8_t* k = reinterpret_cast<const uint8_t*>(key);
-
-    DES::deskey(k,    DES::EN0, _ek[0]);
-    DES::deskey(k+8,  DES::DE1, _ek[1]);
-    DES::deskey(k+16, DES::EN0, _ek[2]);
-
-    DES::deskey(k,    DES::DE1, _dk[2]);
-    DES::deskey(k+8,  DES::EN0, _dk[1]);
-    DES::deskey(k+16, DES::DE1, _dk[0]);
-
-    return true;
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    canProcessInPlace(true);
 }
 
-
-//----------------------------------------------------------------------------
-// Encryption in ECB mode.
-//----------------------------------------------------------------------------
-
-bool ts::TDES::encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length)
+ts::TDES::TDES(const BlockCipherProperties& props) : BlockCipher(props)
 {
-    if (plain_length != BLOCK_SIZE || cipher_maxsize < BLOCK_SIZE) {
-        return false;
-    }
-
-    uint32_t work[2];
-    work[0] = GetUInt32(plain);
-    work[1] = GetUInt32(reinterpret_cast<const uint8_t*> (plain) + 4);
-
-    DES::desfunc(work, _ek[0]);
-    DES::desfunc(work, _ek[1]);
-    DES::desfunc(work, _ek[2]);
-
-    PutUInt32(cipher, work[0]);
-    PutUInt32(reinterpret_cast<uint8_t*> (cipher) + 4, work[1]);
-
-    if (cipher_length != nullptr) {
-        *cipher_length = BLOCK_SIZE;
-    }
-
-    return true;
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    props.assertCompatibleBase(TDES::PROPERTIES());
+    canProcessInPlace(true);
 }
+
+#if defined(TS_WINDOWS)
+
+TS_STATIC_INSTANCE(ts::FetchBCryptAlgorithm, (BCRYPT_3DES_ALGORITHM, BCRYPT_CHAIN_MODE_ECB), FetchECB);
+void ts::TDES::getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const
+{
+    FetchECB::Instance().getAlgorithm(algo, length);
+    // This is ECB mode, ignore IV which may be used by a upper chaining mode.
+    ignore_iv = true;
+}
+
+#else
+
+TS_STATIC_INSTANCE(ts::FetchCipherAlgorithm, ("DES-EDE3-ECB"), Algo);
+const EVP_CIPHER* ts::TDES::getAlgorithm() const
+{
+    return Algo::Instance().algorithm();
+}
+
+#endif
 
 
 //----------------------------------------------------------------------------
-// Decryption in ECB mode.
+// Template specialization for ECB mode.
 //----------------------------------------------------------------------------
 
-bool ts::TDES::decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length)
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES(ts::ECB<ts::TDES>, ECB, (ts::TDES::PROPERTIES(), u"ECB", false, ts::TDES::BLOCK_SIZE, 0, 0));
+ts::ECB<ts::TDES>::ECB() : TDES(ts::ECB<ts::TDES>::PROPERTIES())
 {
-    if (cipher_length != BLOCK_SIZE || plain_maxsize < BLOCK_SIZE) {
-        return false;
-    }
-
-    uint32_t work[2];
-    work[0] = GetUInt32(cipher);
-    work[1] = GetUInt32(reinterpret_cast<const uint8_t*>(cipher) + 4);
-
-    DES::desfunc(work, _dk[0]);
-    DES::desfunc(work, _dk[1]);
-    DES::desfunc(work, _dk[2]);
-
-    PutUInt32(plain, work[0]);
-    PutUInt32(reinterpret_cast<uint8_t*> (plain) + 4, work[1]);
-
-    if (plain_length != nullptr) {
-        *plain_length = BLOCK_SIZE;
-    }
-
-    return true;
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    canProcessInPlace(true);
 }
 
-
-//----------------------------------------------------------------------------
-// Constructor
-//----------------------------------------------------------------------------
-
-ts::TDES::TDES() :
-    _ek(),
-    _dk()
+ts::ECB<ts::TDES>::ECB(const BlockCipherProperties& props) : TDES(props)
 {
+    props.assertCompatibleChaining(ts::ECB<ts::TDES>::PROPERTIES());
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    canProcessInPlace(true);
 }
+
+#if defined(TS_WINDOWS)
+
+void ts::ECB<ts::TDES>::getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const
+{
+    FetchECB::Instance().getAlgorithm(algo, length);
+    // This is ECB mode, ignore IV which may be used by a upper chaining mode.
+    ignore_iv = true;
+}
+
+#else
+
+const EVP_CIPHER* ts::ECB<ts::TDES>::getAlgorithm() const
+{
+    return Algo::Instance().algorithm();
+}
+
+#endif
 
 
 //----------------------------------------------------------------------------
-// Implementation of BlockCipher interface:
+// Template specialization for CBC mode.
 //----------------------------------------------------------------------------
 
-ts::UString ts::TDES::name() const
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES(ts::CBC<ts::TDES>, CBC, (ts::TDES::PROPERTIES(), u"CBC", false, ts::TDES::BLOCK_SIZE, 0, ts::TDES::BLOCK_SIZE));
+ts::CBC<ts::TDES>::CBC() : TDES(ts::CBC<ts::TDES>::PROPERTIES())
 {
-    return u"TDES";
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    canProcessInPlace(true);
 }
-size_t ts::TDES::blockSize() const
+
+ts::CBC<ts::TDES>::CBC(const BlockCipherProperties& props) : TDES(props)
 {
-    return BLOCK_SIZE;
+    props.assertCompatibleChaining(ts::CBC<ts::TDES>::PROPERTIES());
+    // OpenSSL and Windows BCrypt can encrypt/decrypt in place.
+    canProcessInPlace(true);
 }
-size_t ts::TDES::minKeySize() const
+
+#if defined(TS_WINDOWS)
+
+TS_STATIC_INSTANCE(ts::FetchBCryptAlgorithm, (BCRYPT_3DES_ALGORITHM, BCRYPT_CHAIN_MODE_CBC), FetchCBC);
+void ts::CBC<ts::TDES>::getAlgorithm(::BCRYPT_ALG_HANDLE& algo, size_t& length, bool& ignore_iv) const
 {
-    return KEY_SIZE;
+    FetchCBC::Instance().getAlgorithm(algo, length);
+    ignore_iv = false;
 }
-size_t ts::TDES::maxKeySize() const
+
+#else
+
+TS_STATIC_INSTANCE(ts::FetchCipherAlgorithm, ("DES-EDE3-CBC"), AlgoCBC);
+const EVP_CIPHER* ts::CBC<ts::TDES>::getAlgorithm() const
 {
-    return KEY_SIZE;
+    return AlgoCBC::Instance().algorithm();
 }
-bool ts::TDES::isValidKeySize (size_t size) const
-{
-    return size == KEY_SIZE;
-}
-size_t ts::TDES::minRounds() const
-{
-    return ROUNDS;
-}
-size_t ts::TDES::maxRounds() const
-{
-    return ROUNDS;
-}
-size_t ts::TDES::defaultRounds() const
-{
-    return ROUNDS;
-}
+
+#endif

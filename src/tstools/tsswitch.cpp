@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -70,21 +49,16 @@ namespace {
     public:
         TSSwitchOptions(int argc, char *argv[]);
 
-        bool                  monitor;         // Run a resource monitoring thread in the background.
-        ts::UString           monitor_config;  // System monitoring configuration file.
-        ts::DuckContext       duck;            // TSDuck context
-        ts::AsyncReportArgs   log_args;        // Asynchronous logger arguments.
-        ts::InputSwitcherArgs switch_args;     // TS processing arguments.
+        ts::DuckContext       duck {this};        // TSDuck context
+        bool                  monitor = false;    // Run a resource monitoring thread in the background.
+        ts::UString           monitor_config {};  // System monitoring configuration file.
+        ts::AsyncReportArgs   log_args {};        // Asynchronous logger arguments.
+        ts::InputSwitcherArgs switch_args {};     // TS processing arguments.
     };
 }
 
 TSSwitchOptions::TSSwitchOptions(int argc, char *argv[]) :
-    ts::ArgsWithPlugins(0, UNLIMITED_COUNT, 0, 0, 0, 1, u"TS input source switch using remote control", u"[tsswitch-options]"),
-    monitor(false),
-    monitor_config(),
-    duck(this),
-    log_args(),
-    switch_args()
+    ts::ArgsWithPlugins(0, UNLIMITED_COUNT, 0, 0, 0, 1, u"TS input source switch using remote control", u"[tsswitch-options]")
 {
     log_args.defineArgs(*this);
     switch_args.defineArgs(*this);
@@ -122,7 +96,7 @@ int MainCode(int argc, char *argv[])
 
     // If plugins were statically linked, disallow the dynamic loading of plugins.
 #if defined(TSDUCK_STATIC_PLUGINS)
-    ts::PluginRepository::Instance()->setSharedLibraryAllowed(false);
+    ts::PluginRepository::Instance().setSharedLibraryAllowed(false);
 #endif
 
     // Create and start an asynchronous log (separate thread).

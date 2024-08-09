@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,17 +13,15 @@
 
 #pragma once
 #include "tsBuffer.h"
+#include "tsDuckContext.h"
+#include "tsSection.h"
+#include "tsDescriptorList.h"
+#include "tsATSCMultipleString.h"
 #include "tsTime.h"
 #include "tsCharset.h"
 #include "tsTS.h"
 
 namespace ts {
-
-    class DuckContext;
-    class Section;
-    class DescriptorList;
-    class ATSCMultipleString;
-
     //!
     //! A specialized subclass of ts::Buffer for PSI serialization.
     //! @ingroup mpeg
@@ -307,32 +284,72 @@ namespace ts {
         //!
         //! Put (serialize) a duration in minutes as 4 BCD digits (HHMM), 2 bytes.
         //! Generate a write error when the buffer is not large enough.
-        //! @param [in] duration A number of minutes.
+        //! @param [in] duration A duration in any std::chrono::duration type.
         //! @return True on success, false if there is not enough space to write (and set write error flag).
         //!
-        bool putMinutesBCD(SubSecond duration);
+        template <class Rep, class Period>
+        bool putMinutesBCD(const cn::duration<Rep,Period>& duration);
 
         //!
         //! Put (serialize) a duration in seconds as 6 BCD digits (HHMMSS), 3 bytes.
         //! Generate a write error when the buffer is not large enough.
-        //! @param [in] duration A number of seconds.
+        //! @param [in] duration A duration in any std::chrono::duration type.
         //! @return True on success, false if there is not enough space to write (and set write error flag).
         //!
-        bool putSecondsBCD(Second duration);
+        template <class Rep, class Period>
+        bool putSecondsBCD(const cn::duration<Rep,Period>& duration);
 
         //!
         //! Get (deserialize) a duration in minutes as 4 BCD digits (HHMM), 2 bytes.
         //! Generate a read error when there is not enough bytes.
-        //! @return The duration in minutes.
+        //! @param [out] duration Returned duration, converted in any std::chrono::duration type.
         //!
-        SubSecond getMinutesBCD();
+        template <class Rep, class Period>
+        void getMinutesBCD(cn::duration<Rep,Period>& duration);
 
         //!
         //! Get (deserialize) a duration in seconds as 6 BCD digits (HHMMSS), 3 bytes.
         //! Generate a read error when there is not enough bytes.
-        //! @return The duration in minutes.
+        //! @param [out] duration Returned duration, converted in any std::chrono::duration type.
         //!
-        Second getSecondsBCD();
+        template <class Rep, class Period>
+        void getSecondsBCD(cn::duration<Rep,Period>& duration);
+
+        //!
+        //! Get (deserialize) an integer value in "vluimsbf5" format.
+        //!
+        //! This weird format is defined in ISO/IEC 23005-6 as follow:
+        //!
+        //! "vluimsbf5: Variable length unsigned integer most significant bit first representation consisting of two parts.
+        //! The first part defines the number n of 4-bit fields used for the value representation, encoded by a sequence of
+        //! n-1 "1" bits, followed by a "0" bit signaling its end. The second part contains the value of the integer encoded
+        //! using the number of bit fields specified in the first part."
+        //!
+        //! Very similar to the following (for connoisseurs only):
+        //!
+        //! "And Saint Attila raised the hand grenade up on high, saying, 'O Lord, bless this thy hand grenade, that with it
+        //! thou mayst blow thine enemies to tiny bits, in thy mercy.' And the Lord did grin. And the people did feast upon
+        //! the lambs, and sloths, and carp, and anchovies, and orangutans, and breakfast cereals, and fruit bats, and large
+        //! chulapas. And the Lord spake, saying, 'First shalt thou take out the Holy Pin. Then shalt thou count to three,
+        //! no more, no less. Three shall be the number thou shalt count, and the number of the counting shall be three.
+        //! Four shalt thou not count, neither count thou two, excepting that thou then proceed to three. Five is right out.
+        //! Once the number three, being the third number, be reached, then lobbest thou thy Holy Hand Grenade of Antioch
+        //! towards thy foe, who, being naughty in My sight, shall snuff it.'"
+        //!
+        //! Generate a read error when there is not enough bytes.
+        //! @return The decoded integer value as a 64-bit integer.
+        //!
+        uint64_t getVluimsbf5();
+
+        //!
+        //! Put (serialize) an integer value in "vluimsbf5" format.
+        //! Generate a write error when the buffer is not large enough.
+        //!
+        //! @param [in] value An integer to serialize.
+        //! @return True on success, false if there is not enough space to write (and set write error flag).
+        //! @see getVluimsbf5()
+        //!
+        bool putVluimsbf5(uint64_t value);
 
         //!
         //! Put (serialize) a complete descriptor list.
@@ -473,11 +490,55 @@ namespace ts {
         DuckContext& _duck;
 
         // Common profile of Charset encoding methods.
-        typedef size_t (Charset::*EncodeMethod)(uint8_t*&, size_t&, const UString&, size_t, size_t) const;
+        using EncodeMethod = size_t (Charset::*)(uint8_t*&, size_t&, const UString&, size_t, size_t) const;
 
         // Common code the various putString functions.
         // When partial == true, return the number of encoded characters.
         // When partial == false, return 1 on success, 0 on error.
         size_t putStringCommon(const UString& str, size_t start, size_t count, EncodeMethod em, bool partial, size_t min_req_size, const Charset*);
     };
+}
+
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Put (serialize) a duration in minutes as 4 BCD digits (HHMM), 2 bytes.
+template <class Rep, class Period>
+bool ts::PSIBuffer::putMinutesBCD(const cn::duration<Rep,Period>& duration)
+{
+    const cn::minutes::rep mn = cn::duration_cast<cn::minutes>(duration).count();
+    return putBCD(std::abs(mn) / 60, 2) &&
+           putBCD(std::abs(mn) % 60, 2);
+}
+
+// Put (serialize) a duration in seconds as 6 BCD digits (HHMMSS), 3 bytes.
+template <class Rep, class Period>
+bool ts::PSIBuffer::putSecondsBCD(const cn::duration<Rep,Period>& duration)
+{
+    const cn::seconds::rep sec = cn::duration_cast<cn::seconds>(duration).count();
+    return putBCD(std::abs(sec) / 3600, 2) &&
+           putBCD((std::abs(sec) / 60) % 60, 2) &&
+           putBCD(std::abs(sec) % 60, 2);
+}
+
+// Get (deserialize) a duration in minutes as 4 BCD digits (HHMM), 2 bytes.
+template <class Rep, class Period>
+void ts::PSIBuffer::getMinutesBCD(cn::duration<Rep,Period>& duration)
+{
+    const cn::hours hours = cn::hours(getBCD<cn::hours::rep>(2));
+    const cn::minutes minutes = cn::minutes(getBCD<cn::minutes::rep>(2));
+    duration = hours + minutes;
+}
+
+
+// Get (deserialize) a duration in seconds as 6 BCD digits (HHMMSS), 3 bytes.
+template <class Rep, class Period>
+void ts::PSIBuffer::getSecondsBCD(cn::duration<Rep,Period>& duration)
+{
+    const cn::hours hours = cn::hours(getBCD<cn::hours::rep>(2));
+    const cn::minutes minutes = cn::minutes(getBCD<cn::minutes::rep>(2));
+    const cn::seconds seconds = cn::seconds(getBCD<cn::seconds::rep>(2));
+    duration = hours + minutes + seconds;
 }

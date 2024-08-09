@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,8 +12,9 @@
 
 #include "tsArgs.h"
 #include "tsReportBuffer.h"
-#include "tsNullReport.h"
+#include "tsCerrReport.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
 #include "tsFixedPoint.h"
 #include "tsFraction.h"
 #include "tsFloatingPoint.h"
@@ -48,77 +28,45 @@
 
 class ArgsTest: public tsunit::Test
 {
-public:
-    ArgsTest();
+    TSUNIT_DECLARE_TEST(Accessors);
+    TSUNIT_DECLARE_TEST(HelpDefault);
+    TSUNIT_DECLARE_TEST(CopyOptions);
+    TSUNIT_DECLARE_TEST(HelpCustom);
+    TSUNIT_DECLARE_TEST(ValidCommandVariableArgs);
+    TSUNIT_DECLARE_TEST(ValidCommandArgcArgv);
+    TSUNIT_DECLARE_TEST(ValidCommandContainer);
+    TSUNIT_DECLARE_TEST(OptionalValue);
+    TSUNIT_DECLARE_TEST(ThousandsSeparator);
+    TSUNIT_DECLARE_TEST(MissingParameter);
+    TSUNIT_DECLARE_TEST(TooManyParameters);
+    TSUNIT_DECLARE_TEST(AmbiguousOption);
+    TSUNIT_DECLARE_TEST(InvalidIntegerOption);
+    TSUNIT_DECLARE_TEST(IntegerTooLow);
+    TSUNIT_DECLARE_TEST(IntegerTooHigh);
+    TSUNIT_DECLARE_TEST(InvalidEnum);
+    TSUNIT_DECLARE_TEST(ValidEnum);
+    TSUNIT_DECLARE_TEST(BitMask);
+    TSUNIT_DECLARE_TEST(GatherParameters);
+    TSUNIT_DECLARE_TEST(Redirection);
+    TSUNIT_DECLARE_TEST(Tristate);
+    TSUNIT_DECLARE_TEST(Ranges);
+    TSUNIT_DECLARE_TEST(Decimals);
+    TSUNIT_DECLARE_TEST(FixedPoint);
+    TSUNIT_DECLARE_TEST(Fraction);
+    TSUNIT_DECLARE_TEST(Double);
+    TSUNIT_DECLARE_TEST(Chrono);
+    TSUNIT_DECLARE_TEST(InvalidFraction);
+    TSUNIT_DECLARE_TEST(InvalidDouble);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testAccessors();
-    void testHelpDefault();
-    void testCopyOptions();
-    void testHelpCustom();
-    void testValidCommandVariableArgs();
-    void testValidCommandArgcArgv();
-    void testValidCommandContainer();
-    void testOptionalValue();
-    void testThousandsSeparator();
-    void testMissingParameter();
-    void testTooManyParameters();
-    void testAmbiguousOption();
-    void testInvalidIntegerOption();
-    void testIntegerTooLow();
-    void testIntegerTooHigh();
-    void testInvalidEnum();
-    void testValidEnum();
-    void testBitMask();
-    void testGatherParameters();
-    void testRedirection();
-    void testTristate();
-    void testRanges();
-    void testDecimals();
-    void testFixedPoint();
-    void testFraction();
-    void testDouble();
-    void testInvalidFraction();
-    void testInvalidDouble();
-
-    TSUNIT_TEST_BEGIN(ArgsTest);
-    TSUNIT_TEST(testAccessors);
-    TSUNIT_TEST(testHelpDefault);
-    TSUNIT_TEST(testCopyOptions);
-    TSUNIT_TEST(testHelpCustom);
-    TSUNIT_TEST(testValidCommandVariableArgs);
-    TSUNIT_TEST(testValidCommandArgcArgv);
-    TSUNIT_TEST(testValidCommandContainer);
-    TSUNIT_TEST(testOptionalValue);
-    TSUNIT_TEST(testThousandsSeparator);
-    TSUNIT_TEST(testMissingParameter);
-    TSUNIT_TEST(testTooManyParameters);
-    TSUNIT_TEST(testAmbiguousOption);
-    TSUNIT_TEST(testInvalidIntegerOption);
-    TSUNIT_TEST(testIntegerTooLow);
-    TSUNIT_TEST(testIntegerTooHigh);
-    TSUNIT_TEST(testInvalidEnum);
-    TSUNIT_TEST(testValidEnum);
-    TSUNIT_TEST(testBitMask);
-    TSUNIT_TEST(testGatherParameters);
-    TSUNIT_TEST(testRedirection);
-    TSUNIT_TEST(testTristate);
-    TSUNIT_TEST(testRanges);
-    TSUNIT_TEST(testDecimals);
-    TSUNIT_TEST(testFixedPoint);
-    TSUNIT_TEST(testFraction);
-    TSUNIT_TEST(testDouble);
-    TSUNIT_TEST(testInvalidFraction);
-    TSUNIT_TEST(testInvalidDouble);
-    TSUNIT_TEST_END();
-
 private:
-    typedef ts::FloatingPoint<double> Double;
-    typedef ts::UStringVector USV;
-    ts::UString _tempFile1;
-    ts::UString _tempFile2;
+    using Double = ts::FloatingPoint<double>;
+    using USV = ts::UStringVector;
+    fs::path _tempFile1 {};
+    fs::path _tempFile2 {};
 };
 
 TSUNIT_REGISTER(ArgsTest);
@@ -127,13 +75,6 @@ TSUNIT_REGISTER(ArgsTest);
 //----------------------------------------------------------------------------
 // Initialization.
 //----------------------------------------------------------------------------
-
-// Constructor.
-ArgsTest::ArgsTest() :
-    _tempFile1(),
-    _tempFile2()
-{
-}
 
 // Test suite initialization method.
 void ArgsTest::beforeTest()
@@ -145,8 +86,8 @@ void ArgsTest::beforeTest()
 // Test suite cleanup method.
 void ArgsTest::afterTest()
 {
-    ts::DeleteFile(_tempFile1, NULLREP);
-    ts::DeleteFile(_tempFile2, NULLREP);
+    fs::remove(_tempFile1, &ts::ErrCodeReport());
+    fs::remove(_tempFile2, &ts::ErrCodeReport());
 }
 
 
@@ -155,7 +96,7 @@ void ArgsTest::afterTest()
 //----------------------------------------------------------------------------
 
 // Test case: basic accessors
-void ArgsTest::testAccessors()
+TSUNIT_DEFINE_TEST(Accessors)
 {
     ts::Args args(u"description", u"syntax", ts::Args::NO_EXIT_ON_ERROR | ts::Args::GATHER_PARAMETERS);
 
@@ -177,11 +118,11 @@ void ArgsTest::testAccessors()
 }
 
 // Test case: help text with default options
-void ArgsTest::testHelpDefault()
+TSUNIT_DEFINE_TEST(HelpDefault)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
-    args.redirectReport(&log);
+    args.delegateReport(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", USV({u"--help"})));
     TSUNIT_EQUAL(u"\n"
@@ -203,12 +144,15 @@ void ArgsTest::testHelpDefault()
                  u"  --verbose\n"
                  u"      Produce verbose output.\n"
                  u"\n"
-                 u"  --version\n"
-                 u"      Display the TSDuck version number.\n",
-                 log.getMessages());
+                 u"  --version[=name]\n"
+                 u"      Display the TSDuck version number.\n"
+                 u"      The 'name' must be one of \"acceleration\", \"all\", \"bitrate\", \"compiler\",\n"
+                 u"      \"crypto\", \"date\", \"dektec\", \"http\", \"integer\", \"long\", \"nsis\", \"rist\",\n"
+                 u"      \"short\", \"srt\", \"system\", \"vatek\".\n",
+                 log.messages());
 
     args.setShell(u"{shell}");
-    log.resetMessages();
+    log.clear();
     TSUNIT_ASSERT(!args.analyze(u"test", USV({u"--help"})));
     TSUNIT_EQUAL(u"\n"
                  u"{description}\n"
@@ -229,13 +173,16 @@ void ArgsTest::testHelpDefault()
                  u"  --verbose\n"
                  u"      Produce verbose output.\n"
                  u"\n"
-                 u"  --version\n"
-                 u"      Display the TSDuck version number.\n",
-                 log.getMessages());
+                 u"  --version[=name]\n"
+                 u"      Display the TSDuck version number.\n"
+                 u"      The 'name' must be one of \"acceleration\", \"all\", \"bitrate\", \"compiler\",\n"
+                 u"      \"crypto\", \"date\", \"dektec\", \"http\", \"integer\", \"long\", \"nsis\", \"rist\",\n"
+                 u"      \"short\", \"srt\", \"system\", \"vatek\".\n",
+                 log.messages());
 
-    log.resetMessages();
+    log.clear();
     TSUNIT_ASSERT(!args.analyze(u"test", USV({u"--version=short"})));
-    const ts::UString version(log.getMessages());
+    const ts::UString version(log.messages());
     debug() << "ArgsTest::testHelpDefault: version = \"" << version << "\"" << std::endl;
     const size_t dash = version.find(u'-');
     TSUNIT_ASSERT(dash != ts::NPOS);
@@ -243,14 +190,14 @@ void ArgsTest::testHelpDefault()
 }
 
 // Test case: copy options
-void ArgsTest::testCopyOptions()
+TSUNIT_DEFINE_TEST(CopyOptions)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     ts::Args args1(u"{description1}", u"{syntax1}", ts::Args::NO_EXIT_ON_ERROR);
     ts::Args args2(u"{description2}", u"{syntax2}", ts::Args::NO_EXIT_ON_ERROR);
 
-    args1.redirectReport(&log);
-    args2.redirectReport(&log);
+    args1.delegateReport(&log);
+    args2.delegateReport(&log);
 
     args1.option(u"opt1");
     args1.option(u"opt2", u'o', ts::Args::UNSIGNED);
@@ -270,7 +217,7 @@ namespace {
         explicit TestArgs(ts::Report* log) :
             ts::Args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS)
         {
-            redirectReport(log);
+            delegateReport(log);
             option(u"",      0,  ts::Args::STRING, 1, 2);
             option(u"opt1",  0,  ts::Args::NONE);
             option(u"opt2", 'a', ts::Args::STRING);
@@ -283,6 +230,7 @@ namespace {
             option(u"opt9", 'c', ts::Enumeration({{u"val1", 11}, {u"val2", 12}, {u"val3", 13}}));
             option(u"mask",  0,  ts::Enumeration({{u"bit1", 0x01}, {u"bit2", 0x02}, {u"bit3", 0x04}}), 0, ts::Args::UNLIMITED_COUNT);
             option(u"opt10", 0,  ts::Args::UNSIGNED, 0, ts::Args::UNLIMITED_COUNT, 0, 0, false, 3);
+            option<cn::seconds>(u"opt11");
 
             help(u"", u"The parameters");
             help(u"opt1", u"No value.");
@@ -296,89 +244,96 @@ namespace {
             help(u"opt9", u"Enumeration.");
             help(u"mask", u"Enumeration, unlimited count.");
             help(u"opt10", u"Unsigned int 3 decimal digits.");
+            help(u"opt11", u"Number of seconds.");
         }
     };
 }
 
 // Test case: help text of a custom commmand.
-void ArgsTest::testHelpCustom()
+TSUNIT_DEFINE_TEST(HelpCustom)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", USV({u"--help"})));
     TSUNIT_EQUAL(u"\n"
-        u"{description}\n"
-        u"\n"
-        u"Usage: test {syntax}\n"
-        u"\n"
-        u"Parameters:\n"
-        u"\n"
-        u"  The parameters\n"
-        u"\n"
-        u"Options:\n"
-        u"\n"
-        u"  -d[level]\n"
-        u"  --debug[=level]\n"
-        u"      Produce debug traces. The default level is 1. Higher levels produce more\n"
-        u"      messages.\n"
-        u"\n"
-        u"  --help\n"
-        u"      Display this help text.\n"
-        u"\n"
-        u"  --mask value\n"
-        u"      Enumeration, unlimited count.\n"
-        u"      Must be one of \"bit1\", \"bit2\", \"bit3\".\n"
-        u"\n"
-        u"  --opt1\n"
-        u"      No value.\n"
-        u"\n"
-        u"  --opt10 value\n"
-        u"      Unsigned int 3 decimal digits.\n"
-        u"      The value may include up to 3 meaningful decimal digits.\n"
-        u"\n"
-        u"  -a value\n"
-        u"  --opt2 value\n"
-        u"      String value.\n"
-        u"\n"
-        u"  --opt3 value\n"
-        u"      Integer from -4 to 7, unlimited count.\n"
-        u"\n"
-        u"  --opt4 value\n"
-        u"      Integer from 0 to 2.\n"
-        u"\n"
-        u"  -5 value\n"
-        u"  --opt5 value\n"
-        u"      Positive integer, unlimited count.\n"
-        u"\n"
-        u"  -b value\n"
-        u"  --opt6 value\n"
-        u"      Unsigned int, 8 bits.\n"
-        u"\n"
-        u"  --opt7 value\n"
-        u"      Unsigned int, 16 bits.\n"
-        u"\n"
-        u"  --opt8[=value]\n"
-        u"      Unsigned int, 32 bits, optional value.\n"
-        u"\n"
-        u"  -c value\n"
-        u"  --opt9 value\n"
-        u"      Enumeration.\n"
-        u"      Must be one of \"val1\", \"val2\", \"val3\".\n"
-        u"\n"
-        u"  -v\n"
-        u"  --verbose\n"
-        u"      Produce verbose output.\n"
-        u"\n"
-        u"  --version\n"
-        u"      Display the TSDuck version number.\n",
-        log.getMessages());
+                 u"{description}\n"
+                 u"\n"
+                 u"Usage: test {syntax}\n"
+                 u"\n"
+                 u"Parameters:\n"
+                 u"\n"
+                 u"  The parameters\n"
+                 u"\n"
+                 u"Options:\n"
+                 u"\n"
+                 u"  -d[level]\n"
+                 u"  --debug[=level]\n"
+                 u"      Produce debug traces. The default level is 1. Higher levels produce more\n"
+                 u"      messages.\n"
+                 u"\n"
+                 u"  --help\n"
+                 u"      Display this help text.\n"
+                 u"\n"
+                 u"  --mask value\n"
+                 u"      Enumeration, unlimited count.\n"
+                 u"      The 'value' must be one of \"bit1\", \"bit2\", \"bit3\".\n"
+                 u"\n"
+                 u"  --opt1\n"
+                 u"      No value.\n"
+                 u"\n"
+                 u"  --opt10 value\n"
+                 u"      Unsigned int 3 decimal digits.\n"
+                 u"      The value may include up to 3 meaningful decimal digits.\n"
+                 u"\n"
+                 u"  --opt11 seconds\n"
+                 u"      Number of seconds.\n"
+                 u"\n"
+                 u"  -a value\n"
+                 u"  --opt2 value\n"
+                 u"      String value.\n"
+                 u"\n"
+                 u"  --opt3 value\n"
+                 u"      Integer from -4 to 7, unlimited count.\n"
+                 u"\n"
+                 u"  --opt4 value\n"
+                 u"      Integer from 0 to 2.\n"
+                 u"\n"
+                 u"  -5 value\n"
+                 u"  --opt5 value\n"
+                 u"      Positive integer, unlimited count.\n"
+                 u"\n"
+                 u"  -b value\n"
+                 u"  --opt6 value\n"
+                 u"      Unsigned int, 8 bits.\n"
+                 u"\n"
+                 u"  --opt7 value\n"
+                 u"      Unsigned int, 16 bits.\n"
+                 u"\n"
+                 u"  --opt8[=value]\n"
+                 u"      Unsigned int, 32 bits, optional value.\n"
+                 u"\n"
+                 u"  -c value\n"
+                 u"  --opt9 value\n"
+                 u"      Enumeration.\n"
+                 u"      The 'value' must be one of \"val1\", \"val2\", \"val3\".\n"
+                 u"\n"
+                 u"  -v\n"
+                 u"  --verbose\n"
+                 u"      Produce verbose output.\n"
+                 u"\n"
+                 u"  --version[=name]\n"
+                 u"      Display the TSDuck version number.\n"
+                 u"      The 'name' must be one of \"acceleration\", \"all\", \"bitrate\", \"compiler\",\n"
+                 u"      \"crypto\", \"date\", \"dektec\", \"http\", \"integer\", \"long\", \"nsis\", \"rist\",\n"
+                 u"      \"short\", \"srt\", \"system\", \"vatek\".\n",
+                 log.messages());
 }
 
 // Test case: analyze valid command, get option values, use analyze() with variable length argument list
-void ArgsTest::testValidCommandVariableArgs()
+TSUNIT_DEFINE_TEST(ValidCommandVariableArgs)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"--opt3", u"6", u"a", u"--opt1", u"b", u"--opt9", u"val2", u"--opt3", u"0", u"--opt3", u"6"}));
@@ -448,9 +403,9 @@ void ArgsTest::testValidCommandVariableArgs()
 }
 
 // Test case: analyze valid command, get option values, use analyze() with argc, argv parameters.
-void ArgsTest::testValidCommandArgcArgv()
+TSUNIT_DEFINE_TEST(ValidCommandArgcArgv)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     char* argv[] = {
@@ -522,9 +477,9 @@ void ArgsTest::testValidCommandArgcArgv()
 }
 
 // Test case: analyze valid command, get option values, use analyze() with container of arguments
-void ArgsTest::testValidCommandContainer()
+TSUNIT_DEFINE_TEST(ValidCommandContainer)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     ts::UStringVector arguments;
@@ -594,9 +549,9 @@ void ArgsTest::testValidCommandContainer()
 }
 
 // Test case: presence of thousands separator
-void ArgsTest::testThousandsSeparator()
+TSUNIT_DEFINE_TEST(ThousandsSeparator)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"a", u"-5", u"2000", u"--opt5=3,000", u"-50x4,000", u"-5", u"80 000", u"-5", u"2,000 000"}));
@@ -610,9 +565,9 @@ void ArgsTest::testThousandsSeparator()
 
 
 // Test case: syntax of optional values
-void ArgsTest::testOptionalValue()
+TSUNIT_DEFINE_TEST(OptionalValue)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"a", u"--opt8", u"2"}));
@@ -627,86 +582,86 @@ void ArgsTest::testOptionalValue()
 }
 
 // Test case:
-void ArgsTest::testMissingParameter()
+TSUNIT_DEFINE_TEST(MissingParameter)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", USV({u"--opt1"})));
     debug() << "ArgsTest: testMissingParameter: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: missing parameter", log.getMessages());
+    TSUNIT_EQUAL(u"Error: missing parameter", log.messages());
 }
 
 // Test case:
-void ArgsTest::testTooManyParameters()
+TSUNIT_DEFINE_TEST(TooManyParameters)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"a", u"b", u"c"}));
     debug() << "ArgsTest: testTooManyParameters: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: too many parameter, 2 maximum", log.getMessages());
+    TSUNIT_EQUAL(u"Error: too many parameter, 2 maximum", log.messages());
 }
 
 // Test case:
-void ArgsTest::testAmbiguousOption()
+TSUNIT_DEFINE_TEST(AmbiguousOption)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt", u"a", u"b"}));
     debug() << "ArgsTest: testAmbiguousOption: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: ambiguous option --opt (--opt1, --opt10)", log.getMessages());
+    TSUNIT_EQUAL(u"Error: ambiguous option --opt (--opt1, --opt10)", log.messages());
 }
 
 // Test case:
-void ArgsTest::testInvalidIntegerOption()
+TSUNIT_DEFINE_TEST(InvalidIntegerOption)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt3", u"x", u"a", u"b"}));
     debug() << "ArgsTest: testInvalidIntegerOption: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: invalid integer value x for option --opt3", log.getMessages());
+    TSUNIT_EQUAL(u"Error: invalid integer value x for option --opt3", log.messages());
 }
 
 // Test case:
-void ArgsTest::testIntegerTooLow()
+TSUNIT_DEFINE_TEST(IntegerTooLow)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt3", u"-10", u"a", u"b"}));
     debug() << "ArgsTest: testIntegerTooLow: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: value for option --opt3 must be >= -4", log.getMessages());
+    TSUNIT_EQUAL(u"Error: value for option --opt3 must be >= -4", log.messages());
 }
 
 // Test case:
-void ArgsTest::testIntegerTooHigh()
+TSUNIT_DEFINE_TEST(IntegerTooHigh)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test --opt3 10 a b"));
     debug() << "ArgsTest: testIntegerTooHigh: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: value for option --opt3 must be <= 7", log.getMessages());
+    TSUNIT_EQUAL(u"Error: value for option --opt3 must be <= 7", log.messages());
 }
 
 // Test case:
-void ArgsTest::testInvalidEnum()
+TSUNIT_DEFINE_TEST(InvalidEnum)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(!args.analyze(u"test --opt9 x a b"));
     debug() << "ArgsTest: testInvalidEnum: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: invalid value x for option --opt9 (-c), use one of \"val1\", \"val2\", \"val3\"", log.getMessages());
+    TSUNIT_EQUAL(u"Error: invalid value x for option --opt9 (-c), use one of \"val1\", \"val2\", \"val3\"", log.messages());
 }
 
 // Test case:
-void ArgsTest::testValidEnum()
+TSUNIT_DEFINE_TEST(ValidEnum)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"--opt9", u"0x20", u"a", u"b"}));
@@ -714,9 +669,9 @@ void ArgsTest::testValidEnum()
 }
 
 // Test case: bitmask of integer values.
-void ArgsTest::testBitMask()
+TSUNIT_DEFINE_TEST(BitMask)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     TestArgs args(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", USV({u"a"})));
@@ -730,11 +685,11 @@ void ArgsTest::testBitMask()
 }
 
 // Test case: "gather parameters" option
-void ArgsTest::testGatherParameters()
+TSUNIT_DEFINE_TEST(GatherParameters)
 {
-    ts::ReportBuffer<> log;
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
     ts::Args args(u"description", u"syntax", ts::Args::NO_EXIT_ON_ERROR | ts::Args::GATHER_PARAMETERS);
-    args.redirectReport(&log);
+    args.delegateReport(&log);
 
     args.option(u"");
     args.option(u"opt1");
@@ -756,7 +711,7 @@ void ArgsTest::testGatherParameters()
 }
 
 // Test case: redirect parameters from file
-void ArgsTest::testRedirection()
+TSUNIT_DEFINE_TEST(Redirection)
 {
     TestArgs args(&CERR);
 
@@ -782,7 +737,7 @@ void ArgsTest::testRedirection()
 }
 
 // Test case: tristate parameters.
-void ArgsTest::testTristate()
+TSUNIT_DEFINE_TEST(Tristate)
 {
     ts::Args args(u"description", u"syntax", ts::Args::NO_EXIT_ON_ERROR | ts::Args::GATHER_PARAMETERS);
     args.option(u"opt1", 0, ts::Args::TRISTATE);
@@ -816,15 +771,15 @@ void ArgsTest::testTristate()
 }
 
 // Test case: ranges of integer values.
-void ArgsTest::testRanges()
+TSUNIT_DEFINE_TEST(Ranges)
 {
     ts::Args args(u"description", u"syntax", ts::Args::NO_EXIT_ON_ERROR);
     args.option(u"opt1", 0, ts::Args::UINT8, 0, ts::Args::UNLIMITED_COUNT);
     args.option(u"opt2", 0, ts::Args::UINT8, 0, 3, 0, 100);
     args.option(u"opt3", 0, ts::Args::INTEGER, 0, ts::Args::UNLIMITED_COUNT, 0, ts::Args::UNLIMITED_VALUE, true);
 
-    ts::ReportBuffer<> log;
-    args.redirectReport(&log);
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
+    args.delegateReport(&log);
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"--opt1", u"0", u"--opt1", u"1,0-0x00C", u"--opt1", u"4,7"}));
     TSUNIT_ASSERT(args.present(u"opt1"));
@@ -839,7 +794,7 @@ void ArgsTest::testRanges()
     TSUNIT_EQUAL(-1, args.intValue<int>(u"opt1", -1, 5));
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt2", u"1", u"--opt2", u"10-12"}));
-    TSUNIT_EQUAL(u"Error: too many option --opt2, 3 maximum", log.getMessages());
+    TSUNIT_EQUAL(u"Error: too many option --opt2, 3 maximum", log.messages());
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"--opt2", u"1", u"--opt2", u"10-11"}));
     TSUNIT_EQUAL(3, args.count(u"opt2"));
@@ -860,7 +815,7 @@ void ArgsTest::testRanges()
 }
 
 // Test case: decimal values.
-void ArgsTest::testDecimals()
+TSUNIT_DEFINE_TEST(Decimals)
 {
     TestArgs args(&CERR);
 
@@ -874,12 +829,12 @@ void ArgsTest::testDecimals()
 }
 
 // Test case: fixed point types.
-void ArgsTest::testFixedPoint()
+TSUNIT_DEFINE_TEST(FixedPoint)
 {
-    typedef ts::FixedPoint<int32_t, 3> Fixed;
+    using Fixed = ts::FixedPoint<int32_t, 3>;
 
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
-    args.redirectReport(&CERR);
+    args.delegateReport(&CERR);
     args.option<Fixed>(u"");
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"34", u"0.1", u"12.345678"}));
@@ -896,12 +851,12 @@ void ArgsTest::testFixedPoint()
 }
 
 // Test case: fraction types.
-void ArgsTest::testFraction()
+TSUNIT_DEFINE_TEST(Fraction)
 {
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
 
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
-    args.redirectReport(&CERR);
+    args.delegateReport(&CERR);
     args.option<Frac>(u"");
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"1", u" -2", u"12/345", u" -6/12"}));
@@ -927,10 +882,10 @@ void ArgsTest::testFraction()
 }
 
 // Test case: floating-point types.
-void ArgsTest::testDouble()
+TSUNIT_DEFINE_TEST(Double)
 {
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
-    args.redirectReport(&CERR);
+    args.delegateReport(&CERR);
     args.option<Double>(u"");
 
     TSUNIT_ASSERT(args.analyze(u"test", {u"1", u"2.56", u"0", u" -6.12"}));
@@ -942,32 +897,70 @@ void ArgsTest::testDouble()
     TSUNIT_EQUAL(-6.12, args.numValue<Double>(u"", 0, 3).toDouble());
 }
 
+// Test case: std::chrono::duration types.
+TSUNIT_DEFINE_TEST(Chrono)
+{
+    ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
+    args.delegateReport(&CERR);
+    args.option<cn::seconds>(u"foo", 0, 0, ts::Args::UNLIMITED_COUNT);
+
+    TSUNIT_ASSERT(args.analyze(u"test", {u"--foo", u"23", u"--foo", u"6"}));
+    TSUNIT_EQUAL(2, args.count(u"foo"));
+
+    cn::seconds s;
+    cn::milliseconds ms;
+
+    args.getChronoValue(s, u"foo");
+    TSUNIT_EQUAL(23, s.count());
+
+    args.getChronoValue(ms, u"foo");
+    TSUNIT_EQUAL(23'000, ms.count());
+
+    args.getChronoValue(s, u"foo", 1);
+    TSUNIT_EQUAL(6, s.count());
+
+    args.getChronoValue(ms, u"foo", 1);
+    TSUNIT_EQUAL(6'000, ms.count());
+
+    args.getChronoValue(s, u"foo", 2);
+    TSUNIT_EQUAL(0, s.count());
+
+    args.getChronoValue(ms, u"foo", 2);
+    TSUNIT_EQUAL(0, ms.count());
+
+    args.getChronoValue(s, u"foo", cn::minutes(1), 2);
+    TSUNIT_EQUAL(60, s.count());
+
+    args.getChronoValue(ms, u"foo", cn::minutes(1), 2);
+    TSUNIT_EQUAL(60'000, ms.count());
+}
+
 // Test case:
-void ArgsTest::testInvalidFraction()
+TSUNIT_DEFINE_TEST(InvalidFraction)
 {
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
 
-    ts::ReportBuffer<> log;
-    args.redirectReport(&log);
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
+    args.delegateReport(&log);
 
-    typedef ts::Fraction<int32_t> Frac;
+    using Frac = ts::Fraction<int32_t>;
     args.option<Frac>(u"opt");
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt", u"foo"}));
     debug() << "ArgsTest: testInvalidFraction: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: invalid value foo for option --opt", log.getMessages());
+    TSUNIT_EQUAL(u"Error: invalid value foo for option --opt", log.messages());
 }
 
 // Test case:
-void ArgsTest::testInvalidDouble()
+TSUNIT_DEFINE_TEST(InvalidDouble)
 {
     ts::Args args(u"{description}", u"{syntax}", ts::Args::NO_EXIT_ON_ERROR | ts::Args::NO_EXIT_ON_HELP | ts::Args::NO_EXIT_ON_VERSION | ts::Args::HELP_ON_THIS);
 
-    ts::ReportBuffer<> log;
-    args.redirectReport(&log);
+    ts::ReportBuffer<ts::ThreadSafety::None> log;
+    args.delegateReport(&log);
     args.option<Double>(u"opt", 0, 0, 1, 12, 15);
 
     TSUNIT_ASSERT(!args.analyze(u"test", {u"--opt", u"2.3"}));
     debug() << "ArgsTest: testInvalidDouble: \"" << log << "\"" << std::endl;
-    TSUNIT_EQUAL(u"Error: value for option --opt must be in range 12 to 15", log.getMessages());
+    TSUNIT_EQUAL(u"Error: value for option --opt must be in range 12 to 15", log.messages());
 }

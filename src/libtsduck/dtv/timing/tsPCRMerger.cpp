@@ -1,33 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPCRMerger.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -36,9 +16,6 @@
 
 ts::PCRMerger::PCRMerger(DuckContext& duck) :
     _duck(duck),
-    _incremental_pcr(false),
-    _pcr_reset_backwards(false),
-    _pid_ctx(),
     _demux(duck, this)
 
 {
@@ -48,15 +25,7 @@ ts::PCRMerger::PCRMerger(DuckContext& duck) :
 
 ts::PCRMerger::PIDContext::PIDContext(PID p) :
     pid(p),
-    pcr_pid(p),  // each PID is its own PCR PID until proven otherwise in a PMT
-    first_pcr(INVALID_PCR),
-    first_pcr_pkt(0),
-    last_pcr(INVALID_PCR),
-    last_pcr_pkt(0),
-    last_pts(INVALID_PTS),
-    last_pts_pkt(0),
-    last_dts(INVALID_DTS),
-    last_dts_pkt(0)
+    pcr_pid(p)  // each PID is its own PCR PID until proven otherwise in a PMT
 {
 }
 
@@ -143,7 +112,7 @@ void ts::PCRMerger::processPacket(ts::TSPacket& pkt, ts::PacketCounter main_pack
                         update_pcr = false;
                         ctx->first_pcr = ctx->last_pcr = pcr;
                         ctx->first_pcr_pkt = ctx->last_pcr_pkt = main_packet_index;
-                        _duck.report().verbose(u"resetting PCR restamping in PID 0x%X (%<d) after DTS/PTS moved backwards restamped PCR", {pid});
+                        _duck.report().verbose(u"resetting PCR restamping in PID %n after DTS/PTS moved backwards restamped PCR", pid);
                     }
                 }
             }
@@ -152,13 +121,13 @@ void ts::PCRMerger::processPacket(ts::TSPacket& pkt, ts::PacketCounter main_pack
         // Update the PCR in the packet if required.
         if (update_pcr) {
             // Compute the offset between the adjusted PCR (ctx->last_pcr) and the PCR from the packet (pcr).
-            const SubSecond moved = SubSecond(ctx->last_pcr) - SubSecond(pcr);
+            const std::intmax_t moved = std::intmax_t(ctx->last_pcr) - std::intmax_t(pcr);
             // If the jump is too high (1 second), there must be some discontinuity in the original PCR.
-            if (std::abs(moved) >= SubSecond(SYSTEM_CLOCK_FREQ)) {
+            if (std::abs(moved) >= std::intmax_t(SYSTEM_CLOCK_FREQ)) {
                 // Too high, reset PCR adjustment.
                 ctx->first_pcr = ctx->last_pcr = pcr;
                 ctx->first_pcr_pkt = ctx->last_pcr_pkt = main_packet_index;
-                _duck.report().verbose(u"resetting PCR restamping in PID 0x%X (%<d) after possible discontinuity in original PCR", {pid});
+                _duck.report().verbose(u"resetting PCR restamping in PID %n after possible discontinuity in original PCR", pid);
             }
             else {
                 pkt.setPCR(ctx->last_pcr);
@@ -166,7 +135,7 @@ void ts::PCRMerger::processPacket(ts::TSPacket& pkt, ts::PacketCounter main_pack
                 // This may go back and forth around zero but should never diverge (--pcr-reset-backwards case).
                 // Report it at debug level 2 only since it occurs on almost all merged packets with PCR.
                 if (_duck.report().maxSeverity() >= 2) {
-                    _duck.report().log(2, u"adjusted PCR by %+'d (%+'d ms) in PID 0x%X (%<d)", {moved, (moved * MilliSecPerSec) / SYSTEM_CLOCK_FREQ, pid});
+                    _duck.report().log(2, u"adjusted PCR by %+'d (%+'!s) in PID %n", moved, cn::duration_cast<cn::milliseconds>(PCR(moved)), pid);
                 }
             }
         }
@@ -180,14 +149,14 @@ void ts::PCRMerger::processPacket(ts::TSPacket& pkt, ts::PacketCounter main_pack
 
 void ts::PCRMerger::handlePMT(const PMT& pmt, PID pid)
 {
-    _duck.report().debug(u"got PMT for service 0x%X (%<d), PMT PID 0x%X (%<d), PCR PID 0x%X (%<d)", {pmt.service_id, pid, pmt.pcr_pid});
+    _duck.report().debug(u"got PMT for service %n, PMT PID %n, PCR PID %n", pmt.service_id, pid, pmt.pcr_pid);
 
     // Record the PCR PID for each component in the service.
     if (pmt.pcr_pid != PID_NULL) {
-        for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-            // it->first is the PID of the component
-            getContext(it->first)->pcr_pid = pmt.pcr_pid;
-            _duck.report().debug(u"associating PID 0x%X (%<d) to PCR PID 0x%X (%<d)", {it->first, pmt.pcr_pid});
+        for (const auto& it : pmt.streams) {
+            // it.first is the PID of the component
+            getContext(it.first)->pcr_pid = pmt.pcr_pid;
+            _duck.report().debug(u"associating PID %n to PCR PID %n", it.first, pmt.pcr_pid);
         }
     }
 }
@@ -205,7 +174,7 @@ ts::PCRMerger::PIDContextPtr ts::PCRMerger::getContext(PID pid)
     }
     else {
         PIDContextPtr ptr(new PIDContext(pid));
-        CheckNonNull(ptr.pointer());
+        CheckNonNull(ptr.get());
         _pid_ctx[pid] = ptr;
         return ptr;
     }

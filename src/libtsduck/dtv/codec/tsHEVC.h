@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -105,4 +84,40 @@ namespace ts {
         HEVC_PIC_TYPE_IP  = 1,  //!< HEVC picture with slice types I or P
         HEVC_PIC_TYPE_IPB = 2,  //!< HEVC picture with slice types I, P or B
     };
+
+    //!
+    //! Maximimum value for HEVC num_short_term_ref_pic_sets.
+    //! ITU-T Rec. H.265, section 7.4.3.2.1: "The value of num_short_term_ref_pic_sets shall be in the range of 0 to 64, inclusive".
+    //!
+    constexpr size_t HEVC_MAX_NUM_SHORT_TERM_REF_PIC_SETS = 64;
+    //!
+    //! Maximimum value for HEVC maxNumSubLayersMinus1.
+    //! Could not find the official limit. Define an arbitrary limit to avoid overflow.
+    //!
+    constexpr size_t HEVC_MAX_MAXNUMSUBLAYERSMINUS1 = 64;
+    //!
+    //! Maximimum value for HEVC cpb_cnt_minus1.
+    //! ITU-T Rec. H.265, section E.3.2: "The value of cpb_cnt_minus1 shall be in the range of 0 to 31, inclusive".
+    //!
+    constexpr size_t HEVC_MAX_CPB_CNT_MINUS1 = 31;
+    //!
+    //! Maximimum value for HEVC MaxDpbSize.
+    //! ITU-T Rec. H.265, section A.4.2: MaxDpbSize is derived from an algorithm where it is the minimum of 16 and some other value.
+    //!
+    constexpr size_t HEVC_MAX_MAXDPBSIZE = 16;
+    //!
+    //! Maximimum value for HEVC sps_max_dec_pic_buffering_minus1.
+    //! ITU-T Rec. H.265, section 7.4.3.2.1: "The value of sps_max_dec_pic_buffering_minus1 shall be in the range of 0 to MaxDpbSize−1"
+    //!
+    constexpr size_t HEVC_MAX_SPS_MAX_DEC_PIC_BUFFERING_MINUS1 = HEVC_MAX_MAXDPBSIZE - 1;
+    //!
+    //! Maximimum value for HEVC num_negative_pics and num_positive_pics.
+    //! ITU-T Rec. H.265, section 7.4.8: "the value of num_positive_pics|num_negative_pics shall be in the range of 0 to sps_max_dec_pic_buffering_minus1"
+    //!
+    constexpr size_t HEVC_MAX_NUM_PICS = HEVC_MAX_SPS_MAX_DEC_PIC_BUFFERING_MINUS1;
+    //!
+    //! Maximimum value for HEVC NumDeltaPocs and num_positive_pics.
+    //! ITU-T Rec. H.265, section 7.4.8: "NumDeltaPocs is derived as follows: NumDeltaPocs = NumNegativePics + NumPositivePics"
+    //!
+    constexpr size_t HEVC_MAX_NUMDELTAPOCS = 2 * HEVC_MAX_NUM_PICS;
 }

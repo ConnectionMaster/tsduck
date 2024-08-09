@@ -1,35 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsThread.h"
-#include "tsThreadLocalObjects.h"
-#include "tsGuardMutex.h"
 #include "tsMemory.h"
 #include "tsSysUtils.h"
 #include "tsSysInfo.h"
@@ -39,6 +16,10 @@
     #include "tsBeforeStandardHeaders.h"
     #include <sys/prctl.h>
     #include "tsAfterStandardHeaders.h"
+#endif
+
+#if defined(TS_NETBSD) && !defined(PTHREAD_STACK_MIN)
+    #define PTHREAD_STACK_MIN (::sysconf(_SC_THREAD_STACK_MIN))
 #endif
 
 
@@ -52,37 +33,29 @@ ts::Thread::Thread() :
 }
 
 ts::Thread::Thread(const ThreadAttributes& attributes) :
-    _attributes(attributes),
-    _mutex(),
-    _typename(),
-    _started(false),
-    _waiting(false),
-#if defined(TS_WINDOWS)
-    _handle(INVALID_HANDLE_VALUE),
-    _thread_id(0)
-#else
-#if defined(GPROF)
-    // When using gprof, get the initial profiling timer.
-    _itimer(),
-    _itimer_valid(::getitimer(ITIMER_PROF, &_itimer) == 0),
-#endif
-    _pthread()
-#endif
+    _attributes(attributes)
 {
+#if !defined(TS_WINDOWS) &&  defined(GPROF)
+    // When using gprof, get the initial profiling timer.
+    _itimer_valid = ::getitimer(ITIMER_PROF, &_itimer) == 0;
+#endif
 }
 
 ts::Thread::~Thread()
 {
     // Make sure that the parent class has completed the waitForTermination() or has never started the thread.
-    // First, get the started attribute but release
-    GuardMutex lock(_mutex);
+    // Get the mutex on checking the started flag but release it before waiting.
+    _mutex.lock();
     if (_started) {
         std::cerr << std::endl
                   << "*** Internal error, Thread subclass \"" << _typename
                   << "\" did not wait for its termination, probably safe, maybe not..."
                   << std::endl << std::endl << std::flush;
-        lock.unlock();
+        _mutex.unlock();
         waitForTermination();
+    }
+    else {
+        _mutex.unlock();
     }
 }
 
@@ -93,14 +66,14 @@ ts::Thread::~Thread()
 
 ts::UString ts::Thread::getTypeName() const
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     const UString name(_typename);
     return name;
 }
 
 void ts::Thread::setTypeName(const UString& name)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     if (!name.empty()) {
         // An actual name is given, use it.
         _typename = name;
@@ -134,7 +107,7 @@ void ts::Thread::Yield()
 
 void ts::Thread::getAttributes(ThreadAttributes& attributes)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     attributes = _attributes;
 }
 
@@ -145,9 +118,8 @@ void ts::Thread::getAttributes(ThreadAttributes& attributes)
 
 bool ts::Thread::setAttributes(const ThreadAttributes& attributes)
 {
-    GuardMutex lock(_mutex);
-
     // New attributes are accepted as long as we did not start
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     if (_started) {
         return false;
     }
@@ -165,7 +137,7 @@ bool ts::Thread::setAttributes(const ThreadAttributes& attributes)
 bool ts::Thread::isCurrentThread() const
 {
     // Critical section on flags
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // We cannot be running in the thread if it is not started
     return _started && isCurrentThreadUnchecked();
@@ -193,7 +165,7 @@ bool ts::Thread::isCurrentThreadUnchecked() const
 bool ts::Thread::start()
 {
     // Critical section on flags
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // Void if already started
     if (_started) {
@@ -207,8 +179,8 @@ bool ts::Thread::start()
 
     // Windows implementation.
     // Create the thread in suspended state.
-    _handle = ::CreateThread(NULL, _attributes._stackSize, Thread::ThreadProc, this, CREATE_SUSPENDED, &_thread_id);
-    if (_handle == NULL) {
+    _handle = ::CreateThread(nullptr, _attributes._stackSize, Thread::ThreadProc, this, CREATE_SUSPENDED, &_thread_id);
+    if (_handle == nullptr) {
         return false;
     }
 
@@ -237,8 +209,8 @@ bool ts::Thread::start()
 
     // Set required stack size.
     if (_attributes._stackSize > 0) {
-        // Round to a multiple of the page size. This is required on MacOS.
-        const size_t size = round_up(std::max<size_t>(PTHREAD_STACK_MIN, _attributes._stackSize), SysInfo::Instance()->memoryPageSize());
+        // Round to a multiple of the page size. This is required on macOS.
+        const size_t size = round_up(std::max<size_t>(PTHREAD_STACK_MIN, _attributes._stackSize), SysInfo::Instance().memoryPageSize());
         if (::pthread_attr_setstacksize(&attr, size) != 0) {
             ::pthread_attr_destroy(&attr);
             return false;
@@ -295,7 +267,7 @@ bool ts::Thread::waitForTermination()
 {
     // Critical section on flags
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
 
         // Void if already terminated
         if (!_started) {
@@ -332,7 +304,7 @@ bool ts::Thread::waitForTermination()
 
     // Critical section on flags
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         _started = false;
         _waiting = false;
     }
@@ -348,20 +320,26 @@ bool ts::Thread::waitForTermination()
 void ts::Thread::mainWrapper()
 {
     // Set thread name. For debug or trace purpose only.
-    UString name(_attributes.getName());
-    if (name.empty()) {
-        name = _typename;
-        // Thread names are limited on some systems, remove unnecessary prefix.
-        if (name.startWith(u"ts::")) {
-            name.erase(0, 4);
+    UString name;
+    {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        name = _attributes.getName();
+        if (name.empty()) {
+            name = _typename;
+            // Thread names are limited on some systems, remove unnecessary prefix.
+            if (name.startWith(u"ts::")) {
+                name.erase(0, 4);
+            }
+            name.substitute(u"::", u".");
         }
-        name.substitute(u"::", u".");
     }
     if (!name.empty()) {
 #if defined(TS_LINUX)
         ::prctl(PR_SET_NAME, name.toUTF8().c_str());
 #elif defined(TS_MAC)
         ::pthread_setname_np(name.toUTF8().c_str());
+#elif defined(TS_FREEBSD) || defined(TS_DRAGONFLYBSD)
+        ::pthread_setname_np(_pthread, name.toUTF8().c_str());
 #elif defined(TS_WINDOWS)
         ::SetThreadDescription(::GetCurrentThread(), name.wc_str());
 #endif
@@ -372,8 +350,11 @@ void ts::Thread::mainWrapper()
     }
     catch (const std::exception& e) {
         std::cerr << "*** Internal error, thread aborted: " << e.what() << std::endl;
+        if (_attributes.getExitOnException()) {
+            std::cerr << "*** Aborting application" << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
     }
-    ThreadLocalObjects::Instance()->deleteLocalObjects();
 }
 
 #if defined(TS_WINDOWS)

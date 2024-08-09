@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -37,8 +16,6 @@
 #include "tstsswitchInputExecutor.h"
 #include "tstsswitchOutputExecutor.h"
 #include "tstsswitchEventDispatcher.h"
-#include "tsMutex.h"
-#include "tsCondition.h"
 #include "tsWatchDog.h"
 
 namespace ts {
@@ -188,22 +165,22 @@ namespace ts {
                 bool operator<(const Action& a) const;
             };
 
-            typedef std::set<Action> ActionSet;
-            typedef std::deque<Action> ActionQueue;
+            using ActionSet = std::set<Action>;
+            using ActionQueue = std::deque<Action>;
 
-            Report&                  _log;             // Asynchronous log report.
-            const InputSwitcherArgs& _opt;             // Command line options.
-            InputExecutorVector      _inputs;          // Input plugins threads.
-            OutputExecutor  _output;           // Output plugin thread.
-            EventDispatcher _eventDispatcher;  // External event dispatcher.
-            WatchDog        _receiveWatchDog;  // Handle reception timeout.
-            Mutex           _mutex;            // Global mutex, protect access to all subsequent fields.
-            Condition       _gotInput;         // Signaled each time an input plugin reports new packets.
-            size_t          _curPlugin;        // Index of current input plugin.
-            size_t          _curCycle;         // Current input cycle number.
-            volatile bool   _terminate;        // Terminate complete processing.
-            ActionQueue     _actions;          // Sequential queue list of actions to execute.
-            ActionSet       _events;           // Pending events, waiting to be cleared.
+            Report&                     _log;               // Asynchronous log report.
+            const InputSwitcherArgs&    _opt;               // Command line options.
+            InputExecutorVector         _inputs;            // Input plugins threads.
+            OutputExecutor              _output;            // Output plugin thread.
+            EventDispatcher             _eventDispatcher;   // External event dispatcher.
+            WatchDog                    _receiveWatchDog;   // Handle reception timeout.
+            std::recursive_mutex        _mutex {};          // Global mutex, protect access to all subsequent fields.
+            std::condition_variable_any _gotInput {};       // Signaled each time an input plugin reports new packets.
+            size_t                      _curPlugin = 0;     // Index of current input plugin.
+            size_t                      _curCycle = 0;      // Current input cycle number.
+            volatile bool               _terminate = false; // Terminate complete processing.
+            ActionQueue                 _actions {};        // Sequential queue list of actions to execute.
+            ActionSet                   _events {};         // Pending events, waiting to be cleared.
 
             // Names of actions for debug messages.
             static const Enumeration _actionNames;

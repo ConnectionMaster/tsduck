@@ -1,46 +1,23 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
+// Profiling and benchmark environment for transport stream processor.
+// Same command line syntax as tsp.
 //
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
+// Rationale: Using tsp to debug plugins is ok. But when it comes to
+// profiling, a heavily multi-threaded application such as tsp is not
+// convenient. Profiling tools are very bad with multi-threaded applications.
+// This test program does the same as tsp but in the main thread. This
+// is completely inappropriate for production and should be reserved to
+// plugin profiling or debugging.
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
-//
-//----------------------------------------------------------------------------
-//
-//  Profiling and benchmark environment for transport stream processor.
-//  Same command line syntax as tsp.
-//
-//  Rationale: Using tsp to debug plugins is ok. But when it comes to
-//  profiling, a heavily multi-threaded application such as tsp is not
-//  convenient. Profiling tools are very bad with multi-threaded applications.
-//  This test program does the same as tsp but in the main thread. This
-//  is completely inappropriate for production and should be reserved to
-//  plugin profiling or debugging.
-//
-//  Limitations:
-//  - Awful performances.
-//  - No support for joint termination.
-//  - Non-exhaustive error processing.
+// Limitations:
+// - Awful performances.
+// - No support for joint termination.
+// - Non-exhaustive error processing.
 //
 //----------------------------------------------------------------------------
 
@@ -63,23 +40,17 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        ts::DuckContext         duck;
-        size_t                  buffer_size;
-        ts::BitRate             fixed_bitrate;
-        ts::PluginOptions       input;
-        ts::PluginOptionsVector plugins;
-        ts::PluginOptions       output;
+        ts::DuckContext         duck {this};
+        size_t                  buffer_size = 0;
+        ts::BitRate             fixed_bitrate = 0;
+        ts::PluginOptions       input {};
+        ts::PluginOptionsVector plugins {};
+        ts::PluginOptions       output {};
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    ts::ArgsWithPlugins(0, 1, 0, UNLIMITED_COUNT, 0, 1, u"Mono-thread profiling and debugging environment for tsp plugins", u"[options]"),
-    duck(this),
-    buffer_size(0),
-    fixed_bitrate(0),
-    input(),
-    plugins(),
-    output()
+    ts::ArgsWithPlugins(0, 1, 0, UNLIMITED_COUNT, 0, 1, u"Mono-thread profiling and debugging environment for tsp plugins", u"[options]")
 {
     duck.defineArgsForCAS(*this);
     duck.defineArgsForCharset(*this);
@@ -135,32 +106,26 @@ namespace {
         virtual bool thisJointTerminated() const override { return false; }
 
     protected:
-        Options& _opt;          // Application options.
-        bool     _own_bitrate;  // This plugin manages its own bitrate (ie. does not get it from previous plugin).
-
-        // Inherited from Report (via TSP)
-        virtual void writeLog(int severity, const ts::UString& msg) override;
+        Options& _opt;              // Application options.
+        bool _own_bitrate = false;  // This plugin manages its own bitrate (ie. does not get it from previous plugin).
 
         // Update bitrate from previous plugin executor and from current plugin instance.
         void updateBitrateFromPrevious();
         void updateBitrateFromCurrent();
 
     private:
-        size_t          _index;        // Plugin index in the chain.
-        ts::UString     _name;         // Plugin name.
-        ts::Plugin*     _shlib;        // Plugin instance.
-        PluginExecutor* _previous;     // Previous plugin executor.
+        size_t          _index = 0;           // Plugin index in the chain.
+        ts::UString     _name {};             // Plugin name.
+        ts::Plugin*     _shlib = nullptr;     // Plugin instance.
+        PluginExecutor* _previous = nullptr;  // Previous plugin executor.
     };
 }
 
 // Constructor: allocate and start the plugin.
 PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previous) :
-    ts::TSP(opt.maxSeverity()),
+    ts::TSP(opt.maxSeverity(), ts::UString(), &opt),
     _opt(opt),
-    _own_bitrate(false),
     _index(index),
-    _name(),
-    _shlib(nullptr),
     _previous(previous)
 {
     const ts::UStringVector* args = nullptr;
@@ -172,7 +137,7 @@ PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previ
         shell_opt = u" -I";
         _name = _opt.input.name;
         args = &_opt.input.args;
-        ts::PluginRepository::InputPluginFactory allocator = ts::PluginRepository::Instance()->getInput(_name, _opt);
+        ts::PluginRepository::InputPluginFactory allocator = ts::PluginRepository::Instance().getInput(_name, _opt);
         if (allocator != nullptr) {
             _shlib = allocator(this);
         }
@@ -182,7 +147,7 @@ PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previ
         shell_opt = u" -P";
         _name = _opt.plugins[_index - 1].name;
         args = &_opt.plugins[_index - 1].args;
-        ts::PluginRepository::ProcessorPluginFactory allocator = ts::PluginRepository::Instance()->getProcessor(_name, _opt);
+        ts::PluginRepository::ProcessorPluginFactory allocator = ts::PluginRepository::Instance().getProcessor(_name, _opt);
         if (allocator != nullptr) {
             _shlib = allocator(this);
         }
@@ -192,7 +157,7 @@ PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previ
         shell_opt = u" -O";
         _name = _opt.output.name;
         args = &_opt.output.args;
-        ts::PluginRepository::OutputPluginFactory allocator = ts::PluginRepository::Instance()->getOutput(_name, _opt);
+        ts::PluginRepository::OutputPluginFactory allocator = ts::PluginRepository::Instance().getOutput(_name, _opt);
         if (allocator != nullptr) {
             _shlib = allocator(this);
         }
@@ -201,6 +166,9 @@ PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previ
         // Error message already displayed.
         return;
     }
+
+    // Prefix messages with plugin name.
+    setReportPrefix(_name + u": ");
 
     // Configure plugin object.
     _shlib->setShell(_opt.appName() + shell_opt);
@@ -215,7 +183,7 @@ PluginExecutor::PluginExecutor(Options& opt, size_t index, PluginExecutor* previ
 
     // Load arguments and start the plugin.
     if (!_shlib->getOptions() || !_shlib->start()) {
-        _opt.error(u"error starting plugin %s", {_name});
+        _opt.error(u"error starting plugin %s", _name);
     }
 }
 
@@ -226,12 +194,6 @@ PluginExecutor::~PluginExecutor()
         delete _shlib;
         _shlib = nullptr;
     }
-}
-
-// Plugin report handler: synchronous log.
-void PluginExecutor::writeLog(int severity, const ts::UString& msg)
-{
-    _opt.log(severity, _name + u": " + msg);
 }
 
 // Update bitrate from previous plugin executor.
@@ -308,7 +270,7 @@ size_t InputPluginExecutor::receive(ts::TSPacket* packets, ts::TSPacketMetadata*
             }
         }
         else {
-            error(u"synchronization lost after %'d packets, got 0x%X instead of 0x%X", {pluginPackets(), packets[n].b[0], ts::SYNC_BYTE});
+            error(u"synchronization lost after %'d packets, got 0x%X instead of 0x%X", pluginPackets(), packets[n].b[0], ts::SYNC_BYTE);
             _sync_lost = true;
             count = n;
         }

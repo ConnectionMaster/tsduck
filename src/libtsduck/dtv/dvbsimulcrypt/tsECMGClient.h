@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -40,8 +19,6 @@
 #include "tsECMGClientHandlerInterface.h"
 #include "tstlvConnection.h"
 #include "tsMessageQueue.h"
-#include "tsCondition.h"
-#include "tsMutex.h"
 #include "tsThread.h"
 
 namespace ts {
@@ -56,15 +33,17 @@ namespace ts {
     //!
     class TSDUCKDLL ECMGClient: private Thread
     {
-        TS_NOCOPY(ECMGClient);
+        TS_NOBUILD_NOCOPY(ECMGClient);
     public:
         //!
         //! Constructor.
+        //! @param [in] protocol Instance of ECMG <=> SCS protocol to use.
+        //! A reference to the protocol instance is kept inside the object.
         //! @param [in] extra_handler_stack_size If asynchronous ECM notification is used,
         //! an internal thread is created. This parameter gives the minimum amount of stack
         //! size for the execution of the handler. Zero for defaults.
         //!
-        ECMGClient(size_t extra_handler_stack_size = 0);
+        ECMGClient(const ecmgscs::Protocol& protocol, size_t extra_handler_stack_size = 0);
 
         //!
         //! Destructor.
@@ -104,7 +83,7 @@ namespace ts {
                          const ByteBlock& current_cw,
                          const ByteBlock& next_cw,
                          const ByteBlock& ac,
-                         uint16_t cp_duration,
+                         const ts::deciseconds& cp_duration,
                          ecmgscs::ECMResponse& response);
 
         //!
@@ -125,7 +104,7 @@ namespace ts {
                        const ByteBlock& current_cw,
                        const ByteBlock& next_cw,
                        const ByteBlock& ac,
-                       uint16_t cp_duration,
+                       const ts::deciseconds& cp_duration,
                        ECMGClientHandlerInterface* handler);
 
         //!
@@ -139,7 +118,7 @@ namespace ts {
         //! Check if the ECMG is connected.
         //! @return True if the ECMG is connected.
         //!
-        bool isConnected() const {return _state == CONNECTED;}
+        bool isConnected() const;
 
     private:
         // State of the client connection
@@ -153,28 +132,29 @@ namespace ts {
         };
 
         // Stack size for execution of the receiver thread
-        static const size_t RECEIVER_STACK_SIZE = 128 * 1024;
+        static constexpr size_t RECEIVER_STACK_SIZE = 128 * 1024;
 
         // Maximum number of messages in response queue
-        static const size_t RESPONSE_QUEUE_SIZE = 10;
+        static constexpr size_t RESPONSE_QUEUE_SIZE = 10;
 
         // Timeout for responses from ECMG (except ECM generation)
-        static const MilliSecond RESPONSE_TIMEOUT = 5000;
+        static constexpr cn::seconds RESPONSE_TIMEOUT = cn::seconds(5);
 
         // List of asynchronous ECM requests: key=cp_number, value=handler
-        typedef std::map <uint16_t, ECMGClientHandlerInterface*> AsyncRequests;
+        using AsyncRequests = std::map <uint16_t, ECMGClientHandlerInterface*>;
 
         // Private members
-        State                   _state;
-        const AbortInterface*   _abort;
-        tlv::Logger             _logger;
-        tlv::Connection <Mutex> _connection;     // connection with ECMG server
-        ecmgscs::ChannelStatus  _channel_status; // initial response to channel_setup
-        ecmgscs::StreamStatus   _stream_status;  // initial response to stream_setup
-        Mutex                   _mutex;          // exclusive access to protected fields
-        Condition               _work_to_do;     // notify receiver thread to do some work
-        AsyncRequests           _async_requests;
-        MessageQueue <tlv::Message, NullMutex> _response_queue;
+        const ecmgscs::Protocol&     _protocol;
+        volatile State               _state = INITIAL;
+        const AbortInterface*        _abort = nullptr;
+        tlv::Logger                  _logger {};
+        tlv::Connection<ThreadSafety::None> _connection {_protocol, true, 3}; // connection with ECMG server
+        ecmgscs::ChannelStatus       _channel_status {_protocol};   // initial response to channel_setup
+        ecmgscs::StreamStatus        _stream_status {_protocol};    // initial response to stream_setup
+        mutable std::recursive_mutex _mutex {};                     // exclusive access to protected fields
+        std::condition_variable_any  _work_to_do {};                // notify receiver thread to do some work
+        AsyncRequests                _async_requests {};
+        MessageQueue<tlv::Message>   _response_queue {RESPONSE_QUEUE_SIZE};
 
         // Build a CW_provision message.
         void buildCWProvision(ecmgscs::CWProvision& msg,
@@ -182,7 +162,7 @@ namespace ts {
                               const ByteBlock& current_cw,
                               const ByteBlock& next_cw,
                               const ByteBlock& ac,
-                              uint16_t cp_duration);
+                              const ts::deciseconds& cp_duration);
 
         // Receiver thread main code
         virtual void main() override;

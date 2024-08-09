@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -39,23 +18,12 @@ ts::AbstractTablePlugin::AbstractTablePlugin(TSP* tsp_,
                                              const UString& syntax,
                                              const UString& table_name,
                                              PID pid,
-                                             BitRate default_bitrate,
+                                             const BitRate& default_bitrate,
                                              const UString& new_table_help) :
     ProcessorPlugin(tsp_, description, syntax),
-    _abort(false),
     _table_name(table_name),
     _default_bitrate(default_bitrate),
     _pid(pid),
-    _found_pid(false),
-    _found_table(false),
-    _pkt_create(0),
-    _pkt_insert(0),
-    _create_after_ms(0),
-    _bitrate(0),
-    _inter_pkt(0),
-    _incr_version(false),
-    _set_version(false),
-    _new_version(0),
     _demux(duck, this),
     _pzer(duck, pid),
     _patch_xml(duck)
@@ -72,7 +40,7 @@ ts::AbstractTablePlugin::AbstractTablePlugin(TSP* tsp_,
          u"Create a new empty " + _table_name + u" if none was received after one second. This is "
          u"equivalent to --create-after 1000.");
 
-    option(u"create-after", 0, POSITIVE);
+    option<cn::milliseconds>(u"create-after");
     help(u"create-after",
          u"Create a new empty " + _table_name + u" if none was received after the specified number "
          u"of milliseconds. If the actual " + _table_name + u" is received later, it will be used "
@@ -102,16 +70,16 @@ ts::AbstractTablePlugin::AbstractTablePlugin(TSP* tsp_,
 
 bool ts::AbstractTablePlugin::getOptions()
 {
-    _incr_version = present(u"increment-version");
-    _create_after_ms = present(u"create") ? 1000 : intValue<MilliSecond>(u"create-after", 0);
     _set_version = present(u"new-version");
+    _incr_version = present(u"increment-version");
+    getChronoValue(_create_after_ms, u"create-after", cn::seconds(present(u"create") ? 1 : 0));
     getValue(_bitrate, u"bitrate", _default_bitrate);
     getIntValue(_inter_pkt, u"inter-packet", 0);
     getIntValue(_new_version, u"new-version", 0);
     bool ok = _patch_xml.loadArgs(duck, *this);
 
     if (present(u"create") && present(u"create-after")) {
-        tsp->error(u"options --create and --create-after are mutually exclusive");
+        error(u"options --create and --create-after are mutually exclusive");
         ok = false;
     }
 
@@ -169,12 +137,28 @@ void ts::AbstractTablePlugin::handleTable(SectionDemux& demux, const BinaryTable
         return;
     }
 
+    // Save table characteritics.
+    const bool is_short = intable.isShortSection();
+    const TID tid = intable.tableId();
+    const uint16_t etid = intable.tableIdExtension();
+
     // Build a modifiable version of the table.
     BinaryTable table(intable, ShareMode::SHARE);
 
     // Process XML patching.
     if (!_patch_xml.applyPatches(table)) {
         return; // error displayed in applyPatches()
+    }
+
+    // If the patch file deleted the table, remove it from the packetizer.
+    if (!table.isValid()) {
+        if (is_short) {
+            _pzer.removeSections(tid);
+        }
+        else {
+            _pzer.removeSections(tid, etid);
+        }
+        return;
     }
 
     // Call subclass to process the table.
@@ -211,7 +195,7 @@ void ts::AbstractTablePlugin::reinsertTable(BinaryTable& table, bool is_target_t
 {
     // Make common modifications on target table.
     if (is_target_table) {
-        tsp->verbose(u"%s version %d modified", {_table_name, table.version()});
+        verbose(u"%s version %d modified", _table_name, table.version());
 
         // The target table is found, no longer need to create a new one.
         _found_table = true;
@@ -252,11 +236,11 @@ ts::ProcessorPlugin::Status ts::AbstractTablePlugin::processPacket(TSPacket& pkt
     _demux.feedPacket(pkt);
 
     // Determine when a new table shall be created. Executed only once, when the bitrate is known
-    if (!_found_table && _create_after_ms > 0 && _pkt_create == 0) {
+    if (!_found_table && _create_after_ms > cn::milliseconds::zero() && _pkt_create == 0) {
         const BitRate ts_bitrate = tsp->bitrate();
         if (ts_bitrate > 0) {
             _pkt_create = PacketDistance(ts_bitrate, _create_after_ms);
-            tsp->debug(u"will create %s after %'d packets, %'d ms (bitrate: %'d b/s)", {_table_name, _pkt_create, _create_after_ms, ts_bitrate});
+            debug(u"will create %s after %'d packets, %'!s (bitrate: %'d b/s)", _table_name, _pkt_create, _create_after_ms, ts_bitrate);
         }
     }
 
@@ -285,7 +269,7 @@ ts::ProcessorPlugin::Status ts::AbstractTablePlugin::processPacket(TSPacket& pkt
             // Compute packet interval from bitrates.
             const BitRate ts_bitrate = tsp->bitrate();
             if (ts_bitrate < _bitrate) {
-                tsp->error(u"input bitrate unknown or too low, specify --inter-packet instead of --bitrate");
+                error(u"input bitrate unknown or too low, specify --inter-packet instead of --bitrate");
                 return TSP_END;
             }
             _pkt_insert += (ts_bitrate / _bitrate).toInt();

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -71,7 +50,6 @@
 #include "tsBinaryTable.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
-#include "tsSafePtr.h"
 
 
 //----------------------------------------------------------------------------
@@ -81,10 +59,9 @@
 namespace ts {
     class PCRAdjustPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(PCRAdjustPlugin);
+        TS_PLUGIN_CONSTRUCTORS(PCRAdjustPlugin);
     public:
         // Implementation of plugin API
-        PCRAdjustPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
@@ -92,18 +69,18 @@ namespace ts {
     private:
         // Description of PID's. Map of safe pointers to PID contexts, indexed by PID.
         class PIDContext;
-        typedef SafePtr<PIDContext> PIDContextPtr;
-        typedef std::map<PID, PIDContextPtr> PIDContextMap;
+        using PIDContextPtr = std::shared_ptr<PIDContext>;
+        using PIDContextMap = std::map<PID, PIDContextPtr>;
 
         // PCRAdjustPlugin private members
-        BitRate       _user_bitrate;      // User-specified bitrate.
-        PIDSet        _pids;              // User-specified list of PIDs.
-        bool          _ignore_dts;        // Do not modify DTS values.
-        bool          _ignore_pts;        // Do not modify PTS values.
-        bool          _ignore_scrambled;  // Do not modify scrambled PID's.
-        uint64_t      _min_pcr_interval;  // Minimum interval between two PCR's. Ignored if zero.
-        SectionDemux  _demux;             // Section demux to get service descriptions.
-        PIDContextMap _pid_contexts;      // Map of all PID contexts.
+        BitRate       _user_bitrate = 0;          // User-specified bitrate.
+        PIDSet        _pids {};                   // User-specified list of PIDs.
+        bool          _ignore_dts = false;        // Do not modify DTS values.
+        bool          _ignore_pts = false;        // Do not modify PTS values.
+        bool          _ignore_scrambled = false;  // Do not modify scrambled PID's.
+        uint64_t      _min_pcr_interval = 0;      // Minimum interval between two PCR's. Ignored if zero.
+        SectionDemux  _demux {duck, this};        // Section demux to get service descriptions.
+        PIDContextMap _pid_contexts {};           // Map of all PID contexts.
 
         // TableHandlerInterface implementation.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -116,19 +93,19 @@ namespace ts {
         {
             TS_NOBUILD_NOCOPY(PIDContext);
         public:
-            const PID     pid;                  // PID value.
-            PIDContextPtr pcr_ctx;              // Context for associated PCR PID.
-            bool          scrambled;            // The PID contains scrambled packets.
-            bool          sync_pdts;            // PTS and DTS are still synchronous with the PCR, do not modify them.
-            uint8_t       last_cc;              // Last continuity counter in this PID.
-            uint64_t      last_original_pcr;    // Last PCR value, before modification.
-            uint64_t      last_updated_pcr;     // Last PCR value, after modification.
-            PacketCounter last_pcr_packet;      // Last PCR packet index.
-            uint64_t      last_created_pcr;     // Last created PCR value in a null packet.
-            PacketCounter last_created_packet;  // Packet index of the last created PCR.
+            const PID     pid;                             // PID value.
+            PIDContextPtr pcr_ctx {};                      // Context for associated PCR PID.
+            bool          scrambled = false;               // The PID contains scrambled packets.
+            bool          sync_pdts = false;               // PTS and DTS are still synchronous with the PCR, do not modify them.
+            uint8_t       last_cc = 0;                     // Last continuity counter in this PID.
+            uint64_t      last_original_pcr = INVALID_PCR; // Last PCR value, before modification.
+            uint64_t      last_updated_pcr = INVALID_PCR;  // Last PCR value, after modification.
+            PacketCounter last_pcr_packet = 0;             // Last PCR packet index.
+            uint64_t      last_created_pcr = INVALID_PCR;  // Last created PCR value in a null packet.
+            PacketCounter last_created_packet = 0;         // Packet index of the last created PCR.
 
             // Constructor.
-            PIDContext(PID);
+            PIDContext(PID p) : pid(p) {}
 
             // Retrieve the last updated PCR. INVALID_PCR if unknown.
             uint64_t lastPCR() const;
@@ -150,15 +127,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"pcradjust", ts::PCRAdjustPlugin);
 //----------------------------------------------------------------------------
 
 ts::PCRAdjustPlugin::PCRAdjustPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Adjust PCR's according to a constant bitrate", u"[options]"),
-    _user_bitrate(0),
-    _pids(),
-    _ignore_dts(false),
-    _ignore_pts(false),
-    _ignore_scrambled(false),
-    _min_pcr_interval(0),
-    _demux(duck, this),
-    _pid_contexts()
+    ProcessorPlugin(tsp_, u"Adjust PCR's according to a constant bitrate", u"[options]")
 {
     option<BitRate>(u"bitrate", 'b');
     help(u"bitrate",
@@ -182,8 +151,8 @@ ts::PCRAdjustPlugin::PCRAdjustPlugin(TSP* tsp_) :
          u"By default, on scrambled PID's, the PCR's are modified but not the PTS and DTS since they are scrambled. "
          u"This may result in problems when playing video and audio.");
 
-    option(u"min-ms-interval", 0, POSITIVE);
-    help(u"min-ms-interval", u"milliseconds",
+    option<cn::milliseconds>(u"min-ms-interval");
+    help(u"min-ms-interval",
          u"Specify the minimum interval between two PCR's in milliseconds. "
          u"On a given PID, if the interval between two PCR's is larger than the minimum, "
          u"the next null packet will be replaced with an empty packet with a PCR for that PID.");
@@ -206,7 +175,9 @@ bool ts::PCRAdjustPlugin::getOptions()
     _ignore_dts = present(u"ignore-dts");
     _ignore_pts = present(u"ignore-pts");
     _ignore_scrambled = present(u"ignore-scrambled");
-    _min_pcr_interval = (intValue<uint64_t>(u"min-ms-interval", 0) * SYSTEM_CLOCK_FREQ) / MilliSecPerSec;
+    PCR min_pcr;
+    getChronoValue(min_pcr, u"min-ms-interval");
+    _min_pcr_interval = min_pcr.count();
     return true;
 }
 
@@ -224,25 +195,6 @@ bool ts::PCRAdjustPlugin::start()
     _demux.reset();
     _demux.addPID(PID_PAT);
     return true;
-}
-
-
-//----------------------------------------------------------------------------
-// Description of one PID.
-//----------------------------------------------------------------------------
-
-ts::PCRAdjustPlugin::PIDContext::PIDContext(PID pid_) :
-    pid(pid_),
-    pcr_ctx(),
-    scrambled(false),
-    sync_pdts(true),
-    last_cc(0),
-    last_original_pcr(INVALID_PCR),
-    last_updated_pcr(INVALID_PCR),
-    last_pcr_packet(0),
-    last_created_pcr(INVALID_PCR),
-    last_created_packet(0)
-{
 }
 
 
@@ -295,7 +247,7 @@ uint64_t ts::PCRAdjustPlugin::PIDContext::updatedPCR(PacketCounter packet_index,
 uint64_t ts::PCRAdjustPlugin::PIDContext::updatedPDTS(PacketCounter packet_index, const BitRate& bitrate, uint64_t original_pdts)
 {
     // If the PCR PID is unknown, we cannot compute anything and keep the original PTS/DTS.
-    if (pcr_ctx.isNull()) {
+    if (pcr_ctx == nullptr) {
         return original_pdts;
     }
 
@@ -343,7 +295,7 @@ uint64_t ts::PCRAdjustPlugin::PIDContext::updatedPDTS(PacketCounter packet_index
 ts::PCRAdjustPlugin::PIDContextPtr ts::PCRAdjustPlugin::getContext(PID pid)
 {
     const PIDContextPtr ptr = _pid_contexts[pid];
-    return ptr.isNull() ? (_pid_contexts[pid] = new PIDContext(pid)) : ptr;
+    return ptr == nullptr ? (_pid_contexts[pid] = std::make_shared<PIDContext>(pid)) : ptr;
 }
 
 
@@ -358,8 +310,8 @@ void ts::PCRAdjustPlugin::handleTable(SectionDemux& demux, const BinaryTable& ta
             const PAT pat(duck, table);
             if (pat.isValid()) {
                 // Add all PMT PID's to the demux to grab all PMT's.
-                for (auto it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
-                    _demux.addPID(it->second);
+                for (const auto& it : pat.pmts) {
+                    _demux.addPID(it.second);
                 }
             }
             break;
@@ -368,8 +320,8 @@ void ts::PCRAdjustPlugin::handleTable(SectionDemux& demux, const BinaryTable& ta
             const PMT pmt(duck, table);
             if (pmt.isValid() && pmt.pcr_pid != PID_NULL) {
                 // Remember PCR PID for all components.
-                for (auto it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
-                    getContext(it->first)->pcr_ctx = getContext(pmt.pcr_pid);
+                for (const auto& it : pmt.streams) {
+                    getContext(it.first)->pcr_ctx = getContext(pmt.pcr_pid);
                 }
             }
             break;
@@ -418,7 +370,7 @@ ts::ProcessorPlugin::Status ts::PCRAdjustPlugin::processPacket(TSPacket& pkt, TS
 
             if (ctx->last_updated_pcr == INVALID_PCR) {
                 // First packet in this PID with a PCR, use it as base.
-                tsp->debug(u"starting fixing PCR in PID 0x%X (%d)", {pid, pid});
+                debug(u"starting fixing PCR in PID %n", pid);
                 ctx->last_updated_pcr = ctx->last_original_pcr;
             }
             else {
@@ -449,10 +401,10 @@ ts::ProcessorPlugin::Status ts::PCRAdjustPlugin::processPacket(TSPacket& pkt, TS
         PIDContextPtr pcr_ctx;
         uint64_t pcr_delay = 0;
         uint64_t pcr_value = INVALID_PCR;
-        for (auto it = _pid_contexts.begin(); it != _pid_contexts.end(); ++it) {
-            const PIDContextPtr& cur_ctx(it->second);
+        for (const auto& it : _pid_contexts) {
+            const PIDContextPtr& cur_ctx(it.second);
             // Consider only PID's which contain PCR, ie. which are their own PCR reference.
-            if (!cur_ctx.isNull() && !cur_ctx->pcr_ctx.isNull() && cur_ctx->pid == cur_ctx->pcr_ctx->pid) {
+            if (cur_ctx != nullptr && cur_ctx->pcr_ctx != nullptr && cur_ctx->pid == cur_ctx->pcr_ctx->pid) {
                 const uint64_t last_pcr = cur_ctx->lastPCR();
                 const uint64_t updated_pcr = cur_ctx->updatedPCR(current_packet, bitrate);
                 if (last_pcr != INVALID_PCR && updated_pcr != INVALID_PCR && updated_pcr > last_pcr) {
@@ -468,8 +420,8 @@ ts::ProcessorPlugin::Status ts::PCRAdjustPlugin::processPacket(TSPacket& pkt, TS
         }
 
         // Create an empty packet if a PID is late.
-        if (!pcr_ctx.isNull()) {
-            tsp->debug(u"adding PCR in PID 0x%X (%d)", {pcr_ctx->pid, pcr_ctx->pid});
+        if (pcr_ctx != nullptr) {
+            debug(u"adding PCR in PID %n", pcr_ctx->pid);
 
             // Build an empty packet with a PCR.
             pkt = EmptyPacket;

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -36,6 +15,9 @@
 #include "tsjson.h"
 
 namespace ts {
+
+    class TextFormatter;
+
     namespace json {
         //!
         //! Abstract base class of a JSON value.
@@ -59,15 +41,12 @@ namespace ts {
         //!
         class TSDUCKDLL Value
         {
+            TS_RULE_OF_FIVE(Value, = default);
         public:
             //!
             //! Default constructor.
             //!
             Value() = default;
-            //!
-            //! Virtual destructor.
-            //!
-            virtual ~Value() = default;
             //!
             //! Get the JSON value type.
             //! @return The JSON value type.
@@ -79,12 +58,18 @@ namespace ts {
             //!
             virtual void print(TextFormatter& output) const = 0;
             //!
-            //! Format the value as JSON text.
+            //! Format the value as structured JSON text.
             //! @param [in] indent Indentation width of each level.
             //! @param [in,out] report Where to report errors.
             //! @return The formatted JSON text.
             //!
             virtual UString printed(size_t indent = 2, Report& report = NULLREP) const;
+            //!
+            //! Format the value as a one-liner JSON text.
+            //! @param [in,out] report Where to report errors.
+            //! @return The formatted one-line JSON text.
+            //!
+            virtual UString oneLiner(Report& report = NULLREP) const;
             //!
             //! Save the value as a JSON file.
             //! @param [in] fileName Name of the JSON file to save.
@@ -93,40 +78,45 @@ namespace ts {
             //! @param [in,out] report Where to report errors.
             //! @return True on success, false on error.
             //!
-            virtual bool save(const UString& fileName, size_t indent = 2, bool stdOutputIfEmpty = false, Report& report = NULLREP);
+            virtual bool save(const fs::path& fileName, size_t indent = 2, bool stdOutputIfEmpty = false, Report& report = NULLREP);
             //!
-            //! Check if this instance a is JSON null literal.
-            //! @return True if this instance a is JSON null literal.
+            //! Check if this instance is a JSON null literal.
+            //! @return True if this instance is a JSON null literal.
             //!
             virtual bool isNull() const;
             //!
-            //! Check if this instance a is JSON true literal.
-            //! @return True if this instance a is JSON true literal.
+            //! Check if this instance is a JSON true literal.
+            //! @return True if this instance is a JSON true literal.
             //!
             virtual bool isTrue() const;
             //!
-            //! Check if this instance a is JSON false literal.
-            //! @return True if this instance a is JSON false literal.
+            //! Check if this instance is a JSON false literal.
+            //! @return True if this instance is a JSON false literal.
             //!
             virtual bool isFalse() const;
             //!
-            //! Check if this instance a is JSON number.
-            //! @return True if this instance a is JSON number.
+            //! Check if this instance is a JSON number.
+            //! @return True if this instance is a JSON number.
             //!
             virtual bool isNumber() const;
             //!
-            //! Check if this instance a is JSON string.
-            //! @return True if this instance a is JSON string.
+            //! Check if this instance is a JSON number and an integer value (an integral value).
+            //! @return True if this instance is a JSON number and an integer value.
+            //!
+            virtual bool isInteger() const;
+            //!
+            //! Check if this instance is a JSON string.
+            //! @return True if this instance is a JSON string.
             //!
             virtual bool isString() const;
             //!
-            //! Check if this instance a is JSON object.
-            //! @return True if this instance a is JSON object.
+            //! Check if this instance is a JSON object.
+            //! @return True if this instance is a JSON object.
             //!
             virtual bool isObject() const;
             //!
-            //! Check if this instance a is JSON array.
-            //! @return True if this instance a is JSON array.
+            //! Check if this instance is a JSON array.
+            //! @return True if this instance is a JSON array.
             //!
             virtual bool isArray() const;
             //!
@@ -144,6 +134,13 @@ namespace ts {
             //! Strings containing integers are converted.
             //!
             virtual int64_t toInteger(int64_t defaultValue = 0) const;
+            //!
+            //! Convert this instance to a double-precision float.
+            //! @param [in] defaultValue Default value to return when no conversion is possible.
+            //! @return The floating-point value of this instance or @a defaultValue if no conversion is possible.
+            //! Strings containing floats are converted.
+            //!
+            virtual double toFloat(double defaultValue = 0.0) const;
             //!
             //! Convert this instance to a string.
             //! @param [in] defaultValue Default value to return when no conversion is possible.
@@ -206,19 +203,29 @@ namespace ts {
             //! @param [in] name Field name.
             //! @param [in] value Smart pointer to a JSON value. The pointed object is shared.
             //!
-            virtual void add(const UString& name, const ValuePtr& value);
+            void add(const UString& name, const ValuePtr& value) { addValue(name, value); }
             //!
-            //! Add a number field into an object.
+            //! Add an integer number field into an object.
+            //! @tparam T An integer type.
             //! @param [in] name Field name.
             //! @param [in] value Field value.
             //!
-            virtual void add(const UString& name, int64_t value);
+            template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+            void add(const UString& name, T value) { addInteger(name, int64_t(value)); }
+            //!
+            //! Add a floating-point number field into an object.
+            //! @tparam T A floating-point type.
+            //! @param [in] name Field name.
+            //! @param [in] value Field value.
+            //!
+            template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+            void add(const UString& name, T value) { addFloat(name, double(value)); }
             //!
             //! Add a string field into an object.
             //! @param [in] name Field name.
             //! @param [in] value Field value.
             //!
-            virtual void add(const UString& name, const UString& value);
+            void add(const UString& name, const UString& value) { addString(name, value); }
             //!
             //! Get an element of an array (const version).
             //! @param [in] index Index to fetch in the array.
@@ -239,21 +246,32 @@ namespace ts {
             //! @param [in] index Index to fetch in the array. If out of bound, the @a value is added at the end of the array.
             //! @return The actual index of the added value.
             //!
-            virtual size_t set(const ValuePtr& value, size_t index = std::numeric_limits<size_t>::max());
+            size_t set(const ValuePtr& value, size_t index = std::numeric_limits<size_t>::max()) { return setValue(value, index); }
             //!
-            //! Set a number element of an array.
+            //! Set an integer number element of an array.
+            //! @tparam T An integer type.
             //! @param [in] value Value to set.
             //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
             //! @return The actual index of the added value.
             //!
-            virtual size_t set(int64_t value, size_t index = std::numeric_limits<size_t>::max());
+            template <typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 0>
+            size_t set(T value, size_t index = std::numeric_limits<size_t>::max()) { return setInteger(int64_t(value), index); }
+            //!
+            //! Set a floating-point number element of an array.
+            //! @tparam T A floating-point type.
+            //! @param [in] value Value to set.
+            //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
+            //! @return The actual index of the added value.
+            //!
+            template <typename T, typename std::enable_if<std::is_floating_point<T>::value, int>::type = 0>
+            size_t set(T value, size_t index = std::numeric_limits<size_t>::max()) { return setFloat(double(value), index); }
             //!
             //! Set a string element of an array.
             //! @param [in] value Value to set.
             //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
             //! @return The actual index of the added value.
             //!
-            virtual size_t set(const UString& value, size_t index = std::numeric_limits<size_t>::max());
+            size_t set(const UString& value, size_t index = std::numeric_limits<size_t>::max()) { return setString(value, index); }
             //!
             //! Erase elements from an array.
             //! @param [in] index Index to erase in the array. Ignored if out of bound.
@@ -290,6 +308,60 @@ namespace ts {
             //! not be created, return a reference to a null JSON.
             //!
             virtual Value& query(const UString& path, bool create = false, Type type = Type::Object);
+
+        protected:
+            //!
+            //! Add a field into an object.
+            //! @param [in] name Field name.
+            //! @param [in] value Smart pointer to a JSON value. The pointed object is shared.
+            //!
+            virtual void addValue(const UString& name, const ValuePtr& value);
+            //!
+            //! Add a 64-bit signed integer number field into an object.
+            //! @param [in] name Field name.
+            //! @param [in] value Field value.
+            //!
+            virtual void addInteger(const UString& name, int64_t value);
+            //!
+            //! Add a double-precision floating-point number field into an object.
+            //! @param [in] name Field name.
+            //! @param [in] value Field value.
+            //!
+            virtual void addFloat(const UString& name, double value);
+            //!
+            //! Add a string field into an object.
+            //! @param [in] name Field name.
+            //! @param [in] value Field value.
+            //!
+            virtual void addString(const UString& name, const UString& value);
+            //!
+            //! Set an element of an array.
+            //! @param [in] value Smart pointer to a JSON value. The pointed object is shared.
+            //! @param [in] index Index to fetch in the array. If out of bound, the @a value is added at the end of the array.
+            //! @return The actual index of the added value.
+            //!
+            virtual size_t setValue(const ValuePtr& value, size_t index);
+            //!
+            //! Set a 64-bit signed integer number element of an array.
+            //! @param [in] value Value to set.
+            //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
+            //! @return The actual index of the added value.
+            //!
+            virtual size_t setInteger(int64_t value, size_t index);
+            //!
+            //! Set a double-precision floating-point number element of an array.
+            //! @param [in] value Value to set.
+            //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
+            //! @return The actual index of the added value.
+            //!
+            virtual size_t setFloat(double value, size_t index);
+            //!
+            //! Set a string element of an array.
+            //! @param [in] value Value to set.
+            //! @param [in] index Index in the array. If out of bound, the @a value is added at the end of the array.
+            //! @return The actual index of the added value.
+            //!
+            virtual size_t setString(const UString& value, size_t index);
         };
     }
 }

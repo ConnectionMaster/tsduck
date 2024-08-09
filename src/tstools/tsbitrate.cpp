@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -48,31 +27,21 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        uint32_t           min_pcr;        // Min # of PCR per PID
-        uint16_t           min_pid;        // Min # of PID
-        ts::UString        pcr_name;       // Time stamp type name
-        bool               use_dts;        // Use DTS instead of PCR
-        bool               all;            // All packets analysis
-        bool               full;           // Full analysis
-        bool               value_only;     // Output value only
-        bool               ignore_errors;  // Ignore TS errors
-        ts::UString        infile;         // Input file name
-        ts::TSPacketFormat format;         // Input file format.
+        uint32_t           min_pcr = 0;            // Min # of PCR per PID
+        uint16_t           min_pid = 0;            // Min # of PID
+        ts::UString        pcr_name {};            // Time stamp type name
+        bool               use_dts = false;        // Use DTS instead of PCR
+        bool               all = false;            // All packets analysis
+        bool               full = false;           // Full analysis
+        bool               value_only = false;     // Output value only
+        bool               ignore_errors = false;  // Ignore TS errors
+        ts::UString        infile {};              // Input file name
+        ts::TSPacketFormat format = ts::TSPacketFormat::AUTODETECT;
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"Evaluate the bitrate of a transport stream", u"[options] [filename]"),
-    min_pcr(0),
-    min_pid(0),
-    pcr_name(),
-    use_dts(false),
-    all(false),
-    full(false),
-    value_only(false),
-    ignore_errors(false),
-    infile(),
-    format(ts::TSPacketFormat::AUTODETECT)
+    Args(u"Evaluate the bitrate of a transport stream", u"[options] [filename]")
 {
     ts::DefineTSPacketFormatInputOption(*this);
 
@@ -161,7 +130,7 @@ int MainCode(int argc, char *argv[])
     zer.getStatus(status);
 
     if (!status.bitrate_valid) {
-        opt.error(u"cannot compute transport bitrate, insufficient %s", {opt.pcr_name});
+        opt.error(u"cannot compute transport bitrate, insufficient %s", opt.pcr_name);
         if (!opt.full) {
             return EXIT_FAILURE;
         }
@@ -196,7 +165,7 @@ int MainCode(int argc, char *argv[])
         for (ts::PID pid = 0; pid < ts::PID_MAX; pid++) {
             ts::PacketCounter pcount = zer.packetCount (pid);
             if (pcount > 0) {
-                std::cout << ts::UString::Format(u"%4d (0x%04X)  %12'd  %14'd b/s  %14'd b/s", {pid, pid, pcount, zer.bitrate188(pid), zer.bitrate204(pid)})
+                std::cout << ts::UString::Format(u"%4d (0x%04X)  %12'd  %14'd b/s  %14'd b/s", pid, pid, pcount, zer.bitrate188(pid), zer.bitrate204(pid))
                           << std::endl;
             }
         }

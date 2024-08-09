@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -33,7 +12,6 @@
 
 #include "tsMain.h"
 #include "tsTSFileInputBuffered.h"
-#include "tsVariable.h"
 TS_MAIN(MainCode);
 
 
@@ -41,10 +19,10 @@ TS_MAIN(MainCode);
 //  Command line options
 //-----------------------------------------------------------------------------
 
-static const size_t   MIN_TS_BUFFER_SIZE     = 1024;             // 1 kB
-static const size_t   DEFAULT_TS_BUFFER_SIZE = 4 * 1024 * 1024;  // 4 MB
-static const size_t   MAX_TS_BUFFER_SIZE     = 16 * 1024 * 1024; // 16 MB
-static const uint64_t DEFAULT_MIN_INTERVAL   = 100;              // milliseconds
+static constexpr size_t   MIN_TS_BUFFER_SIZE     = 1024;             // 1 kB
+static constexpr size_t   DEFAULT_TS_BUFFER_SIZE = 4 * 1024 * 1024;  // 4 MB
+static constexpr size_t   MAX_TS_BUFFER_SIZE     = 16 * 1024 * 1024; // 16 MB
+static constexpr uint64_t DEFAULT_MIN_INTERVAL   = 100;              // milliseconds
 
 namespace {
     class Options: public ts::Args
@@ -53,41 +31,26 @@ namespace {
     public:
         Options(int argc, char *argv[]);
 
-        ts::BitRate target_bitrate;
-        ts::PID     reference_pid;
-        size_t      buffer_size;
-        uint64_t    leading_packets;
-        uint64_t    trailing_packets;
-        uint64_t    final_inter_packet;
-        uint64_t    initial_inter_packet;
-        uint64_t    min_interval_ms;
-        bool        dts_based;
-        bool        dyn_final_inter_packet;
-        bool        dyn_initial_inter_packet;
-        ts::UString input_file;
-        ts::UString output_file;
-        ts::TSPacketFormat input_format;
-        ts::TSPacketFormat output_format;
+        ts::BitRate target_bitrate = 0;
+        ts::PID     reference_pid = ts::PID_NULL;
+        size_t      buffer_size = 0;
+        uint64_t    leading_packets = 0;
+        uint64_t    trailing_packets = 0;
+        uint64_t    final_inter_packet = 0;
+        uint64_t    initial_inter_packet = 0;
+        uint64_t    min_interval_ms = 0;
+        bool        dts_based = false;
+        bool        dyn_final_inter_packet = false;
+        bool        dyn_initial_inter_packet = false;
+        ts::UString input_file {};
+        ts::UString output_file {};
+        ts::TSPacketFormat input_format = ts::TSPacketFormat::AUTODETECT;
+        ts::TSPacketFormat output_format = ts::TSPacketFormat::TS;
     };
 }
 
 Options::Options(int argc, char *argv[]) :
-    Args(u"Add stuffing to a transport stream to reach a target bitrate", u"[options] [input-file]"),
-    target_bitrate(0),
-    reference_pid(ts::PID_NULL),
-    buffer_size(0),
-    leading_packets(0),
-    trailing_packets(0),
-    final_inter_packet(0),
-    initial_inter_packet(0),
-    min_interval_ms(0),
-    dts_based(false),
-    dyn_final_inter_packet(false),
-    dyn_initial_inter_packet(false),
-    input_file(),
-    output_file(),
-    input_format(ts::TSPacketFormat::AUTODETECT),
-    output_format(ts::TSPacketFormat::TS)
+    Args(u"Add stuffing to a transport stream to reach a target bitrate", u"[options] [input-file]")
 {
     option(u"", 0, FILENAME, 0, 1);
     help(u"",
@@ -185,11 +148,12 @@ Options::Options(int argc, char *argv[]) :
 
 struct TimeStamp
 {
-    uint64_t          tstamp;  // Time stamp in PCR units
+    uint64_t tstamp;  // Time stamp in PCR units
     uint64_t packet;  // Packet index in input file
 
     // Constructor
     TimeStamp(uint64_t t = 0, uint64_t p = 0) : tstamp(t), packet(p) {}
+    TS_DEFAULT_COPY_MOVE(TimeStamp);
 };
 
 
@@ -202,23 +166,26 @@ class Stuffer
     TS_NOBUILD_NOCOPY(Stuffer);
 public:
     // Constructor
-    Stuffer(Options&);
-    virtual ~Stuffer();
+    Stuffer(Options& opt) :
+        _opt(opt),
+        _input(opt.buffer_size / ts::PKT_SIZE)
+    {
+    }
 
     // Process the content
     void stuff();
 
 private:
     // Private members
-    Options&                _opt;                     // Command-line options.
-    ts::TSFileInputBuffered _input;                   // Input file, including seek buffer for at least one segment.
-    ts::TSFile              _output;                  // Output file.
-    ts::Variable<TimeStamp> _tstamp1;                 // First time-stamp in current segment.
-    ts::Variable<TimeStamp> _tstamp2;                 // Second time-stamp in current segment.
-    uint64_t                _current_inter_packet;    // Number of null packets to add between all input packets in segment.
-    uint64_t                _current_residue_packets; // Packets to add to inter_packets.
-    uint64_t                _remaining_stuff_count;   // Remaining number of stuffing packets to add before end of segment.
-    uint64_t                _additional_bits;         // Additional bits (less than one packet) to add in next segment.
+    Options&                 _opt;                         // Command-line options.
+    ts::TSFileInputBuffered  _input;                       // Input file, including seek buffer for at least one segment.
+    ts::TSFile               _output {};                   // Output file.
+    std::optional<TimeStamp> _tstamp1 {};                  // First time-stamp in current segment.
+    std::optional<TimeStamp> _tstamp2 {};                  // Second time-stamp in current segment.
+    uint64_t                 _current_inter_packet = 0;    // Number of null packets to add between all input packets in segment.
+    uint64_t                 _current_residue_packets = 0; // Packets to add to inter_packets.
+    uint64_t                 _remaining_stuff_count = 0;   // Remaining number of stuffing packets to add before end of segment.
+    uint64_t                 _additional_bits = 0;         // Additional bits (less than one packet) to add in next segment.
 
     // Abort processing (invoked on fatal error, when message already reported)
     [[noreturn]] void fatalError();
@@ -242,35 +209,13 @@ private:
 
 
 //-----------------------------------------------------------------------------
-// Stuffer constructors and destructors.
-//-----------------------------------------------------------------------------
-
-Stuffer::Stuffer(Options& opt) :
-    _opt(opt),
-    _input(opt.buffer_size / ts::PKT_SIZE),
-    _output(),
-    _tstamp1(),
-    _tstamp2(),
-    _current_inter_packet(0),
-    _current_residue_packets(0),
-    _remaining_stuff_count(0),
-    _additional_bits(0)
-{
-}
-
-Stuffer::~Stuffer()
-{
-}
-
-
-//-----------------------------------------------------------------------------
 // Abort processing
 //-----------------------------------------------------------------------------
 
 void Stuffer::fatalError()
 {
     // Maybe something more clever some day...
-    ::exit(EXIT_FAILURE);
+    std::exit(EXIT_FAILURE);
 }
 
 
@@ -337,50 +282,50 @@ void Stuffer::evaluateNextStuffing()
 {
     // Save initial position in the file
     const ts::PacketCounter initial_position = _input.readPacketsCount();
-    _opt.debug(u"evaluateNextStuffing: initial_position = %'d", {initial_position});
+    _opt.debug(u"evaluateNextStuffing: initial_position = %'d", initial_position);
 
     // Initialize new search. Note that _tstamp1 and _tstamp2 may be unset.
     _tstamp1 = _tstamp2;
-    _tstamp2.clear();
+    _tstamp2.reset();
 
     // Read packets until both _tstamp1 and _tstamp2 are set (or end of file)
     ts::TSPacket pkt;
-    while (!_tstamp2.set() && _input.canSeek(initial_position) && _input.read(&pkt, 1, _opt) == 1) {
+    while (!_tstamp2 && _input.canSeek(initial_position) && _input.read(&pkt, 1, _opt) == 1) {
         uint64_t tstamp = 0;
         if (getTimeStamp(pkt, tstamp)) {
             if (_opt.reference_pid == ts::PID_NULL) {
                 // Found the first time stamp, use this PID as reference
                 _opt.reference_pid = pkt.getPID();
-                _opt.verbose(u"using PID %d (0x%X) as reference", {_opt.reference_pid, _opt.reference_pid});
+                _opt.verbose(u"using PID %n as reference", _opt.reference_pid);
             }
             else if (_opt.reference_pid != pkt.getPID()) {
                 // Not the reference PID, skip;
                 continue;
             }
             const TimeStamp time_stamp(tstamp, _input.readPacketsCount());
-            if (!_tstamp1.set() || tstamp < _tstamp1.value().tstamp) {
+            if (!_tstamp1 || tstamp < _tstamp1->tstamp) {
                 // 1) Found the first time stamp in the file.
                 // 2) Or found a time stamp lower than tstamp1, may be because of a
                 //    file rewind or wrapping at 2**42. Use new time stamp as first.
                 _tstamp1 = time_stamp;
-                _opt.debug(u"evaluateNextStuffing: tstamp1 = %'d at %'d", {time_stamp.tstamp, time_stamp.packet});
+                _opt.debug(u"evaluateNextStuffing: tstamp1 = %'d at %'d", time_stamp.tstamp, time_stamp.packet);
             }
-            else if (((tstamp - _tstamp1.value().tstamp) * 1000) / ts::SYSTEM_CLOCK_FREQ >= _opt.min_interval_ms) {
+            else if (((tstamp - _tstamp1->tstamp) * 1000) / ts::SYSTEM_CLOCK_FREQ >= _opt.min_interval_ms) {
                 // Found second time stamp (with a sufficiently large interval from first time stamp).
                 _tstamp2 = time_stamp;
-                _opt.debug(u"evaluateNextStuffing: tstamp2 = %'d at %'d", {time_stamp.tstamp, time_stamp.packet});
+                _opt.debug(u"evaluateNextStuffing: tstamp2 = %'d at %'d", time_stamp.tstamp, time_stamp.packet);
             }
         }
     }
 
     // If _tstamp2 not set in first segment or after buffer full, we cannot perform bitrate evaluation
-    if (!_tstamp2.set() && (initial_position == 0 || !_input.canSeek(initial_position))) {
+    if (!_tstamp2 && (initial_position == 0 || !_input.canSeek(initial_position))) {
         ts::UString msg(u"no " + getTimeStampType() + u" found");
         if (initial_position > 0) {
-            msg += ts::UString::Format(u" after packet %'d", {initial_position});
+            msg += ts::UString::Format(u" after packet %'d", initial_position);
         }
         if (_opt.reference_pid != ts::PID_NULL) {
-            msg += ts::UString::Format(u" in PID %d (0x%X), try another PID or increasing --buffer-size", {_opt.reference_pid, _opt.reference_pid});
+            msg += ts::UString::Format(u" in PID %n, try another PID or increasing --buffer-size", _opt.reference_pid);
         }
         else {
             msg += u", try increasing --buffer-size";
@@ -393,19 +338,19 @@ void Stuffer::evaluateNextStuffing()
         fatalError();
     }
 
-    if (_tstamp2.set()) {
+    if (_tstamp2.has_value()) {
         // The segment is defined by the two time stamps. Compute new settings.
-        assert(_tstamp1.set());
-        assert(_tstamp1.value().tstamp < _tstamp2.value().tstamp);
-        assert(_tstamp1.value().packet < _tstamp2.value().packet);
+        assert(_tstamp1.has_value());
+        assert(_tstamp1->tstamp < _tstamp2->tstamp);
+        assert(_tstamp1->packet < _tstamp2->packet);
 
         // Segment duration in PCR unit:
-        const uint64_t duration = _tstamp2.value().tstamp - _tstamp1.value().tstamp;
+        const uint64_t duration = _tstamp2->tstamp - _tstamp1->tstamp;
 
         // Actual number of input packets in the segment and corresponding bitrate.
-        const uint64_t input_packets = _tstamp2.value().packet - _tstamp1.value().packet;
+        const uint64_t input_packets = _tstamp2->packet - _tstamp1->packet;
         const ts::BitRate input_bitrate = ts::BitRate(input_packets * ts::PKT_SIZE_BITS * ts::SYSTEM_CLOCK_FREQ) / duration;
-        _opt.debug(u"segment: %'d ms, %'d packets, %'d b/s", {(duration * 1000) / ts::SYSTEM_CLOCK_FREQ, input_packets, input_bitrate});
+        _opt.debug(u"segment: %'d ms, %'d packets, %'d b/s", (duration * 1000) / ts::SYSTEM_CLOCK_FREQ, input_packets, input_bitrate);
 
         // Target output number of bits in segment, plus the previously unstuffed bits (less than one packet).
         const uint64_t target_bits = _additional_bits + ((_opt.target_bitrate * duration) / ts::SYSTEM_CLOCK_FREQ).toInt();
@@ -416,7 +361,7 @@ void Stuffer::evaluateNextStuffing()
         // Compute number of stuffing packets to add
         if (input_packets > target_packets) {
             // Input burst greater than target bitrate.
-            _opt.warning(u"input bitrate locally higher (%'d b/s) than target bitrate, cannot stuff", {input_bitrate});
+            _opt.warning(u"input bitrate locally higher (%'d b/s) than target bitrate, cannot stuff", input_bitrate);
             _remaining_stuff_count = 0;
             _current_inter_packet = 0;
             _current_residue_packets = 0;
@@ -452,17 +397,17 @@ void Stuffer::stuff()
         fatalError();
     }
 
-    _opt.debug(u"input file buffer size: %'d packets", {_input.getBufferSize()});
+    _opt.debug(u"input file buffer size: %'d packets", _input.getBufferSize());
 
     // Remaining number of bits to stuff representing less than one packet
     _additional_bits = 0;
 
     // Locate first two time stamps,
-    _tstamp1.clear();
-    _tstamp2.clear();
+    _tstamp1.reset();
+    _tstamp2.reset();
     evaluateNextStuffing();
-    assert(_tstamp1.set());
-    assert(_tstamp2.set());
+    assert(_tstamp1.has_value());
+    assert(_tstamp2.has_value());
 
     // Create output file
     if (!_output.open(_opt.output_file, ts::TSFile::WRITE | ts::TSFile::SHARED, _opt, _opt.output_format)) {
@@ -473,15 +418,15 @@ void Stuffer::stuff()
     writeStuffing(_opt.leading_packets);
 
     // Perform initial stuffing, up to the first time stamp
-    simpleInterPacketStuffing(_opt.dyn_initial_inter_packet ? _current_inter_packet : _opt.initial_inter_packet, _tstamp1.value().packet);
+    simpleInterPacketStuffing(_opt.dyn_initial_inter_packet ? _current_inter_packet : _opt.initial_inter_packet, _tstamp1->packet);
 
     // Perform stuffing, segment after segment
-    while (_tstamp2.set()) {
-        assert(_input.readPacketsCount() < _tstamp2.value().packet);
+    while (_tstamp2.has_value()) {
+        assert(_input.readPacketsCount() < _tstamp2->packet);
 
         // Perform stuffing on current segment, loop on input packets, one by one.
         ts::TSPacket pkt;
-        while (_input.readPacketsCount() < _tstamp2.value().packet && _input.read(&pkt, 1, _opt) == 1) {
+        while (_input.readPacketsCount() < _tstamp2->packet && _input.read(&pkt, 1, _opt) == 1) {
             // Write the input packet.
             if (!_output.writePackets(&pkt, nullptr, 1, _opt)) {
                 fatalError();
@@ -508,7 +453,7 @@ void Stuffer::stuff()
     // Write trailing stuffing packets
     writeStuffing(_opt.trailing_packets);
 
-    _opt.verbose(u"stuffing completed, read %'d packets, written %'d packets", {_input.readPacketsCount(), _output.writePacketsCount()});
+    _opt.verbose(u"stuffing completed, read %'d packets, written %'d packets", _input.readPacketsCount(), _output.writePacketsCount());
 
     // Close files
     _output.close(_opt);

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -33,48 +12,8 @@
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
 #include "tsFileUtils.h"
-#include "tsSysUtils.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors.
-//----------------------------------------------------------------------------
-
-ts::ChannelFile::ChannelFile() :
-    _networks(),
-    _xmlTweaks(),
-    _fileName()
-{
-}
-
-ts::ChannelFile::Service::Service(uint16_t id_) :
-    id(id_),
-    name(),
-    provider(),
-    lcn(),
-    pmtPID(),
-    type(),
-    cas(),
-    atscType(),
-    atscMajorId(),
-    atscMinorId()
-{
-}
-
-ts::ChannelFile::TransportStream::TransportStream(uint16_t ts, uint16_t on) :
-    id(ts),
-    onid(on),
-    tune(),
-    _services()
-{
-}
-
-ts::ChannelFile::Network::Network(uint16_t net, TunerType typ) :
-    id(net),
-    type(typ),
-    _ts()
-{
-}
+#include "tsErrCodeReport.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -90,7 +29,7 @@ ts::ChannelFile::ServicePtr ts::ChannelFile::TransportStream::serviceById(uint16
 {
     for (size_t i = 0; i < _services.size(); ++i) {
         const ServicePtr& srv(_services[i]);
-        assert(!srv.isNull());
+        assert(srv != nullptr);
         if (srv->id == id_) {
             return srv;
         }
@@ -102,10 +41,9 @@ ts::ChannelFile::ServicePtr ts::ChannelFile::TransportStream::serviceGetOrCreate
 {
     // Try to get an existing service.
     ServicePtr srv(serviceById(id_));
-    if (srv.isNull()) {
+    if (srv == nullptr) {
         // Not found, create a new service.
-        srv = new Service(id_);
-        CheckNonNull(srv.pointer());
+        srv = std::make_shared<Service>(id_);
         _services.push_back(srv);
     }
     return srv;
@@ -116,12 +54,12 @@ ts::ChannelFile::ServicePtr ts::ChannelFile::TransportStream::serviceByName(cons
     // Check if the name has "major.minor" syntax.
     uint16_t majorId = 0;
     uint16_t minorId = 0;
-    const bool atscId = !strict && name.scan(u"%d.%d", {&majorId, &minorId});
+    const bool atscId = !strict && name.scan(u"%d.%d", &majorId, &minorId);
 
     // Now lookup all services in transport.
     for (size_t i = 0; i < _services.size(); ++i) {
         const ServicePtr& srv(_services[i]);
-        assert(!srv.isNull());
+        assert(srv != nullptr);
         if ((strict && srv->name == name) ||
             (!strict && name.similar(srv->name)) ||
             (atscId && srv->atscMajorId == majorId && srv->atscMinorId == minorId))
@@ -140,17 +78,17 @@ ts::ChannelFile::ServicePtr ts::ChannelFile::TransportStream::serviceByName(cons
 bool ts::ChannelFile::TransportStream::addService(const ServicePtr& srv, ShareMode copy, bool replace)
 {
     // Filter out null pointer.
-    if (srv.isNull()) {
+    if (srv == nullptr) {
         return false;
     }
 
     // Look for a service with same id.
     for (size_t i = 0; i < _services.size(); ++i) {
-        assert(!_services[i].isNull());
+        assert(_services[i] != nullptr);
         if (_services[i]->id == srv->id) {
             if (replace) {
-                _services[i] = copy == ShareMode::SHARE ? srv : new Service(*srv);
-                CheckNonNull(_services[i].pointer());
+                _services[i] = copy == ShareMode::SHARE ? srv : std::make_shared<Service>(*srv);
+                CheckNonNull(_services[i].get());
                 return true;
             }
             else {
@@ -160,8 +98,8 @@ bool ts::ChannelFile::TransportStream::addService(const ServicePtr& srv, ShareMo
     }
 
     // Add new service.
-    _services.push_back(copy == ShareMode::SHARE ? srv : new Service(*srv));
-    CheckNonNull(_services.back().pointer());
+    _services.push_back(copy == ShareMode::SHARE ? srv : std::make_shared<Service>(*srv));
+    CheckNonNull(_services.back().get());
     return true;
 }
 
@@ -172,35 +110,35 @@ bool ts::ChannelFile::TransportStream::addService(const ServicePtr& srv, ShareMo
 
 void ts::ChannelFile::TransportStream::addServices(const ServiceList& list)
 {
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        if (it->hasId()) {
-            ServicePtr srv(serviceGetOrCreate(it->getId()));
-            if (it->hasName()) {
-                srv->name = it->getName();
+    for (const auto& it : list) {
+        if (it.hasId()) {
+            ServicePtr srv(serviceGetOrCreate(it.getId()));
+            if (it.hasName()) {
+                srv->name = it.getName();
             }
-            if (it->hasProvider()) {
-                srv->provider = it->getProvider();
+            if (it.hasProvider()) {
+                srv->provider = it.getProvider();
             }
-            if (it->hasLCN()) {
-                srv->lcn = it->getLCN();
+            if (it.hasLCN()) {
+                srv->lcn = it.getLCN();
             }
-            if (it->hasPMTPID()) {
-                srv->pmtPID = it->getPMTPID();
+            if (it.hasPMTPID()) {
+                srv->pmtPID = it.getPMTPID();
             }
-            if (it->hasTypeDVB()) {
-                srv->type = it->getTypeDVB();
+            if (it.hasTypeDVB()) {
+                srv->type = it.getTypeDVB();
             }
-            if (it->hasCAControlled()) {
-                srv->cas = it->getCAControlled();
+            if (it.hasCAControlled()) {
+                srv->cas = it.getCAControlled();
             }
-            if (it->hasTypeATSC()) {
-                srv->atscType = it->getTypeATSC();
+            if (it.hasTypeATSC()) {
+                srv->atscType = it.getTypeATSC();
             }
-            if (it->hasMajorIdATSC()) {
-                srv->atscMajorId = it->getMajorIdATSC();
+            if (it.hasMajorIdATSC()) {
+                srv->atscMajorId = it.getMajorIdATSC();
             }
-            if (it->hasMinorIdATSC()) {
-                srv->atscMinorId = it->getMinorIdATSC();
+            if (it.hasMinorIdATSC()) {
+                srv->atscMinorId = it.getMinorIdATSC();
             }
         }
     }
@@ -220,7 +158,7 @@ ts::ChannelFile::TransportStreamPtr ts::ChannelFile::Network::tsById(uint16_t id
 {
     for (size_t i = 0; i < _ts.size(); ++i) {
         const TransportStreamPtr& ts(_ts[i]);
-        assert(!ts.isNull());
+        assert(ts != nullptr);
         if (ts->id == id_) {
             return ts;
         }
@@ -232,10 +170,9 @@ ts::ChannelFile::TransportStreamPtr ts::ChannelFile::Network::tsGetOrCreate(uint
 {
     // Try to get an existing transport stream.
     TransportStreamPtr ts(tsById(id_));
-    if (ts.isNull()) {
+    if (ts == nullptr) {
         // Not found, create a new TS.
-        ts = new TransportStream(id_);
-        CheckNonNull(ts.pointer());
+        ts = std::make_shared<TransportStream>(id_);
         _ts.push_back(ts);
     }
     return ts;
@@ -255,7 +192,7 @@ ts::ChannelFile::NetworkPtr ts::ChannelFile::networkById(uint16_t id, TunerType 
 {
     for (size_t i = 0; i < _networks.size(); ++i) {
         const NetworkPtr& net(_networks[i]);
-        assert(!net.isNull());
+        assert(net != nullptr);
         if (net->id == id && (type == TT_UNDEFINED || net->type == type)) {
             return net;
         }
@@ -267,10 +204,9 @@ ts::ChannelFile::NetworkPtr ts::ChannelFile::networkGetOrCreate(uint16_t id, Tun
 {
     // Try to get an existing transport stream.
     NetworkPtr net(networkById(id, type));
-    if (net.isNull()) {
+    if (net == nullptr) {
         // Not found, create a new network.
-        net = new Network(id, type);
-        CheckNonNull(net.pointer());
+        net = std::make_shared<Network>(id, type);
         _networks.push_back(net);
     }
     return net;
@@ -303,30 +239,30 @@ bool ts::ChannelFile::searchService(NetworkPtr& net,
                                     bool strict,
                                     Report& report) const
 {
-    report.debug(u"searching channel \"%s\" for delivery systems %s in %s", {name, delsys, fileDescription()});
+    report.debug(u"searching channel \"%s\" for delivery systems %s in %s", name, delsys, fileDescription());
 
     // Clear output parameters.
-    net.clear();
-    ts.clear();
-    srv.clear();
+    net.reset();
+    ts.reset();
+    srv.reset();
 
     // Loop through all networks.
     for (size_t inet = 0; inet < _networks.size(); ++inet) {
 
         const NetworkPtr& pnet(_networks[inet]);
-        assert(!pnet.isNull());
+        assert(pnet != nullptr);
 
         // Inspect this network, loop through all transport stream.
         for (size_t its = 0; its < pnet->tsCount(); ++its) {
             const TransportStreamPtr& pts(pnet->tsByIndex(its));
-            assert(!pts.isNull());
+            assert(pts != nullptr);
             // Check if this TS has an acceptable delivery system.
             // If the input delsys is empty, accept any delivery system.
-            if (delsys.empty() || (pts->tune.delivery_system.set() && delsys.contains(pts->tune.delivery_system.value()))) {
-                report.debug(u"searching channel \"%s\" in TS id 0x%X, delivery system %s", {name, pts->id, DeliverySystemEnum.name(pts->tune.delivery_system.value(DS_UNDEFINED))});
+            if (delsys.empty() || (pts->tune.delivery_system.has_value() && delsys.contains(pts->tune.delivery_system.value()))) {
+                report.debug(u"searching channel \"%s\" in TS id 0x%X, delivery system %s", name, pts->id, DeliverySystemEnum.name(pts->tune.delivery_system.value_or(DS_UNDEFINED)));
                 srv = pts->serviceByName(name, strict);
-                if (!srv.isNull()) {
-                    report.debug(u"found channel \"%s\" in TS id 0x%X", {name, pts->id});
+                if (srv != nullptr) {
+                    report.debug(u"found channel \"%s\" in TS id 0x%X", name, pts->id);
                     net = pnet;
                     ts = pts;
                     return true;
@@ -336,7 +272,7 @@ bool ts::ChannelFile::searchService(NetworkPtr& net,
     }
 
     // Channel not found.
-    report.error(u"channel \"%s\" not found in %s", {name, fileDescription()});
+    report.error(u"channel \"%s\" not found in %s", name, fileDescription());
     return false;
 }
 
@@ -419,44 +355,44 @@ bool ts::ChannelFile::parseDocument(const xml::Document& doc)
     assert(root != nullptr);
     xml::ElementVector xnets;
     root->getChildren(xnets, u"network");
-    for (auto itnet = xnets.begin(); itnet != xnets.end(); ++itnet) {
+    for (auto itnet : xnets) {
 
         // Build a new Network object at end of our list of networks.
         const NetworkPtr net(new Network);
-        CheckNonNull(net.pointer());
+        CheckNonNull(net.get());
         _networks.push_back(net);
 
         // Get network properties.
         xml::ElementVector xts;
         success =
-            (*itnet)->getIntAttribute<uint16_t>(net->id, u"id", true) &&
-            (*itnet)->getIntEnumAttribute(net->type, TunerTypeEnum, u"type", true) &&
-            (*itnet)->getChildren(xts, u"ts") &&
+            itnet->getIntAttribute<uint16_t>(net->id, u"id", true) &&
+            itnet->getIntEnumAttribute(net->type, TunerTypeEnum, u"type", true) &&
+            itnet->getChildren(xts, u"ts") &&
             success;
 
         // Get all TS in the network.
-        for (auto itts = xts.begin(); itts != xts.end(); ++itts) {
+        for (auto itts : xts) {
 
             // Get transport stream properties.
             uint16_t tsid = 0;
             uint16_t onid = 0;
             bool tsOk =
-                (*itts)->getIntAttribute<uint16_t>(tsid, u"id", true) &&
-                (*itts)->getIntAttribute<uint16_t>(onid, u"onid", false, 0xFFFF);
+                itts->getIntAttribute<uint16_t>(tsid, u"id", true) &&
+                itts->getIntAttribute<uint16_t>(onid, u"onid", false, 0xFFFF);
             success = tsOk && success;
 
             if (tsOk) {
                 // Build a new TransportStream object.
                 const TransportStreamPtr ts(net->tsGetOrCreate(tsid));
-                assert(!ts.isNull());
+                assert(ts != nullptr);
                 ts->onid = onid;
 
                 // Loop on all children elements. Exactly one should be tuner parameters, others must be <service>.
-                for (const xml::Element* e = (*itts)->firstChildElement(); e != nullptr; e = e->nextSiblingElement()) {
+                for (const xml::Element* e = itts->firstChildElement(); e != nullptr; e = e->nextSiblingElement()) {
                     if (e->name().similar(u"service")) {
                         // Get a service description.
                         const ServicePtr srv(new Service);
-                        CheckNonNull(srv.pointer());
+                        CheckNonNull(srv.get());
 
                         // Get service properties.
                         success =
@@ -477,11 +413,11 @@ bool ts::ChannelFile::parseDocument(const xml::Document& doc)
                     }
                     else if (ts->tune.hasModulationArgs()) {
                         // Tuner parameters already set.
-                        doc.report().error(u"Invalid <%s> at line %d, at most one set of tuner parameters is allowed in <ts>", {e->name(), e->lineNumber()});
+                        doc.report().error(u"Invalid <%s> at line %d, at most one set of tuner parameters is allowed in <ts>", e->name(), e->lineNumber());
                         success = false;
                     }
                     else if (!fromXML(ts->tune, e, net->type, tsid)) {
-                        doc.report().error(u"Invalid <%s> at line %d", {e->name(), e->lineNumber()});
+                        doc.report().error(u"Invalid <%s> at line %d", e->name(), e->lineNumber());
                         success = false;
                     }
                 }
@@ -500,9 +436,7 @@ bool ts::ChannelFile::save(const UString& fileName, bool createDirectories, Repo
 {
     if (createDirectories) {
         const UString dir(DirectoryName(fileName));
-        if (!IsDirectory(dir)) {
-            CreateDirectory(dir, true, report);
-        }
+        fs::create_directories(dir, &ErrCodeReport(report, u"error creating directory", dir));
     }
 
     xml::Document doc(report);
@@ -531,9 +465,9 @@ bool ts::ChannelFile::generateDocument(xml::Document& doc) const
     }
 
     // Format all networks.
-    for (auto itnet = _networks.begin(); itnet != _networks.end(); ++itnet) {
-        const NetworkPtr& net(*itnet);
-        assert(!net.isNull());
+    for (const auto& itnet : _networks) {
+        const NetworkPtr& net(itnet);
+        assert(net != nullptr);
 
         // Create one network element.
         xml::Element* xnet = root->addElement(u"network");
@@ -543,7 +477,7 @@ bool ts::ChannelFile::generateDocument(xml::Document& doc) const
         // Format all transport streams.
         for (size_t its = 0; its < net->tsCount(); ++its) {
             const TransportStreamPtr& ts(net->tsByIndex(its));
-            assert(!ts.isNull());
+            assert(ts != nullptr);
 
             // Create one transport stream element.
             xml::Element* xts = xnet->addElement(u"ts");
@@ -560,7 +494,7 @@ bool ts::ChannelFile::generateDocument(xml::Document& doc) const
             // Format all services.
             for (size_t isrv = 0; isrv < ts->serviceCount(); ++isrv) {
                 const ServicePtr& srv(ts->serviceByIndex(isrv));
-                assert(!srv.isNull());
+                assert(srv != nullptr);
 
                 // Create one service element.
                 xml::Element* xsrv = xts->addElement(u"service");
@@ -668,12 +602,12 @@ bool ts::ChannelFile::fromXML(ModulationArgs& mod, const xml::Element* elem, Tun
 
 ts::xml::Element* ts::ChannelFile::toXML(const ModulationArgs& mod, xml::Element* parent) const
 {
-    const DeliverySystem delsys = mod.delivery_system.value(DS_UNDEFINED);
+    const DeliverySystem delsys = mod.delivery_system.value_or(DS_UNDEFINED);
 
     switch (TunerTypeOf(delsys)) {
         case TT_DVB_S: {
             xml::Element* e = parent->addElement(u"dvbs");
-            if (mod.satellite_number != 0) {
+            if (mod.satellite_number.has_value() && *mod.satellite_number != 0) {
                 e->setOptionalIntAttribute(u"satellite", mod.satellite_number, false);
             }
             e->setOptionalIntAttribute(u"frequency", mod.frequency, false);
@@ -777,7 +711,7 @@ ts::xml::Element* ts::ChannelFile::toXML(const ModulationArgs& mod, xml::Element
         }
         case TT_ISDB_S: {
             xml::Element* e = parent->addElement(u"isdbs");
-            if (mod.satellite_number != 0) {
+            if (mod.satellite_number.has_value() && *mod.satellite_number != 0) {
                 e->setOptionalIntAttribute(u"satellite", mod.satellite_number, false);
             }
             e->setOptionalIntAttribute(u"frequency", mod.frequency, false);

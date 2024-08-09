@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -35,21 +14,15 @@
 // Constructors: Analyze a TLV message in memory.
 //----------------------------------------------------------------------------
 
-ts::tlv::MessageFactory::MessageFactory(const void* addr, size_t size, const Protocol* protocol) :
+ts::tlv::MessageFactory::MessageFactory(const void* addr, size_t size, const Protocol& protocol) :
     _msg_base(reinterpret_cast<const uint8_t*>(addr)),
     _msg_length(size),
-    _protocol(protocol),
-    _error_status(OK),
-    _error_info(0),
-    _error_info_is_offset(false),
-    _protocol_version(0),
-    _command_tag(0),
-    _params()
+    _protocol(protocol)
 {
     analyzeMessage();
 }
 
-ts::tlv::MessageFactory::MessageFactory(const ByteBlock &bb, const Protocol* protocol) :
+ts::tlv::MessageFactory::MessageFactory(const ByteBlock &bb, const Protocol& protocol) :
     _msg_base(bb.data()),
     _msg_length(bb.size()),
     _protocol(protocol),
@@ -71,10 +44,10 @@ ts::tlv::MessageFactory::MessageFactory(const ByteBlock &bb, const Protocol* pro
 void ts::tlv::MessageFactory::factory(MessagePtr& msg) const
 {
     if (_error_status == OK) {
-        _protocol->factory(*this, msg);
+        _protocol.factory(*this, msg);
     }
     else {
-        msg.clear();
+        msg.reset();
     }
 }
 
@@ -88,10 +61,10 @@ ts::tlv::MessagePtr ts::tlv::MessageFactory::factory() const
 void ts::tlv::MessageFactory::buildErrorResponse(MessagePtr& msg) const
 {
     if (_error_status == OK) {
-        msg.clear(); // no error
+        msg.reset(); // no error
     }
     else {
-        _protocol->buildErrorResponse(*this, msg);
+        _protocol.buildErrorResponse(*this, msg);
     }
 }
 
@@ -113,7 +86,7 @@ void ts::tlv::MessageFactory::analyzeMessage()
     size_t header_size = 0;
 
     // Get and check the protocol version.
-    if (_protocol->_has_version) {
+    if (_protocol.hasVersion()) {
         header_size = sizeof(VERSION);
         if (_msg_length < sizeof(VERSION)) {
             _error_status = InvalidMessage;
@@ -122,7 +95,7 @@ void ts::tlv::MessageFactory::analyzeMessage()
             return;
         }
         _protocol_version = GetUInt8(_msg_base);
-        if (_protocol_version != _protocol->_version) {
+        if (_protocol_version != _protocol.version()) {
             _error_status = UnsupportedVersion;
             _error_info_is_offset = true;
             _error_info = 0; // offset in message
@@ -144,10 +117,10 @@ void ts::tlv::MessageFactory::analyzeMessage()
     const void* params_list = cmd_anl.valueAddr();
 
     // Get an interator pointing to the definition of the command in the protocol description.
-    auto cmd_it = _protocol->_commands.find(_command_tag);
+    auto cmd_it = _protocol._commands.find(_command_tag);
 
     // Check that the command exists
-    if (cmd_it == _protocol->_commands.end()) {
+    if (cmd_it == _protocol._commands.end()) {
         _error_status = UnknownCommandTag;
         _error_info_is_offset = true;
         _error_info = uint16_t(header_size); // offset in message
@@ -173,7 +146,7 @@ void ts::tlv::MessageFactory::analyzeMessage()
             // Parameter tag not found in protocol definition
             _error_status = UnknownParameterTag;
             _error_info_is_offset = true;
-            _error_info = uint16_t(uint8_ptr(tlv_addr) - _msg_base); // offset
+            _error_info = uint16_t(const_uint8_ptr(tlv_addr) - _msg_base); // offset
             return;
         }
 
@@ -182,14 +155,14 @@ void ts::tlv::MessageFactory::analyzeMessage()
             // The parameter is a compound TLV, analyze it.
             // Store the parameter value in the multimap for this command.
             // Analyze the compound parameter.
-            auto it = _params.insert(ParameterMultimap::value_type(parm_tag, ExtParameter(tlv_addr, tlv_size, value_addr, value_length, new MessageFactory(tlv_addr, tlv_size, parm_it->second.compound))));
+            auto it = _params.insert(ParameterMultimap::value_type(parm_tag, ExtParameter(tlv_addr, tlv_size, value_addr, value_length, new MessageFactory(tlv_addr, tlv_size, *parm_it->second.compound))));
 
             // Check if the analysis is successful
             if ((_error_status = it->second.compound->_error_status) != OK) {
                 _error_info = it->second.compound->_error_info;
                 _error_info_is_offset = it->second.compound->_error_info_is_offset;
                 if (_error_info_is_offset) {
-                    _error_info += uint16_t(uint8_ptr(tlv_addr) - _msg_base); // offset
+                    _error_info += uint16_t(const_uint8_ptr(tlv_addr) - _msg_base); // offset
                 }
                 return;
             }
@@ -198,13 +171,13 @@ void ts::tlv::MessageFactory::analyzeMessage()
             // The parameter is not a compound TLV and its length is not in protocol-defined range
             _error_status = InvalidParameterLength;
             _error_info_is_offset = true;
-            _error_info = uint16_t(uint8_ptr(tlv_addr) - _msg_base); // offset
+            _error_info = uint16_t(const_uint8_ptr(tlv_addr) - _msg_base); // offset
             return;
         }
         else {
             // The parameter is not a compound TLV and its length is fine.
             // Store the parameter value in the multimap for this command
-            _params.insert(ParameterMultimap::value_type (parm_tag, ExtParameter(tlv_addr, tlv_size, value_addr, value_length)));
+            _params.insert(ParameterMultimap::value_type(parm_tag, ExtParameter(tlv_addr, tlv_size, value_addr, value_length)));
         }
 
         // Advance to next parameter
@@ -215,7 +188,7 @@ void ts::tlv::MessageFactory::analyzeMessage()
     if (!parm_anl.valid()) {
         _error_status = InvalidMessage;
         _error_info_is_offset = true;
-        _error_info = uint16_t(uint8_ptr(parm_anl.fieldAddr()) - _msg_base); // offset
+        _error_info = uint16_t(const_uint8_ptr(parm_anl.fieldAddr()) - _msg_base); // offset
         return;
     }
 
@@ -255,7 +228,7 @@ void ts::tlv::MessageFactory::get(TAG tag, Parameter& param) const
 {
     const auto it = _params.find(tag);
     if (it == _params.end()) {
-        throw DeserializationInternalError(UString::Format(u"No parameter 0x%X in message", {tag}));
+        throw DeserializationInternalError(UString::Format(u"No parameter 0x%X in message", tag));
     }
     else {
         param = it->second;
@@ -293,7 +266,7 @@ void ts::tlv::MessageFactory::get(TAG tag, std::vector<bool>& param) const
     // Fill vector with parameter values
     const auto last = _params.upper_bound(tag);
     for (auto it = _params.lower_bound(tag); it != last; ++it) {
-        checkParamSize<uint8_t> (tag, it);
+        checkParamSize<uint8_t>(tag, it);
         param.push_back(GetUInt8(it->second.addr) != 0);
     }
 }
@@ -325,10 +298,10 @@ void ts::tlv::MessageFactory::getCompound(TAG tag, MessagePtr& param) const
 {
     const auto it = _params.find(tag);
     if (it == _params.end()) {
-        throw DeserializationInternalError(UString::Format(u"No parameter 0x%X in message", {tag}));
+        throw DeserializationInternalError(UString::Format(u"No parameter 0x%X in message", tag));
     }
-    else if (it->second.compound.isNull()) {
-        throw DeserializationInternalError(UString::Format(u"Parameter 0x%X is not a compound TLV", {tag}));
+    else if (it->second.compound == nullptr) {
+        throw DeserializationInternalError(UString::Format(u"Parameter 0x%X is not a compound TLV", tag));
     }
     else {
         it->second.compound->factory(param);
@@ -349,8 +322,8 @@ void ts::tlv::MessageFactory::getCompound(TAG tag, std::vector<MessagePtr>& para
     auto it = _params.lower_bound(tag);
     const auto last = _params.upper_bound(tag);
     for (int i = 0; it != last; ++it, ++i) {
-        if (it->second.compound.isNull()) {
-            throw DeserializationInternalError(UString::Format(u"Occurence %d of parameter 0x%X not a compound TLV", {i, tag}));
+        if (it->second.compound == nullptr) {
+            throw DeserializationInternalError(UString::Format(u"Occurence %d of parameter 0x%X not a compound TLV", i, tag));
         }
         else {
             it->second.compound->factory(param[i]);

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -79,19 +58,22 @@ namespace ts {
         //! Types of version formatting, for predefined option -\-version.
         //!
         enum class Format {
-            SHORT,    //!< Short format X.Y-R.
-            LONG,     //!< Full explanatory format.
-            INTEGER,  //!< Integer format XXYYRRRRR.
-            DATE,     //!< Build date.
-            COMPILER, //!< Version of the compiler which was used to build the code.
-            SYSTEM,   //!< Type of system and platform.
-            BITRATE,  //!< Representation of bitrate values.
-            NSIS,     //!< Output NSIS @c !define directives.
-            DEKTEC,   //!< Version of embedded Dektec DTAPI and detected Dektec drivers.
-            HTTP,     //!< Version of HTTP library which is used.
-            SRT,      //!< Version of SRT library which is used.
-            RIST,     //!< Version of RIST library which is used.
-            ALL,      //!< Multi-line output with full details.
+            SHORT,        //!< Short format X.Y-R.
+            LONG,         //!< Full explanatory format.
+            INTEGER,      //!< Integer format XXYYRRRRR.
+            DATE,         //!< Build date.
+            COMPILER,     //!< Version of the compiler which was used to build the code.
+            SYSTEM,       //!< Type of system and platform.
+            ACCELERATION, //!< Support for accelerated instructions.
+            BITRATE,      //!< Representation of bitrate values.
+            NSIS,         //!< Output NSIS @c !define directives.
+            CRYPTO,       //!< Version of the cryptographic library which is used.
+            DEKTEC,       //!< Version of embedded Dektec DTAPI and detected Dektec drivers.
+            HTTP,         //!< Version of HTTP library which is used.
+            SRT,          //!< Version of SRT library which is used.
+            RIST,         //!< Version of RIST library which is used.
+            VATEK,        //!< Version of embedded VATek library.
+            ALL,          //!< Multi-line output with full details.
         };
 
         //!
@@ -99,6 +81,13 @@ namespace ts {
         //! Typically used to implement the -\-version command line option.
         //!
         static const Enumeration FormatEnum;
+
+        //!
+        //! Enumeration of supported features.
+        //! Typically used to implement the -\-support command line option.
+        //! For each name, the value is 1 if the feature is supported and 0 if it is not.
+        //!
+        static const Enumeration SupportEnum;
 
         //!
         //! Get the TSDuck formatted version number.
@@ -119,7 +108,7 @@ namespace ts {
     private:
         Report& _report;
         Report& _debug;
-        bool    _started;
+        bool    _started = false;
 
         // Inherited from Thread.
         virtual void main() override;

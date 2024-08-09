@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,7 +12,6 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsxmlNode.h"
 #include "tsxmlTweaks.h"
 #include "tsEnumeration.h"
 #include "tsTime.h"
@@ -147,6 +125,20 @@ namespace ts {
             }
 
             //!
+            //! Set an attribute with a floating point value to a node.
+            //! @tparam FLT a floating point type.
+            //! @param [in] value Attribute value.
+            //! @param [in] width Width of the formatted number, not including the optional prefix and separator.
+            //! @param [in] precision Precision to use after the decimal point.  Default is 6 digits.
+            //! @param [in] force_sign If true, force a '+' sign for positive values.
+            //!
+            template <typename FLT, typename std::enable_if<std::is_floating_point<FLT>::value>::type* = nullptr>
+            void setFloat(FLT value, size_t width = 0, size_t precision = 6, bool force_sign = false)
+            {
+                setString(UString::Float(double(value), width, precision, force_sign));
+            }
+
+            //!
             //! Set a date/time attribute of an XML element.
             //! @param [in] value Attribute value.
             //!
@@ -162,7 +154,11 @@ namespace ts {
             //! Set a time attribute of an XML element in "hh:mm:ss" format.
             //! @param [in] value Attribute value.
             //!
-            void setTime(Second value);
+            template <class Rep, class Period>
+            void setTime(const cn::duration<Rep,Period>& value)
+            {
+                setString(TimeToString(value));
+            }
 
             //!
             //! Convert a date/time into a string, as required in attributes.
@@ -179,11 +175,12 @@ namespace ts {
             static UString DateToString(const Time& value);
 
             //!
-            //! Convert a time into a string, as required in attributes.
+            //! Convert a time (without date) into a string, as required in attributes.
             //! @param [in] value Time value.
             //! @return The corresponding string.
             //!
-            static UString TimeToString(Second value);
+            template <class Rep, class Period>
+            static UString TimeToString(const cn::duration<Rep,Period>& value);
 
             //!
             //! Convert a string into a date/time, as required in attributes.
@@ -207,7 +204,8 @@ namespace ts {
             //! @param [in] str Time value as a string.
             //! @return True on success, false on error.
             //!
-            static bool TimeFromString(Second& value, const UString& str);
+            template <class Rep, class Period>
+            static bool TimeFromString(cn::duration<Rep,Period>& value, const UString& str);
 
             //!
             //! A constant static invalid instance.
@@ -226,4 +224,36 @@ namespace ts {
             static std::atomic_size_t _allocator;
         };
     }
+}
+
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Convert a time (without date) into a string, as required in attributes.
+//! @cond nodoxygen
+template <class Rep, class Period>
+ts::UString ts::xml::Attribute::TimeToString(const cn::duration<Rep,Period>& value)
+{
+    const cn::seconds::rep sec = cn::duration_cast<cn::seconds>(value).count();
+    return UString::Format(u"%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60);
+}
+//! @endcond
+
+// Convert a string into a time, as required in attributes.
+template <class Rep, class Period>
+bool ts::xml::Attribute::TimeFromString(cn::duration<Rep,Period>& value, const UString& str)
+{
+    int hours = 0;
+    int minutes = 0;
+    int seconds = 0;
+    const bool ok = str.scan(u"%d:%d:%d", &hours, &minutes, &seconds) &&
+                    hours   >= 0 && hours   <= 23 &&
+                    minutes >= 0 && minutes <= 59 &&
+                    seconds >= 0 && seconds <= 59;
+    if (ok) {
+        value = cn::seconds((hours * 3600) + (minutes * 60) + seconds);
+    }
+    return ok;
 }

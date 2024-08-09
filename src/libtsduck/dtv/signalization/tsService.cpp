@@ -1,74 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsService.h"
-
-
-//----------------------------------------------------------------------------
-// Constructors and destructors.
-//----------------------------------------------------------------------------
-
-ts::Service::Service() :
-    _modified(false),
-    _id(),
-    _tsid(),
-    _onid(),
-    _pmt_pid(),
-    _lcn(),
-    _type_dvb(),
-    _type_atsc(),
-    _name(),
-    _provider(),
-    _eits_present(),
-    _eitpf_present(),
-    _ca_controlled(),
-    _running_status(),
-    _major_id_atsc(),
-    _minor_id_atsc()
-{
-}
-
-ts::Service::Service(uint16_t id) :
-    Service()
-{
-    _id = id;
-}
-
-ts::Service::Service(const UString& desc) :
-    Service()
-{
-    set(desc);
-}
-
-ts::Service::~Service()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -88,7 +26,7 @@ void ts::Service::set(const UString& desc)
         // Found a service id.
         setId(id);
     }
-    else if (desc.scan(u"%d.%d", {&id, &minor})) {
+    else if (desc.scan(u"%d.%d", &id, &minor)) {
         // Found an ATSC major.minor id.
         setMajorIdATSC(id);
         setMinorIdATSC(minor);
@@ -111,19 +49,19 @@ bool ts::Service::match(const UString& ident, bool exact_match) const
 
     if (ident.toInteger(id, UString::DEFAULT_THOUSANDS_SEPARATOR)) {
         // This is a service id.
-        return _id.set() && id ==_id.value();
+        return _id.has_value() && id ==_id.value();
     }
-    else if (ident.scan(u"%d.%d", {&id, &minor})) {
+    else if (ident.scan(u"%d.%d", &id, &minor)) {
         // Found an ATSC major.minor id.
-        return _major_id_atsc.set() && _minor_id_atsc.set() && id == _major_id_atsc.value() && minor == _minor_id_atsc.value();
+        return _major_id_atsc.has_value() && _minor_id_atsc.has_value() && id == _major_id_atsc.value() && minor == _minor_id_atsc.value();
     }
     else if (exact_match) {
         // This is an exact service name.
-        return _name.set() && ident == _name.value();
+        return _name.has_value() && ident == _name.value();
     }
     else {
         // This is a fuzzy service name.
-        return _name.set() && ident.similar(_name.value());
+        return _name.has_value() && ident.similar(_name.value());
     }
 }
 
@@ -159,49 +97,49 @@ void ts::Service::clear()
 uint32_t ts::Service::getFields() const
 {
     uint32_t fields = 0;
-    if (_id.set()) {
+    if (_id.has_value()) {
         fields |= ID;
     }
-    if (_tsid.set()) {
+    if (_tsid.has_value()) {
         fields |= TSID;
     }
-    if (_onid.set()) {
+    if (_onid.has_value()) {
         fields |= ONID;
     }
-    if (_pmt_pid.set()) {
+    if (_pmt_pid.has_value()) {
         fields |= PMT_PID;
     }
-    if (_lcn.set()) {
+    if (_lcn.has_value()) {
         fields |= LCN;
     }
-    if (_type_dvb.set()) {
+    if (_type_dvb.has_value()) {
         fields |= TYPE_DVB;
     }
-    if (_type_atsc.set()) {
+    if (_type_atsc.has_value()) {
         fields |= TYPE_ATSC;
     }
-    if (_name.set()) {
+    if (_name.has_value()) {
         fields |= NAME;
     }
-    if (_provider.set()) {
+    if (_provider.has_value()) {
         fields |= PROVIDER;
     }
-    if (_eits_present.set()) {
+    if (_eits_present.has_value()) {
         fields |= EITS;
     }
-    if (_eitpf_present.set()) {
+    if (_eitpf_present.has_value()) {
         fields |= EITPF;
     }
-    if (_ca_controlled.set()) {
+    if (_ca_controlled.has_value()) {
         fields |= CA;
     }
-    if (_running_status.set()) {
+    if (_running_status.has_value()) {
         fields |= RUNNING;
     }
-    if (_major_id_atsc.set()) {
+    if (_major_id_atsc.has_value()) {
         fields |= MAJORID_ATSC;
     }
-    if (_minor_id_atsc.set()) {
+    if (_minor_id_atsc.has_value()) {
         fields |= MINORID_ATSC;
     }
     return fields;
@@ -215,29 +153,21 @@ uint32_t ts::Service::getFields() const
 ts::UString ts::Service::toString() const
 {
     UString str;
-
-    if (_name.set()) {
+    if (_name.has_value()) {
         str = u"\"" + _name.value() + u"\"";
     }
-    if (_major_id_atsc.set() && _minor_id_atsc.set()) {
-        if (!str.empty()) {
-            str += u", ";
-        }
-        str += UString::Format(u"%d.%d", {_major_id_atsc.value(), _minor_id_atsc.value()});
+    if (_major_id_atsc.has_value() && _minor_id_atsc.has_value()) {
+        str.format(u"%s%d.%d", str.empty() ? u"" : u", ", _major_id_atsc.value(), _minor_id_atsc.value());
     }
-    if (_id.set()) {
-        if (!str.empty()) {
-            str += u", ";
-        }
-        str += UString::Format(u"0x%X (%d)", {_id.value(), _id.value()});
+    if (_id.has_value()) {
+        str.format(u"%s%n", str.empty() ? u"" : u", ", _id.value());
     }
-    if (_lcn.set()) {
-        if (!str.empty()) {
-            str += u", ";
-        }
-        str += UString::Format(u"#%d", {_lcn.value()});
+    if (_lcn.has_value()) {
+        str.format(u"%s#%d", str.empty() ? u"" : u", ", _lcn.value());
     }
-
+    if (_hidden.has_value() && *_hidden) {
+        str.format(u"%s(hidden)", str.empty() ? u"" : u" ");
+    }
     return str;
 }
 
@@ -250,15 +180,15 @@ ts::UString ts::Service::toString() const
 // sort according to this field. If only one object has this field set,
 // it comes first. If none of the two objects have this field set, move
 // to next criterion.
-#define _SORT_(field)                                                               \
-    if (s1.field.set() && !s2.field.set()) {                                        \
-        return true;                                                                \
-    }                                                                               \
-    if (!s1.field.set() && s2.field.set()) {                                        \
-        return false;                                                               \
-    }                                                                               \
-    if (s1.field.set() && s2.field.set() && s1.field.value() != s2.field.value()) { \
-        return s1.field.value() < s2.field.value();                                 \
+#define _SORT_(field)                                     \
+    if (s1.field.has_value() && !s2.field.has_value()) {  \
+        return true;                                      \
+    }                                                     \
+    if (!s1.field.has_value() && s2.field.has_value()) {  \
+        return false;                                     \
+    }                                                     \
+    if (s1.field.has_value() && s2.field.has_value() && s1.field.value() != s2.field.value()) { \
+        return s1.field.value() < s2.field.value();       \
     }
 
 // Sort1: LCN, ONId, TSId, Id, name, provider, type, PMT PID

@@ -1,39 +1,26 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSysInfo.h"
-#include "tsSysUtils.h"
+#include "tsEnvironment.h"
 #include "tsMemory.h"
+#include "tsCryptoAcceleration.h"
+
+#if defined(TS_LINUX)
+    #include <sys/auxv.h>
+#endif
+
 #if defined(TS_MAC)
-#include "tsMacPList.h"
-#include <sys/param.h>
-#include <sys/sysctl.h>
+    #include "tsMacPList.h"
+#endif
+
+#if defined(TS_UNIX)
+    #include "tsSysCtl.h"
 #endif
 
 // Define singleton instance
@@ -45,60 +32,76 @@ TS_DEFINE_SINGLETON(ts::SysInfo);
 //----------------------------------------------------------------------------
 
 ts::SysInfo::SysInfo() :
-#if defined(TS_LINUX)
-    _isLinux(true),
-#else
-    _isLinux(false),
-#endif
-    _isFedora(false),
-    _isRedHat(false),
-    _isUbuntu(false),
-    _isDebian(false),
-    _isRaspbian(false),
-#if defined(TS_MAC)
-    _isMacOS(true),
-#else
-    _isMacOS(false),
-#endif
-#if defined(TS_WINDOWS)
-    _isWindows(true),
-#else
-    _isWindows(false),
-#endif
+
 #if defined(TS_I386)
-    _isIntel32(true),
-#else
-    _isIntel32(false),
-#endif
-#if defined(TS_X86_64)
-    _isIntel64(true),
-#else
-    _isIntel64(false),
-#endif
-    _systemVersion(),
-    _systemName(),
-    _hostName(),
-#if defined(TS_I386)
+    _arch(INTEL32),
     _cpuName(u"Intel x86"),
 #elif defined(TS_X86_64)
+    _arch(INTEL64),
     _cpuName(u"Intel x86-64"),
 #elif defined(TS_ARM64)
-    _cpuName(u"ARM-64"),
-#elif defined(TS_ARM)
-    _cpuName(u"ARM"),
+    _arch(ARM64),
+    _cpuName(u"Arm-64"),
+#elif defined(TS_ARM32)
+    _arch(ARM32),
+    _cpuName(u"Arm-32"),
+#elif defined(TS_MIPS64)
+    _arch(MIPS64),
+    _cpuName(u"MIPS64"),
 #elif defined(TS_MIPS)
+    _arch(MIPS32),
     _cpuName(u"MIPS"),
 #elif defined(TS_SPARC)
+    _arch(SPARC),
     _cpuName(u"SPARC"),
-#elif defined(TS_ALPHA)
-    _cpuName(u"Alpha"),
 #elif defined(TS_POWERPC64)
+    _arch(PPC64),
     _cpuName(u"PowerPC-64"),
 #elif defined(TS_POWERPC)
+    _arch(PPC32),
     _cpuName(u"PowerPC"),
+#elif defined(TS_RISCV64)
+    _arch(RISCV64),
+    _cpuName(u"RISCV-64"),
+#elif defined(TS_S390X)
+    _arch(S390X),
+    _cpuName(u"S390X"),
 #else
-    _cpuName(u"unknown CPU"),
+    #error "Unsupported CPU architecture"
 #endif
+
+#if defined(TS_LINUX)
+    _osFamily(LINUX),
+    _osFlavor(UNKNOWN),
+    _systemName(u"Linux"),
+#elif defined(TS_MAC)
+    _osFamily(MACOS),
+    _osFlavor(NONE),
+    _systemName(u"macOS"),
+#elif defined(TS_FREEBSD)
+    _osFamily(BSD),
+    _osFlavor(FREEBSD),
+    _systemName(u"FreeBSD"),
+^#elif defined(TS_NETBSD)
+    _osFamily(BSD),
+    _osFlavor(NETBSD),
+    _systemName(u"NetBSD"),
+#elif defined(TS_OPENBSD)
+    _osFamily(BSD),
+    _osFlavor(OPENBSD),
+    _systemName(u"OpenBSD"),
+#elif defined(TS_DRAGONFLYBSD)
+    _osFamily(BSD),
+    _osFlavor(DFLYBSD),
+    _systemName(u"DragonFlyBSD"),
+#elif defined(TS_WINDOWS)
+    _osFamily(WINDOWS),
+    _osFlavor(NONE),
+    _systemName(u"Windows"),
+#else
+    #error "Unsupported operating system"
+#endif
+
     _memoryPageSize(0)
 {
     //
@@ -110,31 +113,46 @@ ts::SysInfo::SysInfo() :
     UStringList lines;
     Environment env;
     if (UString::Load(lines, u"/etc/fedora-release") && !lines.empty()) {
-        _isFedora = true;
+        _osFlavor = FEDORA;
         _systemName = u"Fedora";
         _systemVersion = lines.front();
     }
     else if (UString::Load(lines, u"/etc/redhat-release") && !lines.empty()) {
-        _isRedHat = true;
+        _osFlavor = REDHAT;
         _systemName = u"Red Hat Entreprise Linux";
         _systemVersion = lines.front();
     }
+    else if (UString::Load(lines, u"/etc/alpine-release") && !lines.empty()) {
+        _osFlavor = ALPINE;
+        _systemName = u"Alpine Linux";
+        _systemVersion = lines.front();
+    }
     else if (LoadEnvironment(env, u"/etc/lsb-release")) {
-        _systemName = env[u"DISTRIB_ID"];
+        if (!env[u"DISTRIB_ID"].empty()) {
+            _systemName = env[u"DISTRIB_ID"];
+        }
         _systemVersion = env[u"DISTRIB_DESCRIPTION"];
         if (_systemVersion.empty()) {
             _systemVersion = env[u"DISTRIB_RELEASE"];
         }
-        _isUbuntu = _systemName.similar(u"Ubuntu");
-        _isDebian = _systemName.similar(u"Debian");
-        _isRaspbian = _systemName.similar(u"Raspbian");
+        if (_systemName.similar(u"Ubuntu")) {
+            _osFlavor = UBUNTU;
+        }
+        else if (_systemName.similar(u"Debian")) {
+            _osFlavor = DEBIAN;
+        }
+        else if (_systemName.similar(u"Raspbian")) {
+            _osFlavor = RASPBIAN;
+        }
     }
-    if (_systemName.empty() && UString::Load(lines, u"/etc/debian_version") && !lines.empty()) {
+    if (_systemName == "Linux" && UString::Load(lines, u"/etc/debian_version") && !lines.empty()) {
         _systemName = u"Debian";
-        _systemVersion = u"Debian " + lines.front();
-    }
-    if (_systemName.empty()) {
-        _systemName = u"Linux";
+        if (_osFlavor == UNKNOWN) {
+            _osFlavor = DEBIAN;
+        }
+        if (_systemVersion.empty()) {
+            _systemVersion = u"Debian " + lines.front();
+        }
     }
 
 #elif defined(TS_MAC)
@@ -147,30 +165,44 @@ ts::SysInfo::SysInfo() :
         _systemName = sysName;
         _systemVersion = sysName + u" " + sysVersion;
     }
-    else {
-        _systemName = u"macOS";
-    }
 
     // Get kernel version.
-    int mib[2];
-    size_t len = 0;
-    mib[0] = CTL_KERN;
-    mib[1] = KERN_OSRELEASE;
-    if (::sysctl(mib, 2, nullptr, &len, nullptr, 0) == 0) {
-        std::string version(len, 0);
-        if (::sysctl(mib, 2, &version[0], &len, nullptr, 0) == 0) {
-            if (!_systemVersion.empty()) {
-                _systemVersion += u", ";
-            }
-            // Implicitely remove trailing zeroes from sysctl() result.
-            version.resize(len);
-            _systemVersion += u"Darwin " + UString::FromUTF8(version.c_str());
+    UString osrelease(SysCtrlString({CTL_KERN, KERN_OSRELEASE}));
+    osrelease.trim();
+    if (!osrelease.empty()) {
+        if (!_systemVersion.empty()) {
+            _systemVersion += u", ";
         }
+        _systemVersion += u"Darwin " + osrelease;
+    }
+
+#elif defined(TS_BSD)
+
+    const UString sysname(SysCtrlString({CTL_KERN, KERN_OSTYPE}));
+    if (!sysname.empty()) {
+        _systemName = sysname;
+    }
+
+    UString osrelease(SysCtrlString({CTL_KERN, KERN_OSRELEASE}));
+    osrelease.trim();
+    if (osrelease.empty()) {
+        _systemVersion = SysCtrlString({CTL_KERN, KERN_VERSION});
+        _systemVersion.trim();
+        // BSD systems tend to have long multi-line descriptions, keep only the first line.
+        const size_t eol = _systemVersion.find(u'\n');
+        if (eol != NPOS) {
+            _systemVersion.resize(eol);
+            _systemVersion.trim(true, true, true);
+        }
+    }
+    else if (_systemName.empty()) {
+        _systemVersion = osrelease;
+    }
+    else {
+        _systemVersion = _systemName + u" " + osrelease;
     }
 
 #elif defined(TS_WINDOWS)
-
-    _systemName = u"Windows";
 
     TS_PUSH_WARNING()
     TS_MSC_NOWARNING(4996) // warning C4996: 'GetVersionExW': was declared deprecated
@@ -180,7 +212,7 @@ ts::SysInfo::SysInfo() :
     TS_ZERO(info);
     info.dwOSVersionInfoSize = sizeof(info);
     if (::GetVersionExW(&info)) {
-        _systemVersion = UString::Format(u"Windows %d.%d Build %d %s", {info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber, UString(info.szCSDVersion)});
+        _systemVersion = UString::Format(u"Windows %d.%d Build %d %s", info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber, UString(info.szCSDVersion));
         _systemVersion.trim();
     }
 
@@ -190,8 +222,8 @@ ts::SysInfo::SysInfo() :
     ::BOOL wow64 = 0;
     if (::IsWow64Process(::GetCurrentProcess(), &wow64) && wow64) {
         // 32-bit application on 64-bit system => set system characteristics, not application.
-        _isIntel32 = false;
-        _isIntel64 = true;
+        _arch = INTEL64;
+        _cpuName = u"Intel x86-64";
     }
 
 #endif
@@ -199,6 +231,14 @@ ts::SysInfo::SysInfo() :
     // System version defaults to system name.
     if (_systemVersion.empty()) {
         _systemVersion = _systemName;
+    }
+
+    // System major version defaults to the first integer field in the system version string.
+    if (_systemMajorVersion < 0) {
+        const size_t start = _systemVersion.find_first_of(u"0123456789");
+        if (start != NPOS) {
+            _systemVersion.substr(start).toInteger(_systemMajorVersion);
+        }
     }
 
     //
@@ -242,4 +282,18 @@ ts::SysInfo::SysInfo() :
     }
 
 #endif
+
+    //
+    // Get support for specialized instructions.
+    // Can be globally disabled using environment variables.
+    //
+    if (GetEnvironment(u"TS_NO_HARDWARE_ACCELERATION").empty()) {
+        if (GetEnvironment(u"TS_NO_CRC32_INSTRUCTIONS").empty()) {
+            #if defined(TS_LINUX) && defined(HWCAP_CRC32)
+                _crcInstructions = tsCRC32IsAccelerated && (::getauxval(AT_HWCAP) & HWCAP_CRC32) != 0;
+            #elif defined(TS_MAC)
+                _crcInstructions = tsCRC32IsAccelerated && SysCtrlBool("hw.optional.armv8_crc32");
+            #endif
+        }
+    }
 }

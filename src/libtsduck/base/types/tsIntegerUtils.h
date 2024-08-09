@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -62,12 +41,12 @@ namespace ts {
     // Implementation tools for make_signed.
     //
     //! @cond nodoxygen
-    template<typename T, size_t SIZE, bool ISSIGNED> struct make_signed_impl { typedef T type; };
-    template<> struct make_signed_impl<bool, 1, false> { typedef int8_t type; };
-    template<typename T> struct make_signed_impl<T, 1, false> { typedef int16_t type; };
-    template<typename T> struct make_signed_impl<T, 2, false> { typedef int32_t type; };
-    template<typename T> struct make_signed_impl<T, 4, false> { typedef int64_t type; };
-    template<typename T> struct make_signed_impl<T, 8, false> { typedef int64_t type; };
+    template<typename T, size_t SIZE, bool ISSIGNED> struct make_signed_impl { using type = T; };
+    template<> struct make_signed_impl<bool, 1, false> { using type = int8_t; };
+    template<typename T> struct make_signed_impl<T, 1, false> { using type = int16_t; };
+    template<typename T> struct make_signed_impl<T, 2, false> { using type = int32_t; };
+    template<typename T> struct make_signed_impl<T, 4, false> { using type = int64_t; };
+    template<typename T> struct make_signed_impl<T, 8, false> { using type = int64_t; };
     //! @endcond
 
     //!
@@ -79,7 +58,27 @@ namespace ts {
     template<typename T>
     struct make_signed {
         //! The equivalent signed type.
-        typedef typename make_signed_impl<T, sizeof(T), std::is_signed<T>::value>::type type;
+        using type = typename make_signed_impl<T, sizeof(T), std::is_signed<T>::value>::type;
+    };
+
+    //
+    // Implementation tools for int_max.
+    //
+    //! @cond nodoxygen
+    template<bool ISSIGNED> struct int_max_impl { using type = void; };
+    template<> struct int_max_impl<true> { using type = std::intmax_t; };
+    template<> struct int_max_impl<false> { using type = std::uintmax_t; };
+    //! @endcond
+
+    //!
+    //! The meta-type ts::int_max selects the integer type with largest width and same signedness as another integer type.
+    //! @tparam INT An integer type, any size, signed or unsigned.
+    //!
+    template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type = 0>
+    struct int_max {
+        //! The integer type with the same signedness and largest width.
+        //! In practice, it is either @c std::uintmax_t or @c std::intmax_t.
+        using type = typename int_max_impl<std::is_signed<INT>::value>::type;
     };
 
     //!
@@ -646,20 +645,19 @@ namespace ts {
     //! @endcond
 
     //!
+    //! Largest representable power of 10 in integer types.
+    //! Assuming that no integer type is larger than 64 bits, 10^19 is the largest unsigned power of 10.
+    //!
+    constexpr size_t MAX_POWER_10 = 19;
+
+    //!
     //! Get a power of 10 using a fast lookup table.
     //!
-    //! @tparam INT An integer type.
     //! @param [in] pow The requested power of 10.
     //! @return The requested power of 10. If the value is larger than the largest integer on
     //! this platform, the result is undefined.
     //!
-    template<typename INT, typename std::enable_if<std::is_integral<INT>::value>::type* = nullptr>
-    inline INT Power10(size_t pow) { return static_cast<INT>(Power10<uint64_t>(pow)); }
-
-    //! @cond nodoxygen
-    // Template specialization.
-    template<> TSDUCKDLL uint64_t Power10<uint64_t>(size_t pow);
-    //! @endcond
+    TSDUCKDLL uint64_t Power10(size_t pow);
 
     //!
     //! Static values of power of 10.
@@ -668,7 +666,7 @@ namespace ts {
     //!
     template <typename INT, const size_t POW>
     struct static_power10 {
-        #if defined (DOXYGEN)
+        #if defined(DOXYGEN)
         static constexpr INT value;   //!< Value of 10 power POW.
         #endif
     };
@@ -678,24 +676,266 @@ namespace ts {
     template <typename INT> struct static_power10<INT,  0> { static constexpr INT value = 1; };
     template <typename INT> struct static_power10<INT,  1> { static constexpr INT value = 10; };
     template <typename INT> struct static_power10<INT,  2> { static constexpr INT value = 100; };
-    template <typename INT> struct static_power10<INT,  3> { static constexpr INT value = 1000; };
-    template <typename INT> struct static_power10<INT,  4> { static constexpr INT value = 10000; };
-    template <typename INT> struct static_power10<INT,  5> { static constexpr INT value = 100000; };
-    template <typename INT> struct static_power10<INT,  6> { static constexpr INT value = 1000000; };
-    template <typename INT> struct static_power10<INT,  7> { static constexpr INT value = 10000000; };
-    template <typename INT> struct static_power10<INT,  8> { static constexpr INT value = 100000000; };
-    template <typename INT> struct static_power10<INT,  9> { static constexpr INT value = 1000000000; };
-    template <typename INT> struct static_power10<INT, 10> { static constexpr INT value = TS_UCONST64(10000000000); };
-    template <typename INT> struct static_power10<INT, 11> { static constexpr INT value = TS_UCONST64(100000000000); };
-    template <typename INT> struct static_power10<INT, 12> { static constexpr INT value = TS_UCONST64(1000000000000); };
-    template <typename INT> struct static_power10<INT, 13> { static constexpr INT value = TS_UCONST64(10000000000000); };
-    template <typename INT> struct static_power10<INT, 14> { static constexpr INT value = TS_UCONST64(100000000000000); };
-    template <typename INT> struct static_power10<INT, 15> { static constexpr INT value = TS_UCONST64(1000000000000000); };
-    template <typename INT> struct static_power10<INT, 16> { static constexpr INT value = TS_UCONST64(10000000000000000); };
-    template <typename INT> struct static_power10<INT, 17> { static constexpr INT value = TS_UCONST64(100000000000000000); };
-    template <typename INT> struct static_power10<INT, 18> { static constexpr INT value = TS_UCONST64(1000000000000000000); };
-    template <typename INT> struct static_power10<INT, 19> { static constexpr INT value = TS_UCONST64(10000000000000000000); };
+    template <typename INT> struct static_power10<INT,  3> { static constexpr INT value = 1'000; };
+    template <typename INT> struct static_power10<INT,  4> { static constexpr INT value = 10'000; };
+    template <typename INT> struct static_power10<INT,  5> { static constexpr INT value = 100'000; };
+    template <typename INT> struct static_power10<INT,  6> { static constexpr INT value = 1'000'000; };
+    template <typename INT> struct static_power10<INT,  7> { static constexpr INT value = 10'000'000; };
+    template <typename INT> struct static_power10<INT,  8> { static constexpr INT value = 100'000'000; };
+    template <typename INT> struct static_power10<INT,  9> { static constexpr INT value = 1'000'000'000; };
+    template <typename INT> struct static_power10<INT, 10> { static constexpr INT value = 10'000'000'000; };
+    template <typename INT> struct static_power10<INT, 11> { static constexpr INT value = 100'000'000'000; };
+    template <typename INT> struct static_power10<INT, 12> { static constexpr INT value = 1'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 13> { static constexpr INT value = 10'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 14> { static constexpr INT value = 100'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 15> { static constexpr INT value = 1'000'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 16> { static constexpr INT value = 10'000'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 17> { static constexpr INT value = 100'000'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 18> { static constexpr INT value = 1'000'000'000'000'000'000; };
+    template <typename INT> struct static_power10<INT, 19> { static constexpr INT value = 10'000'000'000'000'000'000ull; };
     //! @endcond
+
+    //!
+    //! Define the smaller unsigned integer type with at least a given number of bits.
+    //! @tparam BITS Minimum number of bits. Must be in the range 0 to 64.
+    //!
+    template <const size_t BITS>
+    struct smaller_unsigned {
+        //!
+        //! The smaller unsigned integer type with at list @a BITS bits.
+        //!
+        using type = typename std::conditional<
+            BITS <= 8,
+            uint8_t,
+            typename std::conditional<
+                BITS <= 16,
+                uint16_t,
+                typename std::conditional<
+                    BITS <= 32,
+                    uint32_t,
+                    typename std::conditional<
+                        BITS <= 64,
+                        uint64_t,
+                        void
+                    >::type
+                >::type
+            >::type
+        >::type;
+    };
 }
 
-#include "tsIntegerUtilsTemplate.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+// Not inlined to avoid optimization which breaks the code.
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type N>
+bool ts::add_overflow(INT a, INT b)
+{
+    INT res = a + b;
+    return add_overflow<INT>(a, b, res);
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type N>
+bool ts::sub_overflow(INT a, INT b)
+{
+    INT res = a - b;
+    return sub_overflow<INT>(a, b, res);
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value, int>::type N>
+bool ts::mul_overflow(INT a, INT b)
+{
+    INT res = a * b;
+    return mul_overflow<INT>(a, b, res);
+}
+
+
+//----------------------------------------------------------------------------
+// Perform a bounded addition without overflow.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::bounded_add(INT a, INT b)
+{
+    // Unsigned addition.
+    if (a > std::numeric_limits<INT>::max() - b) {
+        // Overflow.
+        return std::numeric_limits<INT>::max();
+    }
+    else {
+        return a + b;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::bounded_add(INT a, INT b)
+{
+    // Signed addition.
+    const INT c = a + b;
+    if (a > 0 && b > 0 && c <= 0) {
+        // Overflow.
+        return std::numeric_limits<INT>::max();
+    }
+    else if (a < 0 && b < 0 && c >= 0) {
+        // Underflow.
+        return std::numeric_limits<INT>::min();
+    }
+    else {
+        return c;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Perform a bounded subtraction without overflow.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::bounded_sub(INT a, INT b)
+{
+    // Unsigned subtraction.
+    if (a < b) {
+        // Underflow.
+        return 0;
+    }
+    else {
+        return a - b;
+    }
+}
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::bounded_sub(INT a, INT b)
+{
+    // Signed subtraction.
+    const INT c = a - b;
+    if (a > 0 && b < 0 && c <= 0) {
+        // Overflow.
+        return std::numeric_limits<INT>::max();
+    }
+    else if (a < 0 && b > 0 && c >= 0) {
+        // Underflow.
+        return std::numeric_limits<INT>::min();
+    }
+    else {
+        return c;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Rounding integers up and down.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::round_down(INT x, INT f)
+{
+    return f == 0 ? x : x - x % f;
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::round_down(INT x, INT f)
+{
+    f = INT(std::abs(f));
+    return f == 0 ? x : (x >= 0 ? x - x % f : x - (f + x % f) % f);
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::round_up(INT x, INT f)
+{
+    return f == 0 ? x : x + (f - x % f) % f;
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::round_up(INT x, INT f)
+{
+    f = INT(std::abs(f));
+    return f == 0 ? x : (x >= 0 ? x + (f - x % f) % f : x - x % f);
+}
+
+
+//----------------------------------------------------------------------------
+// Perform a sign extension on any subset of a signed integer.
+//----------------------------------------------------------------------------
+
+template <typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::SignExtend(INT x, size_t bits)
+{
+    if (bits < 2) {
+        // We need at least two bits, one for the sign, one for the value.
+        return 0;
+    }
+    else if (bits >= int(8 * sizeof(x))) {
+        // No need to extend, the value is already there.
+        return x;
+    }
+    else {
+        // A mask with all one's in MSB unused bits.
+        TS_PUSH_WARNING()
+        TS_GCC_NOWARNING(shift-negative-value)
+        TS_LLVM_NOWARNING(shift-sign-overflow)
+        const INT mask = static_cast<INT>(~static_cast<INT>(0) << bits);
+        TS_POP_WARNING()
+
+        // Test the sign bit in the LSB signed value.
+        return (x & (static_cast<INT>(1) << (bits - 1))) == 0 ? (x & ~mask) : (x | mask);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get the size in bits of an unsigned integer value.
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+size_t ts::BitSize(INT x)
+{
+    size_t size = 1;
+    const size_t maxbit = 8 * sizeof(INT);
+    for (size_t bit = 0; bit < maxbit && (x = x >> 1) != 0; ++bit) {
+        ++size;
+    }
+    return size;
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+size_t ts::BitSize(INT x)
+{
+    using UNS_INT = typename std::make_unsigned<INT>::type;
+    return BitSize<UNS_INT>(UNS_INT(x));
+}
+
+//----------------------------------------------------------------------------
+// Compute a greatest common denominator (GCD).
+//----------------------------------------------------------------------------
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_unsigned<INT>::value>::type*>
+INT ts::GCD(INT x, INT y)
+{
+    INT z;
+    while (y != 0) {
+        z = x % y;
+        x = y;
+        y = z;
+    }
+    return x;
+}
+
+template<typename INT, typename std::enable_if<std::is_integral<INT>::value && std::is_signed<INT>::value>::type*>
+INT ts::GCD(INT x, INT y)
+{
+    INT z;
+    if (x < 0) {
+        x = -x;
+    }
+    if (y < 0) {
+        y = -y;
+    }
+    while (y != 0) {
+        z = x % y;
+        x = y;
+        y = z;
+    }
+    return x;
+}

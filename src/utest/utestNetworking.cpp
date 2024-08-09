@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -40,8 +19,7 @@
 #include "tsTCPConnection.h"
 #include "tsTCPServer.h"
 #include "tsUDPSocket.h"
-#include "tsThread.h"
-#include "tsSysUtils.h"
+#include "tsNullReport.h"
 #include "tsIPUtils.h"
 #include "tsCerrReport.h"
 #include "utestTSUnitThread.h"
@@ -54,46 +32,27 @@
 
 class NetworkingTest: public tsunit::Test
 {
-public:
-    NetworkingTest();
+    TSUNIT_DECLARE_TEST(IPv4AddressConstructors);
+    TSUNIT_DECLARE_TEST(IPv4Address);
+    TSUNIT_DECLARE_TEST(IPv6Address);
+    TSUNIT_DECLARE_TEST(MACAddress);
+    TSUNIT_DECLARE_TEST(GetLocalIPAddresses);
+    TSUNIT_DECLARE_TEST(IPv4SocketAddressConstructors);
+    TSUNIT_DECLARE_TEST(IPv4SocketAddress);
+    TSUNIT_DECLARE_TEST(IPv6SocketAddress);
+    TSUNIT_DECLARE_TEST(TCPSocket);
+    TSUNIT_DECLARE_TEST(UDPSocket);
+    TSUNIT_DECLARE_TEST(IPHeader);
+    TSUNIT_DECLARE_TEST(IPProtocol);
+    TSUNIT_DECLARE_TEST(TCPPacket);
+    TSUNIT_DECLARE_TEST(UDPPacket);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testIPv4AddressConstructors();
-    void testIPv4Address();
-    void testIPv6Address();
-    void testMACAddress();
-    void testGetLocalIPAddresses();
-    void testIPv4SocketAddressConstructors();
-    void testIPv4SocketAddress();
-    void testIPv6SocketAddress();
-    void testTCPSocket();
-    void testUDPSocket();
-    void testIPHeader();
-    void testIPProtocol();
-    void testTCPPacket();
-    void testUDPPacket();
-
-    TSUNIT_TEST_BEGIN(NetworkingTest);
-    TSUNIT_TEST(testIPv4AddressConstructors);
-    TSUNIT_TEST(testIPv4Address);
-    TSUNIT_TEST(testIPv6Address);
-    TSUNIT_TEST(testMACAddress);
-    TSUNIT_TEST(testGetLocalIPAddresses);
-    TSUNIT_TEST(testIPv4SocketAddressConstructors);
-    TSUNIT_TEST(testIPv4SocketAddress);
-    TSUNIT_TEST(testIPv6SocketAddress);
-    TSUNIT_TEST(testTCPSocket);
-    TSUNIT_TEST(testUDPSocket);
-    TSUNIT_TEST(testIPHeader);
-    TSUNIT_TEST(testIPProtocol);
-    TSUNIT_TEST(testTCPPacket);
-    TSUNIT_TEST(testUDPPacket);
-    TSUNIT_TEST_END();
-
 private:
-    int _previousSeverity;
+    int _previousSeverity = 0;
 };
 
 TSUNIT_REGISTER(NetworkingTest);
@@ -102,12 +61,6 @@ TSUNIT_REGISTER(NetworkingTest);
 //----------------------------------------------------------------------------
 // Initialization.
 //----------------------------------------------------------------------------
-
-// Constructor.
-NetworkingTest::NetworkingTest() :
-    _previousSeverity(0)
-{
-}
 
 // Test suite initialization method.
 void NetworkingTest::beforeTest()
@@ -129,7 +82,7 @@ void NetworkingTest::afterTest()
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void NetworkingTest::testIPv4AddressConstructors()
+TSUNIT_DEFINE_TEST(IPv4AddressConstructors)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -152,16 +105,16 @@ void NetworkingTest::testIPv4AddressConstructors()
 
     ::sockaddr sa5;
     TSUNIT_ASSERT(sizeof(::sockaddr) >= sizeof(::sockaddr_in));
-    ::sockaddr_in* sai5 = reinterpret_cast< ::sockaddr_in*> (&sa5);
+    ::sockaddr_in* sai5 = reinterpret_cast<::sockaddr_in*>(&sa5);
     sai5->sin_family = AF_INET;
-    sai5->sin_addr.s_addr = htonl (0x01020304);
+    sai5->sin_addr.s_addr = htonl(0x01020304);
     sai5->sin_port = 0;
     ts::IPv4Address a5 (sa5);
     TSUNIT_ASSERT(a5.address() == 0x01020304);
 
     ::sockaddr_in sa6;
     sa6.sin_family = AF_INET;
-    sa6.sin_addr.s_addr = htonl (0x01020304);
+    sa6.sin_addr.s_addr = htonl(0x01020304);
     sa6.sin_port = 0;
     ts::IPv4Address a6 (sa6);
     TSUNIT_ASSERT(a6.address() == 0x01020304);
@@ -174,7 +127,7 @@ void NetworkingTest::testIPv4AddressConstructors()
     TSUNIT_ASSERT(a8 == ts::IPv4Address::LocalHost);
 }
 
-void NetworkingTest::testIPv4Address()
+TSUNIT_DEFINE_TEST(IPv4Address)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -207,15 +160,15 @@ void NetworkingTest::testIPv4Address()
 
     ::sockaddr sa;
     a1.copy (sa, 80);
-    const ::sockaddr_in* saip = reinterpret_cast<const ::sockaddr_in*> (&sa);
+    const ::sockaddr_in* saip = reinterpret_cast<const ::sockaddr_in*>(&sa);
     TSUNIT_ASSERT(saip->sin_family == AF_INET);
-    TSUNIT_ASSERT(saip->sin_addr.s_addr == htonl (0x01020304));
+    TSUNIT_ASSERT(saip->sin_addr.s_addr == htonl(0x01020304));
     TSUNIT_ASSERT(saip->sin_port == htons (80));
 
     ::sockaddr_in sai;
     a1.copy (sai, 80);
     TSUNIT_ASSERT(sai.sin_family == AF_INET);
-    TSUNIT_ASSERT(sai.sin_addr.s_addr == htonl (0x01020304));
+    TSUNIT_ASSERT(sai.sin_addr.s_addr == htonl(0x01020304));
     TSUNIT_ASSERT(sai.sin_port == htons (80));
 
     TSUNIT_ASSERT(a1.resolve(u"2.3.4.5", CERR));
@@ -235,7 +188,7 @@ void NetworkingTest::testIPv4Address()
     debug() << "NetworkingTest: www.google.com = " << ts::IPv4Address(u"www.google.com", CERR) << std::endl;
 }
 
-void NetworkingTest::testIPv6Address()
+TSUNIT_DEFINE_TEST(IPv6Address)
 {
     ts::IPv6Address a1;
     TSUNIT_ASSERT(!a1.hasAddress());
@@ -262,27 +215,27 @@ void NetworkingTest::testIPv6Address()
 
     a1.setAddress(0, 1, 2, 3, 4, 5, 6, 7);
     TSUNIT_ASSERT(a1.hasAddress());
-    TSUNIT_EQUAL(TS_UCONST64(0x0000000100020003), a1.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x0004000500060007), a1.interfaceIdentifier());
+    TSUNIT_EQUAL(0x0000000100020003, a1.networkPrefix());
+    TSUNIT_EQUAL(0x0004000500060007, a1.interfaceIdentifier());
     TSUNIT_EQUAL(u"0:1:2:3:4:5:6:7", a1.toString());
     TSUNIT_EQUAL(u"0000:0001:0002:0003:0004:0005:0006:0007", a1.toFullString());
 
     a1.setAddress(0x12, 0x345, 0x6789, 0xFFFF, 0, 0, 0, 0xBEEF);
     TSUNIT_ASSERT(a1.hasAddress());
-    TSUNIT_EQUAL(TS_UCONST64(0x001203456789FFFF), a1.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x000000000000BEEF), a1.interfaceIdentifier());
+    TSUNIT_EQUAL(0x001203456789FFFF, a1.networkPrefix());
+    TSUNIT_EQUAL(0x000000000000BEEF, a1.interfaceIdentifier());
     TSUNIT_EQUAL(u"12:345:6789:ffff::beef", a1.toString());
     TSUNIT_EQUAL(u"0012:0345:6789:ffff:0000:0000:0000:beef", a1.toFullString());
 
     TSUNIT_ASSERT(a1.resolve(u"fe80::93a3:dea0:2108:b81e", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
-    TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), a1.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), a1.interfaceIdentifier());
+    TSUNIT_EQUAL(0xFE80000000000000, a1.networkPrefix());
+    TSUNIT_EQUAL(0x93A3DEA02108B81E, a1.interfaceIdentifier());
     TSUNIT_EQUAL(u"fe80::93a3:dea0:2108:b81e", a1.toString());
     TSUNIT_EQUAL(u"fe80:0000:0000:0000:93a3:dea0:2108:b81e", a1.toFullString());
 }
 
-void NetworkingTest::testMACAddress()
+TSUNIT_DEFINE_TEST(MACAddress)
 {
     ts::MACAddress a1;
     TSUNIT_ASSERT(!a1.hasAddress());
@@ -291,19 +244,19 @@ void NetworkingTest::testMACAddress()
     TSUNIT_ASSERT(a1.resolve(u"52:54:00:26:92:b4", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(!a1.isMulticast());
-    TSUNIT_EQUAL(TS_UCONST64(0x5254002692B4), a1.address());
+    TSUNIT_EQUAL(0x5254002692B4, a1.address());
     TSUNIT_EQUAL(u"52:54:00:26:92:B4", a1.toString());
 
     TSUNIT_ASSERT(a1.resolve(u" 23:b3-A6 . bE : 56-4D", CERR));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(!a1.isMulticast());
-    TSUNIT_EQUAL(TS_UCONST64(0x23B3A6BE564D), a1.address());
+    TSUNIT_EQUAL(0x23B3A6BE564D, a1.address());
     TSUNIT_EQUAL(u"23:B3:A6:BE:56:4D", a1.toString());
 
     TSUNIT_ASSERT(a1.toMulticast(ts::IPv4Address(225, 1, 2, 3)));
     TSUNIT_ASSERT(a1.hasAddress());
     TSUNIT_ASSERT(a1.isMulticast());
-    TSUNIT_EQUAL(TS_UCONST64(0x01005E010203), a1.address());
+    TSUNIT_EQUAL(0x01005E010203, a1.address());
     TSUNIT_EQUAL(u"01:00:5E:01:02:03", a1.toString());
 
     TSUNIT_ASSERT(!a1.toMulticast(ts::IPv4Address(192, 168, 2, 3)));
@@ -311,7 +264,7 @@ void NetworkingTest::testMACAddress()
     TSUNIT_ASSERT(!a1.isMulticast());
 }
 
-void NetworkingTest::testGetLocalIPAddresses()
+TSUNIT_DEFINE_TEST(GetLocalIPAddresses)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -344,7 +297,7 @@ void NetworkingTest::testGetLocalIPAddresses()
     }
 }
 
-void NetworkingTest::testIPv4SocketAddressConstructors()
+TSUNIT_DEFINE_TEST(IPv4SocketAddressConstructors)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -359,25 +312,25 @@ void NetworkingTest::testIPv4SocketAddressConstructors()
     TSUNIT_ASSERT(a2a.address() == 0x01020304);
     TSUNIT_ASSERT(a2a.port() == 80);
 
-    ts::IPv4SocketAddress a2b (0x01020304, 80);
+    ts::IPv4SocketAddress a2b(0x01020304, 80);
     TSUNIT_ASSERT(a2b.address() == 0x01020304);
     TSUNIT_ASSERT(a2b.port() == 80);
 
-    ts::IPv4SocketAddress a3 (1, 2, 3, 4, 80);
+    ts::IPv4SocketAddress a3(1, 2, 3, 4, 80);
     TSUNIT_ASSERT(a3.address() == 0x01020304);
     TSUNIT_ASSERT(a3.port() == 80);
 
     ::in_addr ia4;
-    ia4.s_addr = htonl (0x01020304);
-    ts::IPv4SocketAddress a4 (ia4, 80);
+    ia4.s_addr = htonl(0x01020304);
+    ts::IPv4SocketAddress a4(ia4, 80);
     TSUNIT_ASSERT(a4.address() == 0x01020304);
     TSUNIT_ASSERT(a4.port() == 80);
 
     ::sockaddr sa5;
     TSUNIT_ASSERT(sizeof(::sockaddr) >= sizeof(::sockaddr_in));
-    ::sockaddr_in* sai5 = reinterpret_cast< ::sockaddr_in*> (&sa5);
+    ::sockaddr_in* sai5 = reinterpret_cast<::sockaddr_in*>(&sa5);
     sai5->sin_family = AF_INET;
-    sai5->sin_addr.s_addr = htonl (0x01020304);
+    sai5->sin_addr.s_addr = htonl(0x01020304);
     sai5->sin_port = htons (80);
     ts::IPv4SocketAddress a5 (sa5);
     TSUNIT_ASSERT(a5.address() == 0x01020304);
@@ -407,9 +360,25 @@ void NetworkingTest::testIPv4SocketAddressConstructors()
     ts::IPv4SocketAddress a10(u":80", CERR);
     TSUNIT_ASSERT(a10.address() == ts::IPv4Address::AnyAddress);
     TSUNIT_ASSERT(a10.port() == 80);
+
+    ts::IPv4SocketAddress a11(u"83", CERR);
+    TSUNIT_ASSERT(a11.address() == ts::IPv4Address::AnyAddress);
+    TSUNIT_ASSERT(a11.port() == 83);
+
+    ts::IPv4SocketAddress a12(u"2.3.4.5:", CERR);
+    TSUNIT_ASSERT(a12.address() == 0x02030405);
+    TSUNIT_ASSERT(a12.port() == ts::IPv4SocketAddress::AnyPort);
+
+    ts::IPv4SocketAddress a13(u":", CERR);
+    TSUNIT_ASSERT(a13.address() == ts::IPv4Address::AnyAddress);
+    TSUNIT_ASSERT(a13.port() == ts::IPv4SocketAddress::AnyPort);
+
+    ts::IPv4SocketAddress a14(u"", CERR);
+    TSUNIT_ASSERT(a14.address() == ts::IPv4Address::AnyAddress);
+    TSUNIT_ASSERT(a14.port() == ts::IPv4SocketAddress::AnyPort);
 }
 
-void NetworkingTest::testIPv4SocketAddress()
+TSUNIT_DEFINE_TEST(IPv4SocketAddress)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -447,7 +416,7 @@ void NetworkingTest::testIPv4SocketAddress()
 
     ::sockaddr sa;
     a1.copy(sa);
-    const ::sockaddr_in* saip = reinterpret_cast<const ::sockaddr_in*> (&sa);
+    const ::sockaddr_in* saip = reinterpret_cast<const ::sockaddr_in*>(&sa);
     TSUNIT_ASSERT(saip->sin_family == AF_INET);
     TSUNIT_ASSERT(saip->sin_addr.s_addr == htonl(0x01020304));
     TSUNIT_ASSERT(saip->sin_port == htons(80));
@@ -483,7 +452,7 @@ void NetworkingTest::testIPv4SocketAddress()
     TSUNIT_ASSERT(a1 < a2);
 }
 
-void NetworkingTest::testIPv6SocketAddress()
+TSUNIT_DEFINE_TEST(IPv6SocketAddress)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -494,8 +463,8 @@ void NetworkingTest::testIPv6SocketAddress()
     sa1.set(0, 1, 2, 3, 4, 5, 6, 7, 1234);
     TSUNIT_ASSERT(sa1.hasAddress());
     TSUNIT_ASSERT(sa1.hasPort());
-    TSUNIT_EQUAL(TS_UCONST64(0x0000000100020003), sa1.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x0004000500060007), sa1.interfaceIdentifier());
+    TSUNIT_EQUAL(0x0000000100020003, sa1.networkPrefix());
+    TSUNIT_EQUAL(0x0004000500060007, sa1.interfaceIdentifier());
     TSUNIT_EQUAL(u"[0:1:2:3:4:5:6:7]:1234", sa1.toString());
     TSUNIT_EQUAL(u"[0000:0001:0002:0003:0004:0005:0006:0007]:1234", sa1.toFullString());
     TSUNIT_EQUAL(1234, sa1.port());
@@ -511,16 +480,16 @@ void NetworkingTest::testIPv6SocketAddress()
     TSUNIT_ASSERT(sa1.resolve(u"fe80::93a3:dea0:2108:b81e", CERR));
     TSUNIT_ASSERT(sa1.hasAddress());
     TSUNIT_ASSERT(!sa1.hasPort());
-    TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), sa1.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), sa1.interfaceIdentifier());
+    TSUNIT_EQUAL(0xFE80000000000000, sa1.networkPrefix());
+    TSUNIT_EQUAL(0x93A3DEA02108B81E, sa1.interfaceIdentifier());
     TSUNIT_EQUAL(u"fe80::93a3:dea0:2108:b81e", sa1.toString());
     TSUNIT_EQUAL(u"fe80:0000:0000:0000:93a3:dea0:2108:b81e", sa1.toFullString());
 
     TSUNIT_ASSERT(sa2.resolve(u"[FE80::93A3:DEA0:2108:B81E]:1234", CERR));
     TSUNIT_ASSERT(sa2.hasAddress());
     TSUNIT_ASSERT(sa2.hasPort());
-    TSUNIT_EQUAL(TS_UCONST64(0xFE80000000000000), sa2.networkPrefix());
-    TSUNIT_EQUAL(TS_UCONST64(0x93A3DEA02108B81E), sa2.interfaceIdentifier());
+    TSUNIT_EQUAL(0xFE80000000000000, sa2.networkPrefix());
+    TSUNIT_EQUAL(0x93A3DEA02108B81E, sa2.interfaceIdentifier());
     TSUNIT_EQUAL(u"[fe80::93a3:dea0:2108:b81e]:1234", sa2.toString());
     TSUNIT_EQUAL(u"[fe80:0000:0000:0000:93a3:dea0:2108:b81e]:1234", sa2.toFullString());
 }
@@ -575,7 +544,7 @@ namespace {
 
             // Send a message
             const char message[] = "Hello";
-            CERR.debug(u"TCPSocketTest: client thread: sending \"%s\", %d bytes", {message, sizeof(message)});
+            CERR.debug(u"TCPSocketTest: client thread: sending \"%s\", %d bytes", message, sizeof(message));
             TSUNIT_ASSERT(session.send(message, sizeof(message), CERR));
             CERR.debug(u"TCPSocketTest: client thread: data sent");
 
@@ -587,12 +556,12 @@ namespace {
             char buffer [1024];
             size_t size = 0;
             while (totalSize < sizeof(buffer) && session.receive(buffer + totalSize, sizeof(buffer) - totalSize, size, nullptr, CERR)) {
-                CERR.debug(u"TCPSocketTest: client thread: data received, %d bytes", {size});
+                CERR.debug(u"TCPSocketTest: client thread: data received, %d bytes", size);
                 totalSize += size;
             }
             CERR.debug(u"TCPSocketTest: client thread: end of data stream");
             TSUNIT_ASSERT(totalSize == sizeof(message));
-            TSUNIT_ASSERT(::memcmp(message, buffer, totalSize) == 0);
+            TSUNIT_EQUAL(0, ts::MemCompare(message, buffer, totalSize));
 
             // Fully disconnect the session
             session.disconnect(CERR);
@@ -603,7 +572,7 @@ namespace {
 }
 
 // Test cases
-void NetworkingTest::testTCPSocket()
+TSUNIT_DEFINE_TEST(TCPSocket)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -639,7 +608,7 @@ void NetworkingTest::testTCPSocket()
     char buffer [1024];
     size_t size = 0;
     while (session.receive(buffer, sizeof(buffer), size, nullptr, CERR)) {
-        CERR.debug(u"TCPSocketTest: main thread: data received, %d bytes", {size});
+        CERR.debug(u"TCPSocketTest: main thread: data received, %d bytes", size);
         TSUNIT_ASSERT(session.send(buffer, size, CERR));
         CERR.debug(u"TCPSocketTest: main thread: data sent back");
     }
@@ -690,7 +659,7 @@ namespace {
 
             // Send a message
             const char message[] = "Hello";
-            CERR.debug(u"UDPSocketTest: client thread: sending \"%s\", %d bytes", {message, sizeof(message)});
+            CERR.debug(u"UDPSocketTest: client thread: sending \"%s\", %d bytes", message, sizeof(message));
             TSUNIT_ASSERT(sock.send(message, sizeof(message), CERR));
             CERR.debug(u"UDPSocketTest: client thread: request sent");
 
@@ -700,9 +669,9 @@ namespace {
             char buffer [1024];
             size_t size;
             TSUNIT_ASSERT(sock.receive(buffer, sizeof(buffer), size, sender, destination, nullptr, CERR));
-            CERR.debug(u"UDPSocketTest: client thread: reply received, %d bytes, sender: %s, destination: %s", {size, sender, destination});
+            CERR.debug(u"UDPSocketTest: client thread: reply received, %d bytes, sender: %s, destination: %s", size, sender, destination);
             TSUNIT_ASSERT(size == sizeof(message));
-            TSUNIT_ASSERT(::memcmp(message, buffer, size) == 0);
+            TSUNIT_EQUAL(0, ts::MemCompare(message, buffer, size));
             TSUNIT_ASSERT(ts::IPv4Address(sender) == ts::IPv4Address::LocalHost);
             TSUNIT_ASSERT(sender.port() == _portNumber);
 
@@ -712,7 +681,7 @@ namespace {
 }
 
 // Test cases
-void NetworkingTest::testUDPSocket()
+TSUNIT_DEFINE_TEST(UDPSocket)
 {
     TSUNIT_ASSERT(ts::IPInitialize());
 
@@ -739,14 +708,14 @@ void NetworkingTest::testUDPSocket()
     char buffer [1024];
     size_t size;
     TSUNIT_ASSERT(sock.receive(buffer, sizeof(buffer), size, sender, destination, nullptr, CERR));
-    CERR.debug(u"UDPSocketTest: main thread: request received, %d bytes, sender: %s, destination: %s", {size, sender, destination});
+    CERR.debug(u"UDPSocketTest: main thread: request received, %d bytes, sender: %s, destination: %s", size, sender, destination);
     TSUNIT_ASSERT(ts::IPv4Address(sender) == ts::IPv4Address::LocalHost);
 
     TSUNIT_ASSERT(sock.send(buffer, size, sender, CERR));
     CERR.debug(u"UDPSocketTest: main thread: reply sent");
 }
 
-void NetworkingTest::testIPHeader()
+TSUNIT_DEFINE_TEST(IPHeader)
 {
     static const uint8_t reference_header[] = {
         0x45, 0x00, 0x05, 0xBE, 0xFB, 0x6E, 0x00, 0x00, 0x32, 0x06,
@@ -758,7 +727,7 @@ void NetworkingTest::testIPHeader()
     TSUNIT_ASSERT(ts::IPv4Packet::VerifyIPHeaderChecksum(reference_header, sizeof(reference_header)));
 
     uint8_t header[sizeof(reference_header)];
-    ::memcpy(header, reference_header, sizeof(header));
+    ts::MemCopy(header, reference_header, sizeof(header));
 
     TSUNIT_ASSERT(ts::IPv4Packet::VerifyIPHeaderChecksum(header, sizeof(header)));
     header[ts::IPv4_CHECKSUM_OFFSET] = 0x00;
@@ -771,13 +740,13 @@ void NetworkingTest::testIPHeader()
     TSUNIT_EQUAL(0x328B, ts::IPv4Packet::IPHeaderChecksum(header, sizeof(header)));
 }
 
-void NetworkingTest::testIPProtocol()
+TSUNIT_DEFINE_TEST(IPProtocol)
 {
     TSUNIT_EQUAL(u"TCP", ts::IPProtocolName(ts::IPv4_PROTO_TCP));
     TSUNIT_EQUAL(u"UDP", ts::IPProtocolName(ts::IPv4_PROTO_UDP));
 }
 
-void NetworkingTest::testTCPPacket()
+TSUNIT_DEFINE_TEST(TCPPacket)
 {
     static const uint8_t data[] = {
         0x45, 0x00, 0x04, 0x76, 0x26, 0xC7, 0x40, 0x00, 0x40, 0x06, 0x1E, 0x5F, 0xC0, 0xA8, 0x38, 0x0A,
@@ -873,7 +842,7 @@ void NetworkingTest::testTCPPacket()
     TSUNIT_EQUAL(u"192.168.56.1:5000", ip.destinationSocketAddress().toString());
 }
 
-void NetworkingTest::testUDPPacket()
+TSUNIT_DEFINE_TEST(UDPPacket)
 {
     static const uint8_t data[] = {
         0x45, 0x00, 0x01, 0x94, 0xB4, 0xF8, 0x40, 0x00, 0x40, 0x11, 0x93, 0x04, 0xC0, 0xA8, 0x38, 0x0A,

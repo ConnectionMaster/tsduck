@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -32,33 +11,20 @@
 #include "tsEIT.h"
 #include "tsMJD.h"
 #include "tsBCD.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
 // Constructor.
 //----------------------------------------------------------------------------
 
-ts::EITGenerator::EITGenerator(DuckContext& duck, PID pid, EITOption options, const EITRepetitionProfile& profile) :
+ts::EITGenerator::EITGenerator(DuckContext& duck, PID pid, EITOptions options, const EITRepetitionProfile& profile) :
     _duck(duck),
     _eit_pid(pid),
-    _actual_ts_id(0),
-    _actual_ts_id_set(false),
-    _regenerate(false),
-    _packet_index(0),
-    _max_bitrate(0),
-    _ts_bitrate(0),
-    _ref_time(),
-    _ref_time_pkt(0),
-    _eit_inter_pkt(0),
-    _last_eit_pkt(0),
     _options(options),
     _profile(profile),
     _demux(_duck, nullptr, this),
-    _packetizer(_duck, _eit_pid, this),
-    _services(),
-    _injects(),
-    _obsolete_count(0),
-    _versions()
+    _packetizer(_duck, _eit_pid, this)
 {
     // We need the PAT as long as the TS id is not known.
     _demux.addPID(PID_PAT);
@@ -67,7 +33,7 @@ ts::EITGenerator::EITGenerator(DuckContext& duck, PID pid, EITOption options, co
     _demux.addPID(PID_TDT);
 
     // We need to analyze input EIT's only if they feed the EPG.
-    if (bool(_options & EITOption::LOAD_INPUT)) {
+    if (bool(_options & EITOptions::LOAD_INPUT)) {
         _demux.addPID(_eit_pid);
     }
 }
@@ -77,7 +43,7 @@ ts::EITGenerator::EITGenerator(DuckContext& duck, PID pid, EITOption options, co
 // Reset the EIT generator to default state.
 //----------------------------------------------------------------------------
 
-void ts::EITGenerator::reset()
+void ts::EITGenerator::reset(PID pid)
 {
     _actual_ts_id = 0;
     _actual_ts_id_set = false;
@@ -89,15 +55,26 @@ void ts::EITGenerator::reset()
     _ref_time_pkt = 0;
     _eit_inter_pkt = 0;
     _last_eit_pkt = 0;
-    _demux.reset();
-    _demux.addPID(PID_PAT);
-    _packetizer.reset();
     _services.clear();
     for (size_t i = 0; i < _injects.size(); ++i) {
         _injects[i].clear();
     }
+    _last_tid = TID_NULL;
     _obsolete_count = 0;
     _versions.clear();
+
+    // Reset the demux state. Calling reset() does not change the PID filters.
+    _demux.reset();
+    if (pid != _eit_pid && bool(_options & EITOptions::LOAD_INPUT)) {
+        _demux.removePID(_eit_pid);
+        _demux.addPID(pid);
+    }
+    _demux.addPID(PID_PAT);
+    _eit_pid = pid;
+
+    // Reset the packetizer, update the PID with potentially new value.
+    _packetizer.reset();
+    _packetizer.setPID(_eit_pid);
 }
 
 
@@ -105,11 +82,7 @@ void ts::EITGenerator::reset()
 // Event: Constructor of the structure containing binary events.
 //----------------------------------------------------------------------------
 
-ts::EITGenerator::Event::Event(const uint8_t*& data, size_t& size) :
-    event_id(0),
-    start_time(),
-    end_time(),
-    event_data()
+ts::EITGenerator::Event::Event(const uint8_t*& data, size_t& size)
 {
     size_t event_size = size;
 
@@ -117,7 +90,7 @@ ts::EITGenerator::Event::Event(const uint8_t*& data, size_t& size) :
         event_size = std::min(size, EIT::EIT_EVENT_FIXED_SIZE + (GetUInt16(data + 10) & 0x0FFF));
         event_id = GetUInt16(data);
         DecodeMJD(data + 2, 5, start_time);
-        end_time = start_time + (MilliSecPerHour * DecodeBCD(data[7])) + (MilliSecPerMin * DecodeBCD(data[8])) + (MilliSecPerSec * DecodeBCD(data[9]));
+        end_time = start_time + cn::hours(DecodeBCD(data[7])) + cn::minutes(DecodeBCD(data[8])) + cn::seconds(DecodeBCD(data[9]));
         event_data.copy(data, event_size);
     }
 
@@ -127,25 +100,21 @@ ts::EITGenerator::Event::Event(const uint8_t*& data, size_t& size) :
 
 
 //----------------------------------------------------------------------------
-// ESection: Constructor of the structure for  a section, ready to inject.
+// ESection: Constructor of the structure for a section, ready to inject.
 //----------------------------------------------------------------------------
 
-ts::EITGenerator::ESection::ESection(EITGenerator* gen, const ServiceIdTriplet& srv, TID tid, uint8_t section_number, uint8_t last_section_number) :
-    obsolete(false),
-    injected(false),
-    next_inject(),
-    section()
+ts::EITGenerator::ESection::ESection(EITGenerator* gen, const ServiceIdTriplet& srv, TID tid, uint8_t section_number, uint8_t last_section_number)
 {
     // Build section data.
     ByteBlockPtr section_data(new ByteBlock(LONG_SECTION_HEADER_SIZE + EIT::EIT_PAYLOAD_FIXED_SIZE + SECTION_CRC32_SIZE));
-    CheckNonNull(section_data.pointer());
+    CheckNonNull(section_data.get());
     uint8_t* data = section_data->data();
 
     // Section header
     PutUInt8(data, tid);
     PutUInt16(data + 1, 0xF000 | uint16_t(section_data->size() - 3));
     PutUInt16(data + 3, srv.service_id);       // table id extension
-    PutUInt8(data + 5, 0xC1 | uint8_t(gen->nextVersion(tid, srv.service_id, section_number) << 1));
+    PutUInt8(data + 5, 0xC1);                  // version = 0 for now, updated below
     PutUInt8(data + 6, section_number);
     PutUInt8(data + 7, last_section_number);
 
@@ -156,8 +125,9 @@ ts::EITGenerator::ESection::ESection(EITGenerator* gen, const ServiceIdTriplet& 
     PutUInt8(data + 13, tid);                  // last table id in this service
 
     // Build a section from the binary data.
-    section = new Section(section_data, PID_NULL, CRC32::IGNORE);
-    CheckNonNull(section.pointer());
+    section = std::make_shared<Section>(section_data, PID_NULL, CRC32::IGNORE);
+    updateVersion(gen, false);
+    CheckNonNull(section.get());
 }
 
 
@@ -168,10 +138,10 @@ ts::EITGenerator::ESection::ESection(EITGenerator* gen, const ServiceIdTriplet& 
 void ts::EITGenerator::ESection::startModifying()
 {
     // Do something only if the section is maybe still used in a packetizer.
-    if (injected && !section.isNull()) {
+    if (injected && section != nullptr) {
         // Duplicate the section. The previous section data is maybe still
         // referenced inside the packetizer and will be deleted later.
-        section = new Section(*section, ShareMode::COPY);
+        section = std::make_shared<Section>(*section, ShareMode::COPY);
     }
     // Mark the new section data as no longer used by a packetizer.
     injected = false;
@@ -184,7 +154,7 @@ void ts::EITGenerator::ESection::startModifying()
 
 void ts::EITGenerator::ESection::toggleActual(bool actual)
 {
-    if (!section.isNull() && EIT::IsActual(section->tableId()) != actual) {
+    if (section != nullptr && EIT::IsActual(section->tableId()) != actual) {
         startModifying();
         section->setTableId(EIT::ToggleActual(section->tableId(), actual), true);
     }
@@ -197,54 +167,41 @@ void ts::EITGenerator::ESection::toggleActual(bool actual)
 
 void ts::EITGenerator::ESection::updateVersion(EITGenerator* gen, bool recompute_crc)
 {
-    if (!section.isNull()) {
+    // Does nothing when option SYNC_VERSIONS is set (versions are separately updated later).
+    if (section != nullptr && !(gen->_options & EITOptions::SYNC_VERSIONS)) {
+        assert(section->payloadSize() >= EIT::EIT_PAYLOAD_FIXED_SIZE);
         startModifying();
-        section->setVersion(gen->nextVersion(section->tableId(), section->tableIdExtension(), section->sectionNumber()), recompute_crc);
+        // ServiceIdTriplet: svid, tsid, onetid
+        const ServiceIdTriplet sid(section->tableIdExtension(), GetUInt16(section->payload()), GetUInt16(section->payload() + 2));
+        const uint8_t version = gen->nextVersion(sid, section->tableId(), section->sectionNumber());
+        section->setVersion(version, recompute_crc);
     }
 }
 
 
 //----------------------------------------------------------------------------
-// ESegment: Constructor of an EIT sched segment (3 hours, up to 8 sections)
+// Compute the next version for a table. If option SYNC_VERSIONS is set, the section number is ignored.
 //----------------------------------------------------------------------------
 
-ts::EITGenerator::ESegment::ESegment(const Time& seg_start_time) :
-    start_time(seg_start_time),
-    regenerate(true), // all segments must have at least one section
-    events(),
-    sections()
+uint8_t ts::EITGenerator::nextVersion(const ServiceIdTriplet& service_id, TID table_id, uint8_t section_number)
 {
-}
+    // Build a unique section identifier on 64 bits.
+    const uint64_t index =
+        (uint64_t(table_id) << 56) |
+        (uint64_t(service_id.original_network_id) << 40) |
+        (uint64_t(service_id.transport_stream_id) << 24) |
+        (uint64_t(service_id.service_id) << 8) |
+        (bool(_options & EITOptions::SYNC_VERSIONS) ? 0 : section_number);
 
-
-//----------------------------------------------------------------------------
-// EService: Constructor of the description of one service.
-//----------------------------------------------------------------------------
-
-ts::EITGenerator::EService::EService() :
-    regenerate(false),
-    pf(),
-    segments()
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Get next version of a section.
-//----------------------------------------------------------------------------
-
-uint8_t ts::EITGenerator::nextVersion(TID tid, uint16_t service_id, uint8_t section_number)
-{
-    // Build a unique section identifier on 32 bits.
-    const uint32_t index = (uint32_t(tid) << 24) | (uint32_t(service_id) << 8) | section_number;
-    const auto it = _versions.find(index);
-    if (it == _versions.end()) {
+    // Locate previous version for this section and compute new version.
+    const auto iter = _versions.find(index);
+    if (iter == _versions.end()) {
         // Section did not exist, use 0 as first version.
         return _versions[index] = 0;
     }
     else {
         // Update version.
-        return it->second = (it->second + 1) & SVERSION_MASK;
+        return iter->second = (iter->second + 1) & SVERSION_MASK;
     }
 }
 
@@ -258,13 +215,14 @@ bool ts::EITGenerator::loadEvents(const ServiceIdTriplet& service_id, const uint
     bool success = true;
 
     // Description of the service.
-    EService& srv(_services[service_id]);
+    EService* srv = nullptr;
 
     // Number of loaded event.
     size_t ev_count = 0;
 
     // Current time according to the transport stream. Can be "Epoch" (undefined).
     const Time now(getCurrentTime());
+    const Time ref_midnight(now.thisDay());
 
     // Loop on all event descriptions.
     while (size >= EIT::EIT_EVENT_FIXED_SIZE) {
@@ -279,7 +237,50 @@ bool ts::EITGenerator::loadEvents(const ServiceIdTriplet& service_id, const uint
 
         // Discard events in the past.
         if (now != Time::Epoch && ev->end_time <= now) {
+            _duck.report().verbose(u"discard obsolete event id %n, %s, ending %s", ev->event_id, service_id, ev->end_time);
             continue;
+        }
+
+        // Discard events too far in the future.
+        if (now != Time::Epoch && ev->start_time >= ref_midnight + EIT::TOTAL_DAYS) {
+            _duck.report().verbose(u"discard event id %n, %s, starting %s, too far in the future", ev->event_id, service_id, ev->start_time);
+            continue;
+        }
+
+        // Create the service only when we know we have some event to insert.
+        if (srv == nullptr) {
+            srv = &_services[service_id];
+        }
+
+        // Check if the same event id already existed in the service.
+        if (Contains(srv->event_ids, ev->event_id)) {
+            // Look for existing event in this service with same id. Remove it if not an exact duplicate.
+            bool found = false;
+            bool duplicate = false;
+            for (auto iseg = srv->segments.begin(); !found && iseg != srv->segments.end(); ++iseg) {
+                auto& events((*iseg)->events);
+                for (auto iev = events.begin(); !found && iev != events.end(); ++iev) {
+                    if ((*iev)->event_id == ev->event_id) {
+                        // Found the event with same id.
+                        found = true;
+                        duplicate = (*iev)->event_data == ev->event_data;
+                        // Remove event if not a duplicate.
+                        if (!duplicate) {
+                            _duck.report().log(2, u"discard modified event id %n, %s, previously starting %s", (*iev)->event_id, service_id, (*iev)->start_time);
+                            // Remove event from segment and service.
+                            events.erase(iev);
+                            srv->event_ids.erase(ev->event_id);
+                            // Mark all EIT schedule in this segment as to be regenerated.
+                            _regenerate = srv->regenerate = (*iseg)->regenerate = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // If the event is an exact duplicate, no need to do anything with that event.
+            if (duplicate) {
+                continue;
+            }
         }
 
         // Locate or allocate the segment for that event. At this stage, we only create this
@@ -287,16 +288,15 @@ bool ts::EITGenerator::loadEvents(const ServiceIdTriplet& service_id, const uint
         // empty intermediate segments. This will be done in regenerateSchedule().
 
         const Time seg_start_time(EIT::SegmentStartTime(ev->start_time));
-        auto seg_iter = srv.segments.begin();
-        while (seg_iter != srv.segments.end() && (*seg_iter)->start_time < seg_start_time) {
+        auto seg_iter = srv->segments.begin();
+        while (seg_iter != srv->segments.end() && (*seg_iter)->start_time < seg_start_time) {
             ++seg_iter;
         }
-        if (seg_iter == srv.segments.end() || (*seg_iter)->start_time != seg_start_time) {
+        if (seg_iter == srv->segments.end() || (*seg_iter)->start_time != seg_start_time) {
             // The segment does not exist, create it.
-            _duck.report().debug(u"creating EIT segment starting at %s for %s", {seg_start_time, service_id});
+            _duck.report().debug(u"create EIT segment starting at %s for %s", seg_start_time, service_id);
             const ESegmentPtr seg(new ESegment(seg_start_time));
-            CheckNonNull(seg.pointer());
-            seg_iter = srv.segments.insert(seg_iter, seg);
+            seg_iter = srv->segments.insert(seg_iter, seg);
         }
         ESegment& seg(**seg_iter);
 
@@ -305,21 +305,19 @@ bool ts::EITGenerator::loadEvents(const ServiceIdTriplet& service_id, const uint
         while (ev_iter != seg.events.end() && (*ev_iter)->start_time < ev->start_time) {
             ++ev_iter;
         }
-        if (ev_iter != seg.events.end() && (*ev_iter)->event_id == ev->event_id && (*ev_iter)->event_data == ev->event_data) {
-            // Duplicate event, ignore it.
-            continue;
-        }
-        _duck.report().log(2, u"loaded event id 0x%X (%<d), %s, starting %s", {ev->event_id, service_id, ev->start_time});
+        _duck.report().log(2, u"load event id %n, %s, starting %s", ev->event_id, service_id, ev->start_time);
         seg.events.insert(ev_iter, ev);
+        srv->event_ids.insert(ev->event_id);
         ev_count++;
 
         // Mark all EIT schedule in this segment as to be regenerated.
-        _regenerate = srv.regenerate = seg.regenerate = true;
+        _regenerate = srv->regenerate = seg.regenerate = true;
     }
 
     // If some events were added, it may be necessary to regenerate the EIT p/f in this service.
     if (ev_count > 0) {
-        regeneratePresentFollowing(service_id, srv, now);
+        assert(srv != nullptr);
+        regeneratePresentFollowing(service_id, *srv, now);
     }
     return success;
 }
@@ -355,7 +353,7 @@ bool ts::EITGenerator::loadEvents(const SectionPtrVector& sections, bool get_act
 {
     bool success = true;
     for (size_t i = 0; i < sections.size(); ++i) {
-        if (!sections[i].isNull()) {
+        if (sections[i] != nullptr) {
             success = loadEvents(*sections[i], get_actual_ts) && success;
         }
     }
@@ -378,11 +376,11 @@ void ts::EITGenerator::saveEITs(SectionPtrVector& sections)
 {
     // If the reference time is not set, force it to the start time of the oldest event in the database.
     if (_ref_time == Time::Epoch) {
-        for (auto it1 = _services.begin(); it1 != _services.end(); ++it1) {
+        for (const auto& it1 : _services) {
             // Get first event of first non-empty segment in the service.
-            for (auto it2 = it1->second.segments.begin(); it2 != it1->second.segments.end(); ++it2) {
-                if (!(*it2)->events.empty()) {
-                    const Time& start_time((*it2)->events.front()->start_time);
+            for (const auto& it2 : it1.second.segments) {
+                if (!it2->events.empty()) {
+                    const Time& start_time(it2->events.front()->start_time);
                     if (_ref_time == Time::Epoch || start_time < _ref_time) {
                         _ref_time = start_time;
                         _ref_time_pkt = _packet_index;
@@ -392,7 +390,7 @@ void ts::EITGenerator::saveEITs(SectionPtrVector& sections)
             }
         }
         if (_ref_time != Time::Epoch) {
-            _duck.report().debug(u"forcing TS time to %s (oldest event start time) at packet index %'d", {_ref_time, _ref_time_pkt});
+            _duck.report().debug(u"forcing TS time to %s (oldest event start time) at packet index %'d", _ref_time, _ref_time_pkt);
         }
     }
 
@@ -405,26 +403,26 @@ void ts::EITGenerator::saveEITs(SectionPtrVector& sections)
     size_t sched_count = 0;
 
     // Loop on all services, saving all EIT p/f.
-    for (auto it1 = _services.begin(); it1 != _services.end(); ++it1) {
-        for (size_t i = 0; i < it1->second.pf.size(); ++i) {
-            if (!it1->second.pf[i].isNull()) {
-                sections.push_back(it1->second.pf[i]->section);
+    for (const auto& it1 : _services) {
+        for (size_t i = 0; i < it1.second.pf.size(); ++i) {
+            if (it1.second.pf[i] != nullptr) {
+                sections.push_back(it1.second.pf[i]->section);
                 pf_count++;
             }
         }
     }
 
     // Loop on all services again, saving all EIT schedule.
-    for (auto it1 = _services.begin(); it1 != _services.end(); ++it1) {
-        for (auto it2 = it1->second.segments.begin(); it2 != it1->second.segments.end(); ++it2) {
-            for (auto it3 = (*it2)->sections.begin(); it3 != (*it2)->sections.end(); ++it3) {
-                sections.push_back((*it3)->section);
+    for (const auto& it1 : _services) {
+        for (const auto& it2 : it1.second.segments) {
+            for (const auto& it3 : it2->sections) {
+                sections.push_back(it3->section);
                 sched_count++;
             }
         }
     }
 
-    _duck.report().debug(u"saved %'d EIT (%'d p/f, %'d sched)", {pf_count + sched_count, pf_count, sched_count});
+    _duck.report().debug(u"saved %'d EIT (%'d p/f, %'d sched)", pf_count + sched_count, pf_count, sched_count);
 }
 
 
@@ -438,7 +436,7 @@ void ts::EITGenerator::setTransportStreamId(uint16_t new_ts_id)
     if (_actual_ts_id_set && _actual_ts_id == new_ts_id) {
         return;
     }
-    _duck.report().debug(u"setting EIT generator TS id to 0x%X (%<d)", {new_ts_id});
+    _duck.report().debug(u"setting EIT generator TS id to %n", new_ts_id);
 
     // Set new TS id.
     const uint16_t old_ts_id = _actual_ts_id_set ? _actual_ts_id : 0xFFFF;
@@ -456,63 +454,63 @@ void ts::EITGenerator::setTransportStreamId(uint16_t new_ts_id)
     }
 
     // Update all EIT's which switch between actual and other.
-    for (auto srv_iter = _services.begin(); srv_iter != _services.end(); ++srv_iter) {
-        EService& srv(srv_iter->second);
+    for (auto& srv_iter : _services) {
+        EService& srv(srv_iter.second);
 
         // Does this service changes between actual and other?
-        const bool new_actual = srv_iter->first.transport_stream_id == new_ts_id;
-        const bool new_other = srv_iter->first.transport_stream_id == old_ts_id;
-        const bool need_eit = (new_actual && bool(_options & EITOption::GEN_ACTUAL)) || (new_other && bool(_options & EITOption::GEN_OTHER));
+        const bool new_actual = srv_iter.first.transport_stream_id == new_ts_id;
+        const bool new_other = srv_iter.first.transport_stream_id == old_ts_id;
+        const bool need_eit = (new_actual && bool(_options & EITOptions::GEN_ACTUAL)) || (new_other && bool(_options & EITOptions::GEN_OTHER));
 
         // Test if this service shall switch between actual and other.
         if (new_other || new_actual) {
 
             // Process EIT p/f.
-            if (bool(_options & EITOption::GEN_PF)) {
-                if (need_eit && (srv.pf[0].isNull() || srv.pf[1].isNull())) {
+            if ((new_actual && bool(_options & EITOptions::GEN_ACTUAL_PF)) || (new_other && bool(_options & EITOptions::GEN_OTHER_PF))) {
+                if (need_eit && (srv.pf[0] == nullptr || srv.pf[1] == nullptr)) {
                     // At least one EIT p/f shall be rebuilt.
-                    regeneratePresentFollowing(srv_iter->first, srv_iter->second, now);
+                    regeneratePresentFollowing(srv_iter.first, srv_iter.second, now);
                 }
                 else {
                     // Loop on EIT p & f sections.
                     for (size_t i = 0; i < srv.pf.size(); ++i) {
                         if (need_eit) {
-                            assert(!srv.pf[i].isNull());
+                            assert(srv.pf[i] != nullptr);
                             srv.pf[i]->toggleActual(new_actual);
                         }
-                        else if (!srv.pf[i].isNull()) {
+                        else if (srv.pf[i] != nullptr) {
                             // The existing section is no longer needed.
                             markObsoleteSection(*srv.pf[i]);
-                            srv.pf[i].clear();
+                            srv.pf[i].reset();
                         }
                     }
                 }
             }
 
             // Process EIT schedule (all segments, all sections).
-            if (bool(_options & EITOption::GEN_SCHED)) {
-                if ((_options & (EITOption::GEN_ACTUAL | EITOption::GEN_OTHER)) == (EITOption::GEN_ACTUAL | EITOption::GEN_OTHER)) {
+            if (bool(_options & EITOptions::GEN_SCHED)) {
+                if ((_options & (EITOptions::GEN_ACTUAL | EITOptions::GEN_OTHER)) == (EITOptions::GEN_ACTUAL | EITOptions::GEN_OTHER)) {
                     // Actual and others are both requested. Toggle the state of existing sections.
-                    for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end(); ++seg_iter) {
-                        ESegment& seg(**seg_iter);
-                        for (auto sec_iter = seg.sections.begin(); sec_iter != seg.sections.end(); ++sec_iter) {
-                            (*sec_iter)->toggleActual(new_actual);
+                    for (const auto& seg_iter : srv.segments) {
+                        const ESegment& seg(*seg_iter);
+                        for (const auto& sec_iter : seg.sections) {
+                            sec_iter->toggleActual(new_actual);
                         }
                     }
                 }
                 else if (need_eit) {
                     // The EIT schedule for that service were not there, we need them now, regenerate later.
                     _regenerate = srv.regenerate = true;
-                    for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end(); ++seg_iter) {
-                        (*seg_iter)->regenerate = true;
+                    for (const auto& seg_iter : srv.segments) {
+                        seg_iter->regenerate = true;
                     }
                 }
                 else {
                     // We no longer need the EIT schedule.
-                    for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end(); ++seg_iter) {
-                        ESegment& seg(**seg_iter);
-                        for (auto sec_iter = seg.sections.begin(); sec_iter != seg.sections.end(); ++sec_iter) {
-                            markObsoleteSection(**sec_iter);
+                    for (auto& seg_iter : srv.segments) {
+                        ESegment& seg(*seg_iter);
+                        for (auto& sec_iter : seg.sections) {
+                            markObsoleteSection(*sec_iter);
                         }
                         seg.sections.clear();
                         seg.regenerate = false;
@@ -528,14 +526,14 @@ void ts::EITGenerator::setTransportStreamId(uint16_t new_ts_id)
 // Set new EIT generation options.
 //----------------------------------------------------------------------------
 
-void ts::EITGenerator::setOptions(EITOption options)
+void ts::EITGenerator::setOptions(EITOptions options)
 {
     // Update the options.
-    const EITOption old_options = _options;
+    const EITOptions old_options = _options;
     _options = options;
 
     // If the new options request to load events from input EIT's, demux the EIT PID.
-    if (bool(options & EITOption::LOAD_INPUT)) {
+    if (bool(options & EITOptions::LOAD_INPUT)) {
         _demux.addPID(_eit_pid);
     }
     else {
@@ -546,33 +544,35 @@ void ts::EITGenerator::setOptions(EITOption options)
     const Time now(getCurrentTime());
 
     // Check the configuration has changed for EIT p/f and EIT schedule, respectively.
-    const bool pf_changed = (_options & (EITOption::GEN_PF | EITOption::GEN_ACTUAL | EITOption::GEN_OTHER)) != (old_options & (EITOption::GEN_PF | EITOption::GEN_ACTUAL | EITOption::GEN_OTHER));
-    const bool sched_changed = (_options & (EITOption::GEN_SCHED | EITOption::GEN_ACTUAL | EITOption::GEN_OTHER)) != (old_options & (EITOption::GEN_SCHED | EITOption::GEN_ACTUAL | EITOption::GEN_OTHER));
+    const bool pf_changed = (_options & EITOptions::GEN_PF) != (old_options & EITOptions::GEN_PF);
+    const bool sched_changed = (_options & EITOptions::GEN_SCHED) != (old_options & EITOptions::GEN_SCHED);
 
     // If the combination of EIT to generate has changed, regenerate EIT.
     if ((pf_changed || sched_changed) && _actual_ts_id_set && now != Time::Epoch) {
 
         // Loop on all services.
-        for (auto srv_iter = _services.begin(); srv_iter != _services.end(); ++srv_iter) {
+        for (auto& srv_iter : _services) {
 
-            const ServiceIdTriplet& service_id(srv_iter->first);
-            EService& srv(srv_iter->second);
+            const ServiceIdTriplet& service_id(srv_iter.first);
+            EService& srv(srv_iter.second);
 
             const bool actual = service_id.transport_stream_id == _actual_ts_id;
-            const bool need_eit = (actual && bool(_options & EITOption::GEN_ACTUAL)) || (!actual && bool(_options & EITOption::GEN_OTHER));
+            const bool need_eit = (actual && bool(_options & EITOptions::GEN_ACTUAL)) || (!actual && bool(_options & EITOptions::GEN_OTHER));
+            const auto GEN_PF = actual ? EITOptions::GEN_ACTUAL_PF : EITOptions::GEN_OTHER_PF;
+            const auto GEN_SCHED = actual ? EITOptions::GEN_ACTUAL_SCHED : EITOptions::GEN_OTHER_SCHED;
 
             // Process EIT p/f.
             if (pf_changed) {
-                if (!need_eit || !(_options & EITOption::GEN_PF)) {
+                if (!need_eit || !(_options & GEN_PF)) {
                     // Remove existing EIT p/f sections.
                     for (size_t i = 0; i < srv.pf.size(); ++i) {
-                        if (!srv.pf[i].isNull()) {
+                        if (srv.pf[i] != nullptr) {
                             markObsoleteSection(*srv.pf[i]);
-                            srv.pf[i].clear();
+                            srv.pf[i].reset();
                         }
                     }
                 }
-                else if (srv.pf[0].isNull() || srv.pf[1].isNull()) {
+                else if (srv.pf[0] == nullptr || srv.pf[1] == nullptr) {
                     // At least one EIT p/f shall be rebuilt.
                     regeneratePresentFollowing(service_id, srv, now);
                 }
@@ -580,12 +580,12 @@ void ts::EITGenerator::setOptions(EITOption options)
 
             // Process EIT schedule (all segments, all sections).
             if (sched_changed) {
-                if (!need_eit || !(_options & EITOption::GEN_SCHED)) {
+                if (!need_eit || !(_options & GEN_SCHED)) {
                     // We no longer need the EIT schedule.
-                    for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end(); ++seg_iter) {
-                        ESegment& seg(**seg_iter);
-                        for (auto sec_iter = seg.sections.begin(); sec_iter != seg.sections.end(); ++sec_iter) {
-                            markObsoleteSection(**sec_iter);
+                    for (auto& seg_iter : srv.segments) {
+                        ESegment& seg(*seg_iter);
+                        for (auto& sec_iter : seg.sections) {
+                            markObsoleteSection(*sec_iter);
                         }
                         seg.sections.clear();
                         seg.regenerate = false;
@@ -594,8 +594,8 @@ void ts::EITGenerator::setOptions(EITOption options)
                 else {
                     // The EIT schedule for that service were not there, we need them now, regenerate later.
                     _regenerate = srv.regenerate = true;
-                    for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end(); ++seg_iter) {
-                        (*seg_iter)->regenerate = true;
+                    for (const auto& seg_iter : srv.segments) {
+                        seg_iter->regenerate = true;
                     }
                 }
             }
@@ -639,12 +639,12 @@ ts::Time ts::EITGenerator::getCurrentTime()
 // Set the current time in the stream processing.
 //----------------------------------------------------------------------------
 
-void ts::EITGenerator::setCurrentTime(Time current_utc)
+void ts::EITGenerator::setCurrentTime(const Time& current_utc)
 {
     // Store the current time.
     _ref_time = current_utc;
     _ref_time_pkt = _packet_index;
-    _duck.report().debug(u"setting TS time to %s at packet index %'d", {_ref_time, _ref_time_pkt});
+    _duck.report().debug(u"setting TS time to %s at packet index %'d", _ref_time, _ref_time_pkt);
 
     // Update EIT database if necessary.
     updateForNewTime(_ref_time);
@@ -657,8 +657,8 @@ void ts::EITGenerator::setCurrentTime(Time current_utc)
 
 void ts::EITGenerator::markObsoleteSegment(ESegment &seg)
 {
-    for (auto it = seg.sections.begin(); it != seg.sections.end(); ++it) {
-        markObsoleteSection(**it);
+    for (const auto& it : seg.sections) {
+        markObsoleteSection(*it);
     }
 }
 
@@ -741,13 +741,14 @@ void ts::EITGenerator::regeneratePresentFollowing(const ServiceIdTriplet& servic
     }
 
     const bool actual = _actual_ts_id == service_id.transport_stream_id;
+    const auto GEN_PF = actual ? EITOptions::GEN_ACTUAL_PF : EITOptions::GEN_OTHER_PF;
 
-    if (!(_options & EITOption::GEN_PF) || (actual && !(_options & EITOption::GEN_ACTUAL)) || (!actual && !(_options & EITOption::GEN_OTHER))) {
+    if (!(_options & GEN_PF)) {
         // This type of EIT cannot be (no time ref) or shall not be (excluded) generated. If sections exist, delete them.
         for (size_t i = 0; i < srv.pf.size(); ++i) {
-            if (!srv.pf[i].isNull()) {
+            if (srv.pf[i] != nullptr) {
                 markObsoleteSection(*srv.pf[i]);
-                srv.pf[i].clear();
+                srv.pf[i].reset();
             }
         }
     }
@@ -763,15 +764,22 @@ void ts::EITGenerator::regeneratePresentFollowing(const ServiceIdTriplet& servic
         }
 
         // If the first event is not yet current, make it the "following" one.
-        if (!events[0].isNull() && now < events[0]->start_time) {
+        if (events[0] != nullptr && now < events[0]->start_time) {
             events[1] = events[0];
-            events[0].clear();
+            events[0].reset();
         }
 
         // Rebuild the two sections when necessary.
         const TID tid = actual ? TID_EIT_PF_ACT : TID_EIT_PF_OTH;
-        regeneratePresentFollowingSection(service_id, srv.pf[0], tid, 0, events[0], now);
-        regeneratePresentFollowingSection(service_id, srv.pf[1], tid, 1, events[1], now);
+        const bool modp = regeneratePresentFollowingSection(service_id, srv.pf[0], tid, 0, events[0], now);
+        const bool modf = regeneratePresentFollowingSection(service_id, srv.pf[1], tid, 1, events[1], now);
+
+        // With SYNC_VERSIONS, if any section is modified, update both versions.
+        if ((modp || modf) && bool(_options & EITOptions::SYNC_VERSIONS)) {
+            const uint8_t version = nextVersion(service_id, tid, 0);
+            srv.pf[0]->section->setVersion(version, true);
+            srv.pf[1]->section->setVersion(version, true);
+        }
     }
 }
 
@@ -780,30 +788,30 @@ void ts::EITGenerator::regeneratePresentFollowing(const ServiceIdTriplet& servic
 // Regenerate, if necessary, one EIT present or following.
 //----------------------------------------------------------------------------
 
-void ts::EITGenerator::regeneratePresentFollowingSection(const ServiceIdTriplet& service_id,
+bool ts::EITGenerator::regeneratePresentFollowingSection(const ServiceIdTriplet& service_id,
                                                          ESectionPtr& sec,
                                                          TID tid,
-                                                         bool section_number,
+                                                         uint8_t section_number,
                                                          const EventPtr& event,
                                                          const Time&inject_time)
 {
-    if (sec.isNull()) {
+    if (sec == nullptr) {
         // The section did not exist, create it.
-        sec = new ESection(this, service_id, tid, section_number, 1);
-        CheckNonNull(sec.pointer());
+        sec = std::make_shared<ESection>(this, service_id, tid, section_number, uint8_t(1));
         // The initial state of the section is: no event, no CRC.
-        if (event.isNull()) {
-            // No event to set in the section just recompute the CRC.
-            sec->section->recomputeCRC();
+        if (event != nullptr) {
+            // Append the event in the payload.
+            sec->section->appendPayload(event->event_data, false);
         }
-        else {
-            // Append the event in the payload and recompute the CRC.
-            sec->section->appendPayload(event->event_data, true);
+        if (!(_options & EITOptions::SYNC_VERSIONS)) {
+            sec->section->recomputeCRC();
         }
         // Place the section in the inject queue.
         enqueueInjectSection(sec, inject_time, true);
+        // Section was modified.
+        return true;
     }
-    else if (event.isNull()) {
+    else if (event == nullptr) {
         // The section already exists. It must be already in an injection queue.
         // There is no more event, truncate the section payload to remove the event (if any is present).
         if (sec->section->tableId() != tid || sec->section->payloadSize() != EIT::EIT_PAYLOAD_FIXED_SIZE) {
@@ -811,10 +819,12 @@ void ts::EITGenerator::regeneratePresentFollowingSection(const ServiceIdTriplet&
             sec->section->setTableId(tid, false);
             sec->section->truncatePayload(EIT::EIT_PAYLOAD_FIXED_SIZE, false);
             sec->updateVersion(this, true);
+            // Section was modified.
+            return true;
         }
     }
     else if (sec->section->payloadSize() != EIT::EIT_PAYLOAD_FIXED_SIZE + event->event_data.size() ||
-             ::memcmp(sec->section->payload() + EIT::EIT_PAYLOAD_FIXED_SIZE, event->event_data.data(), event->event_data.size()) != 0)
+             !MemEqual(sec->section->payload() + EIT::EIT_PAYLOAD_FIXED_SIZE, event->event_data.data(), event->event_data.size()))
     {
         // The section already exists. It must be already in an injection queue.
         // The event is not the same as the one in the section, update the section.
@@ -823,13 +833,20 @@ void ts::EITGenerator::regeneratePresentFollowingSection(const ServiceIdTriplet&
         sec->section->truncatePayload(EIT::EIT_PAYLOAD_FIXED_SIZE, false);
         sec->section->appendPayload(event->event_data, false);
         sec->updateVersion(this, true);
+        // Section was modified.
+        return true;
     }
     else if (sec->section->tableId() != tid) {
         // The same event is already in the section but the table id changed (because the TS id changed).
         sec->startModifying();
         sec->section->setTableId(tid, false);
         sec->updateVersion(this, true);
+        // Section was modified.
+        return true;
     }
+
+    // Section not modified.
+    return false;
 }
 
 
@@ -847,17 +864,24 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
     // Reference time for EIT schedule.
     const Time last_midnight(now.thisDay());
 
-    // Loop on all services, regenerating those which are marked for regeneration.
-    for (auto srv_iter = _services.begin(); srv_iter != _services.end(); ++srv_iter) {
-        if (srv_iter->second.regenerate) {
+    // Check if all sections of a sub-table must have the same version number.
+    const bool sync_versions = bool(_options & EITOptions::SYNC_VERSIONS);
 
-            const ServiceIdTriplet& service_id(srv_iter->first);
-            EService& srv(srv_iter->second);
+    // Loop on all services, regenerating those which are marked for regeneration.
+    for (auto& srv_iter : _services) {
+        if (srv_iter.second.regenerate) {
+
+            const ServiceIdTriplet& service_id(srv_iter.first);
+            EService& srv(srv_iter.second);
             const bool actual = service_id.transport_stream_id == _actual_ts_id;
+            const auto GEN_SCHED = actual ? EITOptions::GEN_ACTUAL_SCHED : EITOptions::GEN_OTHER_SCHED;
+            _duck.report().debug(u"regenerating events for service %n", service_id);
+
+            // Set of subtables to globally update their version (SYNC_VERSIONS only).
+            std::set<TID> sync_tids;
 
             // Check if EIT schedule are needed for the service.
-            const bool need_eits = (actual && (_options & (EITOption::GEN_SCHED | EITOption::GEN_ACTUAL)) == (EITOption::GEN_SCHED | EITOption::GEN_ACTUAL)) ||
-                                   (!actual && (_options & (EITOption::GEN_SCHED | EITOption::GEN_OTHER)) == (EITOption::GEN_SCHED | EITOption::GEN_OTHER));
+            const bool need_eits = bool(_options & GEN_SCHED);
 
             // Remove initial segments before last midnight.
             while (!srv.segments.empty() && srv.segments.front()->start_time < last_midnight) {
@@ -867,15 +891,20 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
 
             // Remove final empty segments (no events). Keep at least one segment for last midnight, even if empty.
             while (!srv.segments.empty() && srv.segments.back()->events.empty() && srv.segments.back()->start_time > last_midnight) {
+                // Remove all event ids of this segment from the service.
+                for (const auto& ev : srv.segments.back()->events) {
+                    srv.event_ids.erase(ev->event_id);
+                }
+                // Remove segment from service
                 markObsoleteSegment(*srv.segments.back());
                 srv.segments.pop_back();
             }
 
             // Make sure that the first segment exists for last midnight.
             if (srv.segments.empty() || srv.segments.front()->start_time != last_midnight) {
-                _duck.report().debug(u"creating EIT segment starting at %s for %s", {last_midnight, service_id});
+                _duck.report().debug(u"creating EIT segment starting at %s for %s", last_midnight, service_id);
                 const ESegmentPtr seg(new ESegment(last_midnight));
-                CheckNonNull(seg.pointer());
+                CheckNonNull(seg.get());
                 srv.segments.push_front(seg);
             }
 
@@ -886,10 +915,10 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
 
                 // Enforce the existence of contiguous segments. Create missing segments when necessary.
                 if ((*seg_iter)->start_time != segment_start_time) {
-                    _duck.report().debug(u"creating EIT segment starting at %s for %s", {segment_start_time, service_id});
+                    _duck.report().debug(u"creating EIT segment starting at %s for %s", segment_start_time, service_id);
                     assert((*seg_iter)->start_time > segment_start_time);
                     const ESegmentPtr seg(new ESegment(segment_start_time));
-                    CheckNonNull(seg.pointer());
+                    CheckNonNull(seg.get());
                     seg_iter = srv.segments.insert(seg_iter, seg);
                 }
                 ESegment& seg(**seg_iter);
@@ -921,7 +950,7 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                         while (section_still_valid && pl_size > 0 && ev_iter != seg.events.end()) {
                             const uint8_t* ev = (*ev_iter)->event_data.data();
                             const size_t ev_size = (*ev_iter)->event_data.size();
-                            section_still_valid = pl_size >= ev_size && ::memcmp(pl, ev, ev_size) == 0;
+                            section_still_valid = pl_size >= ev_size && MemEqual(pl, ev, ev_size);
                             if (section_still_valid) {
                                 ++ev_iter;
                                 pl += ev_size;
@@ -943,7 +972,7 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
 
                         // The section is no longer valid or does not exist, rebuild it.
                         const ESectionPtr sec(new ESection(this, service_id, table_id, section_number, section_number));
-                        CheckNonNull(sec.pointer());
+                        CheckNonNull(sec.get());
                         if (sec_iter != seg.sections.end()) {
                             // Existing section, invalidate it and replace it.
                             markObsoleteSection(**sec_iter);
@@ -969,7 +998,14 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                         }
 
                         // Section complete.
-                        sec->section->recomputeCRC();
+                        if (sync_versions) {
+                            // Will adjust version for all sections of this sub-table.
+                            sync_tids.insert(table_id);
+                        }
+                        else {
+                            // Sections are independently versioned, this one is complete.
+                            sec->section->recomputeCRC();
+                        }
                         enqueueInjectSection(sec, getCurrentTime(), true);
 
                         // Move to next section (if it exists).
@@ -986,7 +1022,7 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                     // We need at least one section, possibly empty, in each segment.
                     if (seg.sections.empty()) {
                         const ESectionPtr sec(new ESection(this, service_id, table_id, first_section_number, first_section_number));
-                        CheckNonNull(sec.pointer());
+                        CheckNonNull(sec.get());
                         seg.sections.push_back(sec);
                         enqueueInjectSection(sec, getCurrentTime(), true);
                     }
@@ -1014,6 +1050,7 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                 for (auto seg_iter = srv.segments.rbegin(); seg_iter != srv.segments.rend(); ++seg_iter) {
                     ESegment& seg(**seg_iter);
                     assert(!seg.sections.empty());
+                    assert(segment_number > 0);
 
                     const TID table_id = EIT::SegmentToTableId(actual, --segment_number);
                     uint8_t section_number = EIT::SegmentToSection(segment_number);
@@ -1028,8 +1065,8 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                         // Last segment.
                         last_table_id = table_id;
                     }
-                    for (auto sec_iter = seg.sections.begin(); sec_iter != seg.sections.end(); ++sec_iter) {
-                        ESection& sec(**sec_iter);
+                    for (const auto& sec_iter : seg.sections) {
+                        ESection& sec(*sec_iter);
                         const uint8_t* pl = sec.section->payload();
                         if (sec.section->sectionNumber() != section_number ||
                             sec.section->lastSectionNumber() != last_section_number ||
@@ -1038,13 +1075,43 @@ void ts::EITGenerator::regenerateSchedule(const Time& now)
                         {
                             if (sec.section->sectionNumber() != section_number) {
                                 sec.section->setSectionNumber(section_number, false);
-                                sec.updateVersion(this, false);
+                                sec.updateVersion(this, true);
                             }
                             sec.section->setLastSectionNumber(last_section_number, false);
                             sec.section->setUInt8(4, segment_last_section_number, false);
-                            sec.section->setUInt8(5, last_table_id, true);
+                            sec.section->setUInt8(5, last_table_id, !sync_versions);
+                            if (sync_versions) {
+                                sync_tids.insert(table_id);
+                            }
+                            assert(sec.section->sectionNumber() <= sec.section->lastSectionNumber());
                         }
                         section_number++;
+                    }
+                }
+            }
+
+            // Regenerate synchronous new versions for all sections of updated subtables (only with SYNC_VERSIONS).
+            if (!sync_tids.empty()) {
+                // Each sub-table uses 32 segments (SEGMENTS_PER_TABLE). We loop over segments in this service,
+                // 32 per 32. When a table needs to be updated, synchronously update all versions.
+                segment_number = 0;
+                auto seg_iter = srv.segments.begin();
+                while (seg_iter != srv.segments.end()) {
+                    const TID table_id = EIT::SegmentToTableId(actual, segment_number);
+                    const uint8_t version = nextVersion(service_id, table_id, 0);
+                    const bool update = sync_tids.find(table_id) != sync_tids.end();
+                    // Loop on all segments of that sub-table.
+                    for (size_t seg_count = 0; seg_count < EIT::SEGMENTS_PER_TABLE && seg_iter != srv.segments.end(); seg_count++) {
+                        // Update all sections in that segment, if necessary.
+                        if (update) {
+                            for (auto& sec : (*seg_iter)->sections) {
+                                (*sec).startModifying();
+                                (*sec).section->setVersion(version, true);
+                            }
+                        }
+                        // Next segment.
+                        ++segment_number;
+                        ++seg_iter;
                     }
                 }
             }
@@ -1074,10 +1141,10 @@ void ts::EITGenerator::updateForNewTime(const Time& now)
     const Time last_midnight(now.thisDay());
 
     // Loop on all services.
-    for (auto srv_iter = _services.begin(); srv_iter != _services.end(); ++srv_iter) {
+    for (auto& srv_iter : _services) {
 
-        const ServiceIdTriplet& service_id(srv_iter->first);
-        EService& srv(srv_iter->second);
+        const ServiceIdTriplet& service_id(srv_iter.first);
+        EService& srv(srv_iter.second);
         assert(!srv.segments.empty());
 
         // If we changed day, mark the service as being regenerated (will remove obsolete segments or create missing ones).
@@ -1085,25 +1152,30 @@ void ts::EITGenerator::updateForNewTime(const Time& now)
             _regenerate = srv.regenerate = true;
         }
 
-        // Segments between last midnight and current time shall be regenerated as well (one empty section).
-        auto seg_iter = srv.segments.begin();
-        while (seg_iter != srv.segments.end() && (*seg_iter)->start_time + EIT::SEGMENT_DURATION <= now) {
-            ESegment& seg(**seg_iter);
-            seg.events.clear();
-            if (seg.sections.size() != 1 || seg.sections.front()->section->payloadSize() != EIT::EIT_PAYLOAD_FIXED_SIZE) {
-                // There are more than one section or the unique section contains events.
-                _regenerate = srv.regenerate = seg.regenerate = true;
-            }
-            ++seg_iter;
-        }
-
-        // Remove obsolete events in the first segments (containing "now").
-        if (seg_iter != srv.segments.end()) {
+        // Segments between last midnight and current time shall be regenerated as well.
+        // Segments before current one will now have one empty section, except if events are still in progress.
+        for (auto seg_iter = srv.segments.begin(); seg_iter != srv.segments.end() && (*seg_iter)->start_time <= now; ++seg_iter) {
             ESegment& seg(**seg_iter);
             while (!seg.events.empty() && seg.events.front()->end_time <= now) {
+                // Remove event id from service.
+                srv.event_ids.erase(seg.events.front()->event_id);
+                // Remove event from segment.
                 seg.events.pop_front();
-                _regenerate = srv.regenerate = seg.regenerate = true;
+                // Regenerate the segment, unless this is the current segment and we use the lazy update mode.
+                if (seg.start_time < now || !(_options & EITOptions::LAZY_SCHED_UPDATE)) {
+                    _regenerate = srv.regenerate = seg.regenerate = true;
+                }
             }
+        }
+
+        // Discard events too far in the future.
+        while (!srv.segments.empty() && srv.segments.back()->start_time >= last_midnight + EIT::TOTAL_DAYS) {
+            // Remove all event ids of this segment from the service.
+            for (const auto& ev : srv.segments.back()->events) {
+                srv.event_ids.erase(ev->event_id);
+            }
+            // Remove segment from service
+            srv.segments.pop_back();
         }
 
         // Renew EIT p/f of the service when necessary.
@@ -1118,7 +1190,7 @@ void ts::EITGenerator::updateForNewTime(const Time& now)
 
 bool ts::EITGenerator::doStuffing()
 {
-    return bool(_options & EITOption::PACKET_STUFFING);
+    return bool(_options & EITOptions::PACKET_STUFFING);
 }
 
 void ts::EITGenerator::provideSection(SectionCounter counter, SectionPtr& section)
@@ -1131,6 +1203,39 @@ void ts::EITGenerator::provideSection(SectionCounter counter, SectionPtr& sectio
 
     // Make sure the EIT schedule are up-to-date.
     regenerateSchedule(now);
+
+    // Make sure no section for the last injected {tid,tidext} is scheduled for _section_gap milliseconds.
+    if (_last_tid != TID_NULL) {
+        ESectionList& list(_injects[_last_index]);
+        const Time next_inject = now + _section_gap;
+        int gap_count = 0;
+        auto it = list.begin();
+        while (it != list.end() && (*it)->next_inject < next_inject) {
+            if ((*it)->section->tableId() != _last_tid || (*it)->section->tableIdExtension() != _last_tidext) {
+                ++it;
+            }
+            else {
+                // We have a section with the same {tid,tidext}, need to reschedule it later.
+                const ESectionPtr next_sec = *it;
+                _duck.report().log(2, u"reschedule section %d at %s", next_sec->section->sectionNumber(), next_inject);
+                it = list.erase(it);
+                // We can't call enqueueInjectSection() since we are currently walking through the same
+                // list and enqueueInjectSection() may change "it" iterator. Insert manually.
+                // Also reschedule each section "_section_gap" later than the previous one.
+                next_sec->next_inject = next_inject + gap_count++ * _section_gap;
+                auto it1 = it;
+                while (it1 != list.end() && (*it1)->next_inject < next_sec->next_inject) {
+                    ++it1;
+                }
+                const bool same_place = it1 == it;
+                it1 = list.insert(it1, next_sec);
+                if (same_place) {
+                    it = it1;
+                }
+            }
+        }
+        _last_tid = TID_NULL;
+    }
 
     // Loop on all injection queues, in decreasing order of priority.
     for (size_t index = 0; index < _injects.size(); ++index) {
@@ -1154,16 +1259,19 @@ void ts::EITGenerator::provideSection(SectionCounter counter, SectionPtr& sectio
                 sec->injected = true;
 
                 // Requeue next iteration of that section.
-                enqueueInjectSection(sec, now + _profile.repetitionSeconds(*sec->section) * MilliSecPerSec, false);
-                _duck.report().log(2, u"inject section TID 0x%X (%<d), service 0x%X (%<d), at %s, requeue for %s",
-                                   {section->tableId(), section->tableIdExtension(), now, sec->next_inject});
+                enqueueInjectSection(sec, now + _profile.repetitionSeconds(*sec->section), false);
+                _duck.report().log(2, u"inject section TID %n, service %n, at %s, requeue for %s",
+                                   section->tableId(), section->tableIdExtension(), now, sec->next_inject);
+                _last_tid = section->tableId();
+                _last_tidext = section->tableIdExtension();
+                _last_index = index;
                 return;
             }
         }
     }
 
     // No section is ready for injection.
-    section.clear();
+    section.reset();
 }
 
 
@@ -1180,7 +1288,7 @@ void ts::EITGenerator::handleSection(SectionDemux& demux, const Section& section
         // A PAT section is used to define the transport stream id if not already known.
         setTransportStreamId(section.tableIdExtension());
     }
-    else if (EIT::IsEIT(tid) && bool(_options & EITOption::LOAD_INPUT)) {
+    else if (EIT::IsEIT(tid) && bool(_options & EITOptions::LOAD_INPUT)) {
         // Use input EIT's as EPG data when specified in the generation options.
         loadEvents(section);
     }
@@ -1243,35 +1351,35 @@ void ts::EITGenerator::dumpInternalState(int lev) const
         rep.log(lev, u"EITGenerator internal state");
         rep.log(lev, u"---------------------------");
         rep.log(lev, u"");
-        rep.log(lev, u"EIT PID: 0x%X (%<d)", {_eit_pid});
-        rep.log(lev, u"EIT options: 0x%X", {uint16_t(_options)});
-        rep.log(lev, u"Actual TS id %s: 0x%X (%<d)", {_actual_ts_id_set ? u"set" : u"not set", _actual_ts_id});
-        rep.log(lev, u"TS packets: %'d", {_packet_index});
-        rep.log(lev, u"TS bitrate: %'d b/s, max EIT bitrate: %'d b/s", {_ts_bitrate, _max_bitrate});
-        rep.log(lev, u"Services count: %d", {_services.size()});
-        rep.log(lev, u"Reference time: %s at packet %'d", {_ref_time, _ref_time_pkt});
-        rep.log(lev, u"Obsolete sections count: %d", {_obsolete_count});
-        rep.log(lev, u"Regenerate: %s", {_regenerate});
+        rep.log(lev, u"EIT PID: %n", _eit_pid);
+        rep.log(lev, u"EIT options: 0x%X", uint16_t(_options));
+        rep.log(lev, u"Actual TS id %s: %n", _actual_ts_id_set ? u"set" : u"not set", _actual_ts_id);
+        rep.log(lev, u"TS packets: %'d", _packet_index);
+        rep.log(lev, u"TS bitrate: %'d b/s, max EIT bitrate: %'d b/s", _ts_bitrate, _max_bitrate);
+        rep.log(lev, u"Services count: %d", _services.size());
+        rep.log(lev, u"Reference time: %s at packet %'d", _ref_time, _ref_time_pkt);
+        rep.log(lev, u"Obsolete sections count: %d", _obsolete_count);
+        rep.log(lev, u"Regenerate: %s", _regenerate);
 
         // Dump internal state of services.
-        for (auto it1 = _services.begin(); it1 != _services.end(); ++it1) {
+        for (const auto& it1 : _services) {
             rep.log(lev, u"");
-            rep.log(lev, u"- Service content: %s", {it1->first});
-            rep.log(lev, u"  Segment count: %d", {it1->second.segments.size()});
-            rep.log(lev, u"  Regenerate: %s", {it1->second.regenerate});
-            dumpSection(lev, u"  Present section: ", it1->second.pf[0]);
-            dumpSection(lev, u"  Follow section:  ", it1->second.pf[1]);
-            for (auto it2 = it1->second.segments.begin(); it2 != it1->second.segments.end(); ++it2) {
-                const ESegment& seg(**it2);
-                rep.log(lev, u"  - Segment %s, regenerate: %s, events: %d, sections: %d", {seg.start_time, seg.regenerate, seg.events.size(), seg.sections.size()});
+            rep.log(lev, u"- Service content: %s", it1.first);
+            rep.log(lev, u"  Segment count: %d", it1.second.segments.size());
+            rep.log(lev, u"  Regenerate: %s", it1.second.regenerate);
+            dumpSection(lev, u"  Present section: ", it1.second.pf[0]);
+            dumpSection(lev, u"  Follow section:  ", it1.second.pf[1]);
+            for (const auto& it2 : it1.second.segments) {
+                const ESegment& seg(*it2);
+                rep.log(lev, u"  - Segment %s, regenerate: %s, events: %d, sections: %d", seg.start_time, seg.regenerate, seg.events.size(), seg.sections.size());
                 rep.log(lev, u"    Events:");
-                for (auto it3 = (*it2)->events.begin(); it3 != (*it2)->events.end(); ++it3) {
-                    const Event& ev(**it3);
-                    rep.log(lev, u"    - Event id: 0x%X, start: %s, end: %s, %d bytes", {ev.event_id, ev.start_time, ev.end_time, ev.event_data.size()});
+                for (const auto& it3 : it2->events) {
+                    const Event& ev(*it3);
+                    rep.log(lev, u"    - Event id: 0x%X, start: %s, end: %s, %d bytes", ev.event_id, ev.start_time, ev.end_time, ev.event_data.size());
                 }
                 rep.log(lev, u"    Sections:");
-                for (auto it3 = (*it2)->sections.begin(); it3 != (*it2)->sections.end(); ++it3) {
-                    dumpSection(lev, u"    - Section: ", *it3);
+                for (const auto& it3 : it2->sections) {
+                    dumpSection(lev, u"    - Section: ", it3);
                 }
             }
         }
@@ -1279,7 +1387,7 @@ void ts::EITGenerator::dumpInternalState(int lev) const
         // Dump internal state of injection queues.
         for (size_t index = 0; index < _injects.size(); ++index) {
             rep.log(lev, u"");
-            rep.log(lev, u"- Injection queue #%d: %d sections", {index, _injects[index].size()});
+            rep.log(lev, u"- Injection queue #%d: %d sections", index, _injects[index].size());
             for (auto it = _injects[index].begin(); it != _injects[index].end(); ++it) {
                 dumpSection(lev, u"  - ", *it);
             }
@@ -1298,34 +1406,34 @@ void ts::EITGenerator::dumpSection(int lev, const UString& margin, const ESectio
     Report& rep(_duck.report());
 
     // Eliminate null ESection.
-    if (sec.isNull()) {
-        rep.log(lev, u"%s(null)", {margin});
+    if (sec == nullptr) {
+        rep.log(lev, u"%s(null)", margin);
         return;
     }
 
     // Eliminate null Section in ESection.
     const UString space(margin.size(), SPACE);
-    const UString desc(UString::Format(u"next inject: %s, obsolete: %s, injected: %s", {sec->next_inject, sec->obsolete, sec->injected}));
-    if (sec->section.isNull()) {
-        rep.log(lev, u"%s(null section)", {margin});
-        rep.log(lev, u"%s%s", {space, desc});
+    const UString desc(UString::Format(u"next inject: %s, obsolete: %s, injected: %s", sec->next_inject, sec->obsolete, sec->injected));
+    if (sec->section == nullptr) {
+        rep.log(lev, u"%s(null section)", margin);
+        rep.log(lev, u"%s%s", space, desc);
         return;
     }
 
     // Eliminate invalid Section in ESection.
     const Section& section(*sec->section);
     if (!section.isValid() || section.payloadSize() < EIT::EIT_PAYLOAD_FIXED_SIZE) {
-        rep.log(lev, u"%sInvalid section, %d bytes", {margin, section.size()});
-        rep.log(lev, u"%s%s", {space, desc});
+        rep.log(lev, u"%sInvalid section, %d bytes", margin, section.size());
+        rep.log(lev, u"%s%s", space, desc);
         return;
     }
 
     // Section common fields.
     rep.log(lev, u"%sTable id: 0x%X, service: 0x%X, ts: 0x%X, size: %d bytes",
-            {margin, section.tableId(), section.tableIdExtension(), GetUInt16(section.payload()), section.size()});
-    rep.log(lev, u"%s%s", {space, desc});
+            margin, section.tableId(), section.tableIdExtension(), GetUInt16(section.payload()), section.size());
+    rep.log(lev, u"%s%s", space, desc);
     rep.log(lev, u"%sversion: %d, last table id: 0x%X, section #: %d, segment last section #: %d, last section#: %d",
-            {space, section.version(), section.payload()[5], section.sectionNumber(), section.payload()[4], section.lastSectionNumber()});
+            space, section.version(), section.payload()[5], section.sectionNumber(), section.payload()[4], section.lastSectionNumber());
 
     // Display events.
     const uint8_t* data = section.payload() + EIT::EIT_PAYLOAD_FIXED_SIZE;
@@ -1334,17 +1442,17 @@ void ts::EITGenerator::dumpSection(int lev, const UString& margin, const ESectio
         const size_t ev_size = std::min(size, EIT::EIT_EVENT_FIXED_SIZE + (GetUInt16(data + 10) & 0x0FFF));
         Time start;
         DecodeMJD(data + 2, 5, start);
-        Time end(start + (MilliSecPerHour * DecodeBCD(data[7])) + (MilliSecPerMin * DecodeBCD(data[8])) + (MilliSecPerSec * DecodeBCD(data[9])));
-        rep.log(lev, u"%sevent id: 0x%X, start: %s, end: %s, %d bytes", {space, GetUInt16(data), start, end, ev_size});
+        Time end(start + cn::hours(DecodeBCD(data[7])) + cn::minutes(DecodeBCD(data[8])) + cn::seconds(DecodeBCD(data[9])));
+        rep.log(lev, u"%sevent id: 0x%X, start: %s, end: %s, %d bytes", space, GetUInt16(data), start, end, ev_size);
         data += ev_size;
         size -= ev_size;
     }
     if (size > 0) {
-        rep.log(lev, u"%sinvalid %d trailing bytes", {space, size});
+        rep.log(lev, u"%sinvalid %d trailing bytes", space, size);
     }
 
     // Display CRC state.
     const uint32_t act_crc(GetUInt32(section.content() + section.size() - 4));
     const uint32_t exp_crc(CRC32(section.content(), section.size() - 4).value());
-    rep.log(lev, u"%s%s", {space, act_crc == exp_crc ? u"valid CRC32" : u"invalid CRC32"});
+    rep.log(lev, u"%s%s", space, act_crc == exp_crc ? u"valid CRC32" : u"invalid CRC32");
 }

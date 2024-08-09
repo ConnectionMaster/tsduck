@@ -1,34 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstsmuxCore.h"
-#include "tsMonotonic.h"
 #include "tsFatal.h"
 #include "tsAlgorithm.h"
 #include "tsBinaryTable.h"
@@ -36,6 +14,7 @@
 #include "tsTDT.h"
 #include "tsTOT.h"
 #include "tsEIT.h"
+#include "tsTS.h"
 
 
 //----------------------------------------------------------------------------
@@ -46,27 +25,8 @@ ts::tsmux::Core::Core(const MuxerArgs& opt, const PluginEventHandlerRegistry& ha
     _handlers(handlers),
     _log(log),
     _opt(opt),
-    _duck(&log),
-    _terminate(false),
-    _bitrate(0),
-    _output_packets(0),
     _time_input_index(opt.timeInputIndex),
-    _inputs(_opt.inputs.size(), nullptr),
-    _output(_opt, handlers, _log),
-    _terminated_inputs(),
-    _pat_pzer(_duck, PID_PAT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _cat_pzer(_duck, PID_CAT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _nit_pzer(_duck, PID_NIT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _sdt_bat_pzer(_duck, PID_SDT, CyclingPacketizer::StuffingPolicy::ALWAYS),
-    _eit_pzer(_duck, PID_EIT, this),
-    _output_pat(),
-    _output_cat(),
-    _output_sdt(),
-    _output_nit(),
-    _max_eits(128), // hard-coded for now
-    _eits(),
-    _pid_origin(),
-    _service_origin()
+    _inputs(_opt.inputs.size(), nullptr)
 {
     // Preset common default options.
     _duck.restoreArgs(_opt.duckArgs);
@@ -108,10 +68,10 @@ bool ts::tsmux::Core::start()
         // The output plugin reports an output bitrate, always use this one.
         _bitrate = br;
         if (_opt.outputBitRate == 0) {
-            _log.verbose(u"output bitrate is %'d b/s, as reported by output plugin", {br});
+            _log.verbose(u"output bitrate is %'d b/s, as reported by output plugin", br);
         }
         else if (_opt.outputBitRate != br) {
-            _log.warning(u"output bitrate is %'d b/s, as reported by output plugin, overrides %'d b/s from command line", {br, _opt.outputBitRate});
+            _log.warning(u"output bitrate is %'d b/s, as reported by output plugin, overrides %'d b/s from command line", br, _opt.outputBitRate);
         }
     }
     else if (_opt.outputBitRate == 0) {
@@ -237,11 +197,11 @@ void ts::tsmux::Core::main()
     PacketCounter next_sdt_packet = 0;
 
     // Insertion is cadenced using a monotonic clock.
-    const Monotonic start(true);
-    Monotonic clock(start);
+    const monotonic_time start(monotonic_time::clock::now());
+    monotonic_time clock(start);
 
     // The unit of Monotonic operations is the nanosecond, the command line option is in microseconds.
-    const NanoSecond cadence = _opt.cadence * NanoSecPerMicroSec;
+    const cn::nanoseconds cadence = _opt.cadence;
 
     // Keep track of terminated input plugins.
     _terminated_inputs.clear();
@@ -262,7 +222,8 @@ void ts::tsmux::Core::main()
         clock += cadence;
 
         // Number of packets which should have been sent by the end of the time interval.
-        const PacketCounter expected_packets = (((clock - start) * _bitrate) / (NanoSecPerSec * PKT_SIZE_BITS)).toInt();
+        const cn::nanoseconds duration = clock - start;
+        const PacketCounter expected_packets = PacketDistance(_bitrate, duration);
 
         // Number of packets to send by the end of the time interval.
         PacketCounter packet_count = expected_packets < _output_packets ? 0 : expected_packets - _output_packets;
@@ -316,7 +277,7 @@ void ts::tsmux::Core::main()
 
         // Wait until next muxing period.
         if (!_terminate) {
-            clock.wait();
+            std::this_thread::sleep_until(clock);
         }
     }
 
@@ -381,7 +342,7 @@ bool ts::tsmux::Core::getUTC(Time& utc, const TSPacket& pkt)
                 if (pl_size >= sect_size) {
                     // A complete section is here, make it a binary table.
                     BinaryTable table;
-                    table.addSection(SectionPtr(new Section(pl, sect_size)));
+                    table.addNewSection(pl, sect_size);
                     // Try to interpret it as a TDT or TOT.
                     TDT tdt(_duck, table);
                     if (tdt.isValid()) {
@@ -415,7 +376,7 @@ void ts::tsmux::Core::provideSection(SectionCounter counter, SectionPtr& section
 {
     if (_eits.empty()) {
         // No EIT section to provide.
-        section.clear();
+        section.reset();
     }
     else {
         // Remove one EIT section from the queue for insertion.
@@ -478,7 +439,7 @@ bool ts::tsmux::Core::Input::getPacket(TSPacket& pkt, TSPacketMetadata& pkt_data
     if (_next_insertion > 0) {
         if (_next_insertion <= _core._output_packets) {
             // It is now time to return that packet.
-            _core._log.debug(u"input #%d, PID 0x%X (%<d), output packet %'d, restarting insertion", {_plugin_index, _next_packet.getPID(), _core._output_packets});
+            _core._log.debug(u"input #%d, PID %n, output packet %'d, restarting insertion", _plugin_index, _next_packet.getPID(), _core._output_packets);
             _next_insertion = 0;
             pkt = _next_packet;
             pkt_data = _next_metadata;
@@ -510,7 +471,7 @@ bool ts::tsmux::Core::Input::getPacket(TSPacket& pkt, TSPacketMetadata& pkt_data
         if (_core.getUTC(utc, pkt)) {
             // From now on, we will use that input plugin as time reference.
             _core._time_input_index = _plugin_index;
-            _core._log.verbose(u"using input #%d as TDT/TOT reference", {_plugin_index});
+            _core._log.verbose(u"using input #%d as TDT/TOT reference", _plugin_index);
         }
     }
 
@@ -522,7 +483,7 @@ bool ts::tsmux::Core::Input::getPacket(TSPacket& pkt, TSPacketMetadata& pkt_data
             const uint64_t packet_pcr = pkt.getPCR();
             if (packet_pcr < clock->second.pcr_value && !WrapUpPCR(clock->second.pcr_value, packet_pcr)) {
                 const uint64_t back = DiffPCR(packet_pcr, clock->second.pcr_value);
-                _core._log.verbose(u"input #%d, PID 0x%X (%<d), late packet by PCR %'d, %'s ms", {_plugin_index, pid, back, (back * MilliSecPerSec) / SYSTEM_CLOCK_FREQ});
+                _core._log.verbose(u"input #%d, PID %n, late packet by PCR %'d, %'!s", _plugin_index, pid, back, cn::duration_cast<cn::milliseconds>(PCR(back)));
             }
             else {
                 // Compute current PCR for previous packet in the output TS.
@@ -535,10 +496,10 @@ bool ts::tsmux::Core::Input::getPacket(TSPacket& pkt, TSPacketMetadata& pkt_data
                 // one second, we consider that the PCR progression is valid and we synchronize on it.
                 if (AbsDiffPCR(packet_pcr, output_pcr) < SYSTEM_CLOCK_FREQ) {
                     // Compute the theoretical position of the packet in the output stream.
-                    const PacketCounter target_packet = clock->second.pcr_packet + PacketDistanceFromPCR(_core._bitrate, DiffPCR(clock->second.pcr_value, packet_pcr));
+                    const PacketCounter target_packet = clock->second.pcr_packet + PacketDistance(_core._bitrate, PCR(DiffPCR(clock->second.pcr_value, packet_pcr)));
                     if (target_packet > _core._output_packets) {
                         // This packet will be inserted later.
-                        _core._log.debug(u"input #%d, PID 0x%X (%<d), output packet %'d, delay packet by %'d packets", {_plugin_index, pid, _core._output_packets, target_packet - _core._output_packets});
+                        _core._log.debug(u"input #%d, PID %n, output packet %'d, delay packet by %'d packets", _plugin_index, pid, _core._output_packets, target_packet - _core._output_packets);
                         _next_insertion = target_packet;
                         _next_packet = pkt;
                         _next_metadata = pkt_data;
@@ -658,33 +619,33 @@ void ts::tsmux::Core::Input::handlePAT(const PAT& pat)
     }
 
     // Add all services from input PAT into output PAT.
-    for (auto it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
+    for (const auto& it : pat.pmts) {
 
         // Origin of the service.
-        const uint16_t service_id = it->first;
+        const uint16_t service_id = it.first;
         Origin& origin(_core._service_origin[service_id]);
 
         if (!Contains(_core._output_pat.pmts, service_id)) {
             // New service found.
-            _core._log.verbose(u"adding service 0x%X (%<d) from input #%d in PAT", {service_id, _plugin_index});
-            _core._output_pat.pmts[service_id] = it->second;
+            _core._log.verbose(u"adding service %n from input #%d in PAT", service_id, _plugin_index);
+            _core._output_pat.pmts[service_id] = it.second;
             origin.plugin_index = _plugin_index;
             modified = true;
         }
         else if (origin.plugin_index == _plugin_index) {
             // Already found in same input, maybe same PMT PID, modify if not the same.
-            modified = it->second != _core._output_pat.pmts[service_id];
-            _core._output_pat.pmts[service_id] = it->second;
+            modified = it.second != _core._output_pat.pmts[service_id];
+            _core._output_pat.pmts[service_id] = it.second;
         }
         else if (!_core._opt.ignoreConflicts) {
-            _core._log.error(u"service conflict, service 0x%X (%<d) exists in input #%d and #%d, aborting", {service_id, origin.plugin_index, _plugin_index});
+            _core._log.error(u"service conflict, service %n exists in input #%d and #%d, aborting", service_id, origin.plugin_index, _plugin_index);
             _core.stop();
             return;
         }
         else if (!origin.conflict_detected) {
             // Conflicts are ignored, this conflict is detected for the first time.
             origin.conflict_detected = true;
-            _core._log.warning(u"service conflict, service 0x%X (%<d) exists in input #%d and #%d, ignoring", {service_id, origin.plugin_index, _plugin_index});
+            _core._log.warning(u"service conflict, service %n exists in input #%d and #%d, ignoring", service_id, origin.plugin_index, _plugin_index);
         }
     }
 
@@ -694,7 +655,7 @@ void ts::tsmux::Core::Input::handlePAT(const PAT& pat)
         if (_core._service_origin[service_id].plugin_index == _plugin_index && !Contains(pat.pmts, service_id)) {
             // This service was in the output PAT and identified as coming from this input plugin.
             // However, it is no longer in the PAT of this input.
-            _core._log.verbose(u"service 0x%X (%<d) disappeared from input #%d, removing from PAT", {service_id, _plugin_index});
+            _core._log.verbose(u"service %n disappeared from input #%d, removing from PAT", service_id, _plugin_index);
             it = _core._output_pat.pmts.erase(it);
             modified = true;
         }
@@ -731,7 +692,7 @@ void ts::tsmux::Core::Input::handleCAT(const CAT& cat)
             const size_t output_index = CADescriptor::SearchByPID(_core._output_cat.descs, ca.ca_pid);
             if (output_index >= _core._output_cat.descs.count()) {
                 // Not found in output CAT, this is a new EMM PID.
-                _core._log.verbose(u"adding EMM PID 0x%X (%<d) from input #%d in CAT", {ca.ca_pid, _plugin_index});
+                _core._log.verbose(u"adding EMM PID %n from input #%d in CAT", ca.ca_pid, _plugin_index);
                 _core._output_cat.descs.add(cat.descs[index]);
                 origin.plugin_index = _plugin_index;
                 modified = true;
@@ -745,14 +706,14 @@ void ts::tsmux::Core::Input::handleCAT(const CAT& cat)
                 }
             }
             else if (!_core._opt.ignoreConflicts) {
-                _core._log.error(u"EMM PID conflict, PID 0x%X (%<d) exists in input #%d and #%d, aborting", {ca.ca_pid, origin.plugin_index, _plugin_index});
+                _core._log.error(u"EMM PID conflict, PID %n exists in input #%d and #%d, aborting", ca.ca_pid, origin.plugin_index, _plugin_index);
                 _core.stop();
                 return;
             }
             else if (!origin.conflict_detected) {
                 // Conflicts are ignored, this conflict is detected for the first time.
                 origin.conflict_detected = true;
-                _core._log.warning(u"EMM PID conflict, PID 0x%X (%<d) exists in input #%d and #%d, ignoring", {ca.ca_pid, origin.plugin_index, _plugin_index});
+                _core._log.warning(u"EMM PID conflict, PID %n exists in input #%d and #%d, ignoring", ca.ca_pid, origin.plugin_index, _plugin_index);
             }
         }
     }
@@ -781,20 +742,20 @@ void ts::tsmux::Core::Input::handleNIT(const NIT& nit)
     _core._output_nit.descs.merge(_core._duck, nit.descs);
 
     // Loop on all transport streams in the input NIT.
-    for (auto it = nit.transports.begin(); it != nit.transports.end(); ++it) {
-        const uint16_t tsid = it->first.transport_stream_id;
+    for (const auto& it : nit.transports) {
+        const uint16_t tsid = it.first.transport_stream_id;
         if (tsid == _ts_id) {
             // This is the description of the input transport stream.
             // Map it to the description of the output transport stream.
             NIT::Transport& ts(_core._output_nit.transports[TransportStreamId(_core._opt.outputTSId, _core._opt.outputNetwId)]);
-            ts.descs.merge(_core._duck, it->second.descs);
+            ts.descs.merge(_core._duck, it.second.descs);
             modified = true;
         }
         else if (tsid != _core._opt.outputTSId) {
             // This is the description of a transport stream which does not conflict
             // with the description of the output transport stream.
             NIT::Transport& ts(_core._output_nit.transports[TransportStreamId(tsid, _core._opt.outputNetwId)]);
-            ts.descs.merge(_core._duck, it->second.descs);
+            ts.descs.merge(_core._duck, it.second.descs);
             modified = true;
         }
     }
@@ -817,33 +778,33 @@ void ts::tsmux::Core::Input::handleSDT(const SDT& sdt)
     bool modified = false;
 
     // Add all services from input SDT into output SDT.
-    for (auto it = sdt.services.begin(); it != sdt.services.end(); ++it) {
+    for (const auto& it : sdt.services) {
 
         // Origin of the service.
-        const uint16_t service_id = it->first;
+        const uint16_t service_id = it.first;
         Origin& origin(_core._service_origin[service_id]);
 
         if (!Contains(_core._output_sdt.services, service_id)) {
             // New service found.
-            _core._log.verbose(u"adding service 0x%X (%<d) from input #%d in SDT", {service_id, _plugin_index});
-            _core._output_sdt.services[service_id] = it->second;
+            _core._log.verbose(u"adding service %n from input #%d in SDT", service_id, _plugin_index);
+            _core._output_sdt.services[service_id] = it.second;
             origin.plugin_index = _plugin_index;
             modified = true;
         }
         else if (origin.plugin_index == _plugin_index) {
             // Already found in same input, maybe same service description but modify anywat.
-            _core._output_sdt.services[service_id] = it->second;
+            _core._output_sdt.services[service_id] = it.second;
             modified = true;
         }
         else if (!_core._opt.ignoreConflicts) {
-            _core._log.error(u"service conflict, service 0x%X (%<d) exists in input #%d and #%d, aborting", {service_id, origin.plugin_index, _plugin_index});
+            _core._log.error(u"service conflict, service %n exists in input #%d and #%d, aborting", service_id, origin.plugin_index, _plugin_index);
             _core.stop();
             return;
         }
         else if (!origin.conflict_detected) {
             // Conflicts are ignored, this conflict is detected for the first time.
             origin.conflict_detected = true;
-            _core._log.warning(u"service conflict, service 0x%X (%<d) exists in input #%d and #%d, ignoring", {service_id, origin.plugin_index, _plugin_index});
+            _core._log.warning(u"service conflict, service %n exists in input #%d and #%d, ignoring", service_id, origin.plugin_index, _plugin_index);
         }
     }
 
@@ -853,7 +814,7 @@ void ts::tsmux::Core::Input::handleSDT(const SDT& sdt)
         if (_core._service_origin[service_id].plugin_index == _plugin_index && !Contains(sdt.services, service_id)) {
             // This service was in the output SDT and identified as coming from this input plugin.
             // However, it is no longer in the SDT of this input.
-            _core._log.verbose(u"service 0x%X (%<d) disappeared from input #%d, removing from SDT", {service_id, _plugin_index});
+            _core._log.verbose(u"service %n disappeared from input #%d, removing from SDT", service_id, _plugin_index);
             it = _core._output_sdt.services.erase(it);
             modified = true;
         }
@@ -885,7 +846,7 @@ void ts::tsmux::Core::Input::handleSection(SectionDemux& demux, const Section& s
 
         // Create a copy of the EIT section object (shared section data).
         const SectionPtr sp(new Section(section, ShareMode::SHARE));
-        CheckNonNull(sp.pointer());
+        CheckNonNull(sp.get());
 
         // If this is an EIT-Actual, patch the EIT with output TS id.
         if (is_actual && sp->payloadSize() >= 4) {

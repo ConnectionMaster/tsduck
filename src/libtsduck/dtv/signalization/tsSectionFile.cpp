@@ -1,48 +1,21 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSectionFile.h"
-#include "tsAbstractTable.h"
-#include "tsAbstractDescriptor.h"
+#include "tsSection.h"
 #include "tsBinaryTable.h"
-#include "tsTablesDisplay.h"
 #include "tsPSIRepository.h"
 #include "tsDuckContext.h"
+#include "tsxmlElement.h"
 #include "tsxmlJSONConverter.h"
 #include "tsjsonNull.h"
-#include "tsFileUtils.h"
 #include "tsEIT.h"
-
-const ts::UChar* const ts::SectionFile::DEFAULT_BINARY_SECTION_FILE_SUFFIX = u".bin";
-const ts::UChar* const ts::SectionFile::DEFAULT_XML_SECTION_FILE_SUFFIX = u".xml";
-const ts::UChar* const ts::SectionFile::DEFAULT_JSON_SECTION_FILE_SUFFIX = u".json";
-const ts::UChar* const ts::SectionFile::XML_TABLES_MODEL = u"tsduck.tables.model.xml";
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -51,13 +24,7 @@ const ts::UChar* const ts::SectionFile::XML_TABLES_MODEL = u"tsduck.tables.model
 
 ts::SectionFile::SectionFile(DuckContext& duck) :
     _duck(duck),
-    _report(duck.report()),
-    _tables(),
-    _sections(),
-    _orphanSections(),
-    _model(_report),
-    _xmlTweaks(),
-    _crc_op(CRC32::IGNORE)
+    _report(duck.report())
 {
 }
 
@@ -80,7 +47,7 @@ void ts::SectionFile::clear()
 
 void ts::SectionFile::add(const AbstractTablePtr& table)
 {
-    if (!table.isNull() && table->isValid()) {
+    if (table != nullptr && table->isValid()) {
         BinaryTablePtr bin(new BinaryTable);
         table->serialize(_duck, *bin);
         if (bin->isValid()) {
@@ -98,7 +65,7 @@ void ts::SectionFile::add(const BinaryTablePtrVector& tables)
 
 void ts::SectionFile::add(const BinaryTablePtr& table)
 {
-    if (!table.isNull()) {
+    if (table != nullptr) {
         if (table->isValid()) {
             // The table is added as a whole.
             // Add the standards from the table in the context.
@@ -133,7 +100,7 @@ void ts::SectionFile::add(const SectionPtrVector& sections)
 
 void ts::SectionFile::add(const SectionPtr& section)
 {
-    if (!section.isNull() && section->isValid()) {
+    if (section != nullptr && section->isValid()) {
         // Add the standards from the section in the context.
         _duck.addStandards(section->definingStandards());
         // Make the section part of the global list of sections.
@@ -156,7 +123,7 @@ size_t ts::SectionFile::packOrphanSections()
 
     // Loop on all orphan sections, locating sets of sections from the same table.
     for (auto first = _orphanSections.begin(); first != _orphanSections.end(); ) {
-        assert(!first->isNull());
+        assert(*first != nullptr);
         assert((*first)->isValid());
 
         // Point after first section.
@@ -174,7 +141,7 @@ size_t ts::SectionFile::packOrphanSections()
 
         // Build a binary table from orphan sections.
         BinaryTablePtr table(new BinaryTable);
-        CheckNonNull(table.pointer());
+        CheckNonNull(table.get());
         table->addSections(first, end, true, true);
 
         // Compress all sections to make a valid table.
@@ -210,7 +177,7 @@ void ts::SectionFile::collectLastTable()
     // Get a iterator to last section.
     auto first = _orphanSections.end();
     --first;
-    assert(!first->isNull());
+    assert(*first != nullptr);
     assert((*first)->isValid());
 
     // A short section should be a table in itself, no need to dive further.
@@ -222,7 +189,7 @@ void ts::SectionFile::collectLastTable()
 
         // Check if all sections are present in order.
         for (uint8_t num = last->lastSectionNumber(); ; --num) {
-            assert(!first->isNull());
+            assert(*first != nullptr);
             assert((*first)->isValid());
 
             // Give up if the section is not the expected one for the table.
@@ -252,7 +219,7 @@ void ts::SectionFile::collectLastTable()
 
     // We have now identified sections for a complete table.
     BinaryTablePtr table(new BinaryTable);
-    CheckNonNull(table.pointer());
+    CheckNonNull(table.get());
     if (!table->addSections(first, _orphanSections.end(), false, false) || !table->isValid()) {
         // Invalid table after all.
         return;
@@ -268,9 +235,9 @@ void ts::SectionFile::collectLastTable()
 // Reorganize all EIT sections according to ETSI TS 101 211.
 //----------------------------------------------------------------------------
 
-void ts::SectionFile::reorganizeEITs(const ts::Time& reftime)
+void ts::SectionFile::reorganizeEITs(const ts::Time& reftime, EITOptions options)
 {
-    EIT::ReorganizeSections(_duck, _sections, reftime);
+    EIT::ReorganizeSections(_duck, _sections, reftime, options);
     rebuildTables();
 }
 
@@ -287,12 +254,12 @@ void ts::SectionFile::rebuildTables()
 
     // Rebuild tables from consecutive sections.
     for (size_t i = 0; i < _sections.size(); ++i) {
-        if (_sections[i].isNull() || !_sections[i]->isValid()) {
+        if (_sections[i] == nullptr || !_sections[i]->isValid()) {
             // Ignore invalid sections.
         }
         else if (_sections[i]->isShortSection()) {
             // Short sections are always full tables.
-            _tables.push_back(new BinaryTable({_sections[i]}));
+            _tables.push_back(std::make_shared<BinaryTable>(SectionPtrVector{_sections[i]}));
         }
         else if (_sections[i]->sectionNumber() != 0 || i + _sections[i]->lastSectionNumber() >= _sections.size()) {
             // Orphan section, not preceded by logically adjacent sections or section #0 without enough following sections.
@@ -313,7 +280,7 @@ void ts::SectionFile::rebuildTables()
             }
             if (ok) {
                 // All sections are present in order, this is a table.
-                _tables.push_back(new BinaryTable(secs));
+                _tables.push_back(std::make_shared<BinaryTable>(secs));
                 i += count - 1;
             }
             else {
@@ -329,7 +296,7 @@ void ts::SectionFile::rebuildTables()
 // Load a binary section file.
 //----------------------------------------------------------------------------
 
-bool ts::SectionFile::loadBinary(const UString& file_name)
+bool ts::SectionFile::loadBinary(const fs::path& file_name)
 {
     // Separately process standard input.
     if (file_name.empty() || file_name == u"-") {
@@ -337,15 +304,17 @@ bool ts::SectionFile::loadBinary(const UString& file_name)
     }
 
     // Open the input file.
-    std::ifstream strm(file_name.toUTF8().c_str(), std::ios::in | std::ios::binary);
+    std::ifstream strm(file_name, std::ios::in | std::ios::binary);
     if (!strm.is_open()) {
-        _report.error(u"cannot open %s", {file_name});
+        _report.error(u"cannot open %s", file_name);
         return false;
     }
 
     // Load the section file.
-    ReportWithPrefix report_internal(_report, file_name + u": ");
-    const bool success = loadBinary(strm, report_internal);
+    const UString prefix(_report.reportPrefix());
+    _report.setReportPrefix(prefix + file_name + u": ");
+    const bool success = loadBinary(strm, _report);
+    _report.setReportPrefix(prefix);
     strm.close();
 
     return success;
@@ -373,7 +342,7 @@ bool ts::SectionFile::loadBinary(std::istream& strm, Report& report)
 // Save a binary section file.
 //----------------------------------------------------------------------------
 
-bool ts::SectionFile::saveBinary(const UString& file_name) const
+bool ts::SectionFile::saveBinary(const fs::path& file_name) const
 {
     // Separately process standard output.
     if (file_name.empty() || file_name == u"-") {
@@ -381,15 +350,17 @@ bool ts::SectionFile::saveBinary(const UString& file_name) const
     }
 
     // Create the output file.
-    std::ofstream strm(file_name.toUTF8().c_str(), std::ios::out | std::ios::binary);
+    std::ofstream strm(file_name, std::ios::out | std::ios::binary);
     if (!strm.is_open()) {
-        _report.error(u"error creating %s", {file_name});
+        _report.error(u"error creating %s", file_name);
         return false;
     }
 
     // Save sections.
-    ReportWithPrefix report_internal(_report, file_name + u": ");
-    const bool success = saveBinary(strm, report_internal);
+    const UString prefix(_report.reportPrefix());
+    _report.setReportPrefix(prefix + file_name + u": ");
+    const bool success = saveBinary(strm, _report);
+    _report.setReportPrefix(prefix);
     strm.close();
 
     return success;
@@ -398,7 +369,7 @@ bool ts::SectionFile::saveBinary(const UString& file_name) const
 bool ts::SectionFile::saveBinary(std::ostream& strm, Report& report) const
 {
     for (size_t i = 0; i < _sections.size() && strm.good(); ++i) {
-        if (!_sections[i].isNull() && _sections[i]->isValid()) {
+        if (_sections[i] != nullptr && _sections[i]->isValid()) {
             _sections[i]->write(strm, report);
         }
     }
@@ -420,7 +391,7 @@ bool ts::SectionFile::loadBuffer(const void* buffer, size_t size)
             break;
         }
         SectionPtr sp(new Section(data, section_size, PID_NULL, CRC32::CHECK));
-        if (!sp.isNull() && sp->isValid()) {
+        if (sp != nullptr && sp->isValid()) {
             add(sp);
         }
         else {
@@ -450,12 +421,12 @@ size_t ts::SectionFile::saveBuffer(void* buffer, size_t buffer_size) const
     if (buffer != nullptr) {
         uint8_t* data = reinterpret_cast<uint8_t*>(buffer);
         for (size_t i = 0; i < _sections.size(); ++i) {
-            if (!_sections[i].isNull() && _sections[i]->isValid()) {
+            if (_sections[i] != nullptr && _sections[i]->isValid()) {
                 const size_t size = _sections[i]->size();
                 if (size > buffer_size) {
                     break;
                 }
-                ::memcpy(data, _sections[i]->content(), size);
+                MemCopy(data, _sections[i]->content(), size);
                 data += size;
                 total += size;
                 buffer_size -= size;
@@ -473,7 +444,7 @@ size_t ts::SectionFile::saveBuffer(ByteBlock& buffer) const
     // Append all sections one by one.
     const size_t initial = buffer.size();
     for (size_t i = 0; i < _sections.size(); ++i) {
-        if (!_sections[i].isNull() && _sections[i]->isValid()) {
+        if (_sections[i] != nullptr && _sections[i]->isValid()) {
             buffer.append(_sections[i]->content(), _sections[i]->size());
         }
     }
@@ -489,7 +460,7 @@ size_t ts::SectionFile::binarySize() const
 {
     size_t size = 0;
     for (size_t i = 0; i < _sections.size(); ++i) {
-        if (!_sections[i].isNull() && _sections[i]->isValid()) {
+        if (_sections[i] != nullptr && _sections[i]->isValid()) {
             size += _sections[i]->size();
         }
     }
@@ -521,7 +492,7 @@ bool ts::SectionFile::LoadModel(xml::Document& doc, bool load_extensions)
 {
     // Load the main model. Use searching rules.
     if (!doc.load(XML_TABLES_MODEL, true)) {
-        doc.report().error(u"Main model for TSDuck XML files not found: %s", {XML_TABLES_MODEL});
+        doc.report().error(u"Main model for TSDuck XML files not found: %s", XML_TABLES_MODEL);
         return false;
     }
 
@@ -533,52 +504,25 @@ bool ts::SectionFile::LoadModel(xml::Document& doc, bool load_extensions)
     // Get the root element in the model.
     xml::Element* root = doc.rootElement();
     if (root == nullptr) {
-        doc.report().error(u"Main model for TSDuck XML files is empty: %s", {XML_TABLES_MODEL});
+        doc.report().error(u"Main model for TSDuck XML files is empty: %s", XML_TABLES_MODEL);
         return false;
     }
 
     // Get the list of all registered extension files.
     UStringList extfiles;
-    PSIRepository::Instance()->getRegisteredTablesModels(extfiles);
+    PSIRepository::Instance().getRegisteredTablesModels(extfiles);
 
     // Load all extension files. Only report a warning in case of failure.
-    for (auto name = extfiles.begin(); name != extfiles.end(); ++name) {
+    for (const auto& name : extfiles) {
         // Load the extension file. Use searching rules.
         xml::Document extdoc(doc.report());
-        xml::Element* elem = nullptr;
-        if (!extdoc.load(*name, true)) {
-            extdoc.report().error(u"Extension XML model file not found: %s", {*name});
+        if (!extdoc.load(name, true)) {
+            extdoc.report().error(u"Extension XML model file not found: %s", name);
         }
-        else if (extdoc.rootElement() != nullptr) {
-            // Remove elements one by one.
-            while ((elem = extdoc.rootElement()->firstChildElement()) != nullptr) {
-                if (!elem->name().startWith(u"_")) {
-                    // The element does not start with an underscore.
-                    // Simply move the element inside the main model.
-                    elem->reparent(root);
-                }
-                else {
-                    // The element starts with an underscore.
-                    // We need to merge its content with an element of the same name in the model.
-                    xml::Element* topic = root->findFirstChild(elem->name(), true);
-                    if (topic == nullptr) {
-                        // The topic did not exist in the main model, simply move is here.
-                        elem->reparent(root);
-                    }
-                    else {
-                        // Move all content into the main topic.
-                        xml::Element* e = nullptr;
-                        while ((e = elem->firstChildElement()) != nullptr) {
-                            e->reparent(topic);
-                        }
-                        // Finally, delete the (now empty) element from the extension.
-                        delete elem;
-                    }
-                }
-            }
+        else {
+            root->merge(extdoc.rootElement());
         }
     }
-
     return true;
 }
 
@@ -591,7 +535,7 @@ bool ts::SectionFile::loadXML(const UString& file_name)
 {
     xml::Document doc(_report);
     doc.setTweaks(_xmlTweaks);
-    return doc.load(file_name, false, true) && parseDocument(doc);
+    return doc.load(file_name, false) && parseDocument(doc);
 }
 
 bool ts::SectionFile::loadXML(std::istream& strm)
@@ -627,12 +571,12 @@ bool ts::SectionFile::parseDocument(const xml::Document& doc)
     // Analyze all tables in the document.
     for (const xml::Element* node = root == nullptr ? nullptr : root->firstChildElement(); node != nullptr; node = node->nextSiblingElement()) {
         BinaryTablePtr bin(new BinaryTable);
-        CheckNonNull(bin.pointer());
+        CheckNonNull(bin.get());
         if (bin->fromXML(_duck, node) && bin->isValid()) {
             add(bin);
         }
         else {
-            doc.report().error(u"Error in table <%s> at line %d", {node->name(), node->lineNumber()});
+            doc.report().error(u"Error in table <%s> at line %d", node->name(), node->lineNumber());
             success = false;
         }
     }
@@ -648,7 +592,7 @@ bool ts::SectionFile::saveXML(const UString& file_name) const
 {
     xml::Document doc(_report);
     doc.setTweaks(_xmlTweaks);
-    return generateDocument(doc) && doc.save(file_name, 2, true);
+    return generateDocument(doc) && doc.save(file_name);
 }
 
 ts::UString ts::SectionFile::toXML() const
@@ -714,7 +658,7 @@ ts::json::ValuePtr ts::SectionFile::convertToJSON()
         return _model.convertToJSON(doc);
     }
     else {
-        return json::ValuePtr(new json::Null);
+        return std::make_shared<json::Null>();
     }
 }
 
@@ -751,14 +695,14 @@ bool ts::SectionFile::generateDocument(xml::Document& doc) const
 
     // Format all tables.
     for (auto& table : _tables) {
-        if (!table.isNull()) {
+        if (table != nullptr) {
             table->toXML(_duck, root);
         }
     }
 
     // Issue a warning if incomplete tables were not saved.
     if (!_orphanSections.empty()) {
-        doc.report().warning(u"%d orphan sections not saved in XML document (%d tables saved)", {_orphanSections.size(), _tables.size()});
+        doc.report().warning(u"%d orphan sections not saved in XML document (%d tables saved)", _orphanSections.size(), _tables.size());
     }
 
     return true;
@@ -780,7 +724,8 @@ ts::SectionFile::FileType ts::SectionFile::GetFileType(const UString& file_name,
     if (json::IsInlineJSON(file_name)) {
         return FileType::JSON; // inline JSON content
     }
-    const UString ext(PathSuffix(file_name).toLower());
+    UString ext(fs::path(file_name).extension());
+    ext.convertToLower();
     if (ext == DEFAULT_XML_SECTION_FILE_SUFFIX) {
         return FileType::XML;
     }
@@ -800,19 +745,24 @@ ts::SectionFile::FileType ts::SectionFile::GetFileType(const UString& file_name,
 // Build a file name, based on a file type.
 //----------------------------------------------------------------------------
 
-ts::UString ts::SectionFile::BuildFileName(const UString& file_name, FileType type)
+fs::path ts::SectionFile::BuildFileName(const fs::path& file_name, FileType type)
 {
+    fs::path res(file_name);
     switch (type) {
         case FileType::BINARY:
-            return PathPrefix(file_name) + DEFAULT_BINARY_SECTION_FILE_SUFFIX;
+            res.replace_extension(DEFAULT_BINARY_SECTION_FILE_SUFFIX);
+            break;
         case FileType::XML:
-            return PathPrefix(file_name) + DEFAULT_XML_SECTION_FILE_SUFFIX;
+            res.replace_extension(DEFAULT_XML_SECTION_FILE_SUFFIX);
+            break;
         case FileType::JSON:
-            return PathPrefix(file_name) + DEFAULT_JSON_SECTION_FILE_SUFFIX;
+            res.replace_extension(DEFAULT_JSON_SECTION_FILE_SUFFIX);
+            break;
         case FileType::UNSPECIFIED:
         default:
-            return file_name;
+            break;
     }
+    return res;
 }
 
 
@@ -831,7 +781,7 @@ bool ts::SectionFile::load(const UString& file_name, FileType type)
             return loadJSON(file_name);
         case FileType::UNSPECIFIED:
         default:
-            _report.error(u"unknown file type for %s", {file_name});
+            _report.error(u"unknown file type for %s", file_name);
             return false;
     }
 }

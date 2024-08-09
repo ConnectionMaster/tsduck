@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -36,8 +15,6 @@
 #include "tsCASSelectionArgs.h"
 #include "tsBinaryTable.h"
 #include "tsSectionDemux.h"
-#include "tsDescriptorList.h"
-#include "tsPIDOperator.h"
 #include "tsPAT.h"
 
 
@@ -48,19 +25,18 @@
 namespace ts {
     class SIFilterPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(SIFilterPlugin);
+        TS_PLUGIN_CONSTRUCTORS(SIFilterPlugin);
     public:
         // Implementation of plugin API
-        SIFilterPlugin(TSP*);
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        CASSelectionArgs _cas_args;    // CAS selection
-        bool             _pass_pmt;    // Pass PIDs containing PMT
-        Status           _drop_status; // Status for dropped packets
-        PIDSet           _pass_pids;   // List of PIDs to pass
-        SectionDemux     _demux;       // Section filter
+        CASSelectionArgs _cas_args {};            // CAS selection
+        bool             _pass_pmt = false;       // Pass PIDs containing PMT
+        Status           _drop_status = TSP_DROP; // Status for dropped packets
+        PIDSet           _pass_pids {};           // List of PIDs to pass
+        SectionDemux     _demux {duck, this};     // Section filter
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -78,12 +54,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"sifilter", ts::SIFilterPlugin);
 //----------------------------------------------------------------------------
 
 ts::SIFilterPlugin::SIFilterPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Extract PID's containing the specified PSI/SI", u"[options]"),
-    _cas_args(),
-    _pass_pmt(false),
-    _drop_status(TSP_DROP),
-    _pass_pids(),
-    _demux(duck, this)
+    ProcessorPlugin(tsp_, u"Extract PID's containing the specified PSI/SI", u"[options]")
 {
     option(u"bat");
     help(u"bat", u"Extract PID 0x0011 (SDT/BAT).");
@@ -201,7 +172,7 @@ void ts::SIFilterPlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
         case TID_CAT: {
             CAT cat(duck, table);
             if (cat.isValid()) {
-                _cas_args.addMatchingPIDs(_pass_pids, cat, *tsp);
+                _cas_args.addMatchingPIDs(_pass_pids, cat, *this);
             }
             break;
         }
@@ -209,7 +180,7 @@ void ts::SIFilterPlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
         case TID_PMT: {
             PMT pmt(duck, table);
             if (pmt.isValid()) {
-                _cas_args.addMatchingPIDs(_pass_pids, pmt, *tsp);
+                _cas_args.addMatchingPIDs(_pass_pids, pmt, *this);
             }
             break;
         }
@@ -234,7 +205,7 @@ void ts::SIFilterPlugin::processPAT(const PAT& pat)
         }
         // Pass this PMT PID if PMT are required
         if (_pass_pmt && !_pass_pids[it.second]) {
-            tsp->verbose(u"Filtering PMT PID 0x%X (%<d)", {it.second,});
+            verbose(u"Filtering PMT PID %n", it.second);
             _pass_pids.set(it.second);
         }
     }

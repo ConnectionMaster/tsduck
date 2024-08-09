@@ -2,31 +2,8 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  This script is used with the TSDuck development environment.
 #  It displays various options to build applications with the TSDuck library.
@@ -60,6 +37,7 @@ Syntax: $SCRIPT [options]
   --java        jar file for TSDuck Java bindings, to be added in CLASSPATH
   --python      directory for TSDuck Python bindings, to be added in PYTHONPATH
 
+  --nostdcpp    when present before --cflags, do not impose a C++ standard level
   --help        display this help and exit
   --version     output version information
   --vernum      output the version information as a number
@@ -104,14 +82,40 @@ cmd_python() {
     echo "$(cmd_prefix)/share/tsduck/python"
 }
 
+no_pcsc() {
+    grep -q TS_NO_PCSC "$(cmd_include)/tsPreConfiguration.h" 2>/dev/null
+}
+
+no_srt() {
+    grep -q TS_NO_SRT "$(cmd_include)/tsPreConfiguration.h" 2>/dev/null
+}
+
+no_rist() {
+    grep -q TS_NO_RIST "$(cmd_include)/tsPreConfiguration.h" 2>/dev/null
+}
+
 cmd_lib() {
     dirname $(ls $(cmd_prefix)/lib*/libtsduck$(cmd_so) 2>/dev/null | head -1) 2>/dev/null
 }
 
+cmd_nostdcpp() {
+    TS_NOSTDCPP=true
+}
+
+brewprefix() {
+    local before=$1
+    local after=$2
+    local prefix=
+    [[ $SYSTEM == Darwin && -n $(which brew 2>/dev/null) ]] && prefix=$(brew --prefix)
+    [[ -n $prefix ]] && echo "$before$prefix$after"
+}
+
 cmd_cflags() {
     local pcsc=
-    [[ $SYSTEM == Linux && -d /usr/include/PCSC ]] && pcsc="-I/usr/include/PCSC"
-    echo "-I$(cmd_include) $pcsc --std=c++11"
+    local std="{{STDCPP}}"
+    [[ $SYSTEM == Linux && -d /usr/include/PCSC ]] && ! $(no_pcsc) && pcsc="-I/usr/include/PCSC"
+    [[ -n "$TS_NOSTDCPP" ]] && std=""
+    echo "-I$(cmd_include) $(brewprefix -I /include) $pcsc $std"
 }
 
 cmd_so() {
@@ -127,10 +131,12 @@ cmd_so() {
 libs_common() {
     local pcsc=
     local rt=
-    [[ $SYSTEM == Darwin ]] && pcsc="-framework PCSC"
-    [[ $SYSTEM == Linux && -d /usr/include/PCSC ]] && pcsc="-lpcsclite"
+    local dl=
+    [[ $SYSTEM == Darwin ]] && ! $(no_pcsc) && pcsc="-framework PCSC"
+    [[ $SYSTEM == Linux && -d /usr/include/PCSC ]] && ! $(no_pcsc) && pcsc="-lpcsclite"
     [[ $SYSTEM == Linux ]] && rt="-lrt"
-    echo "$pcsc -lpthread $rt -ldl -lm -lstdc++"
+    [[ $SYSTEM == OpenBSD ]] || dl="-ldl"
+    echo "$(brewprefix -L /lib) $pcsc -lpthread $rt $dl -lm -lstdc++"
 }
 
 cmd_libs() {
@@ -143,11 +149,15 @@ cmd_libs() {
 }
 
 cmd_staticlibs() {
-    local srt=$(ls /usr/lib/libsrt.a /usr/local/lib/libsrt.a /opt/homebrew/lib/libsrt.a 2>/dev/null | head -1)
-    local rist=$(ls /usr/lib/librist.a /usr/local/lib/librist.a /opt/homebrew/lib/librist.a 2>/dev/null | head -1)
-    local atomic=
-    [[ $SYSTEM == Linux ]] && atomic="-latomic"
-    echo "$(cmd_lib)/libtsduck.a $srt $rist $(curl-config --static-libs 2>/dev/null) -ledit $atomic $(libs_common)"
+    local srt=
+    local rist=
+    local other=
+    $(no_srt) || srt=$(ls /usr/lib/libsrt.a /usr/local/lib/libsrt.a /opt/homebrew/lib/libsrt.a 2>/dev/null | head -1)
+    $(no_rist) || rist=$(ls /usr/lib/librist.a /usr/local/lib/librist.a /opt/homebrew/lib/librist.a 2>/dev/null | head -1)
+    [[ $SYSTEM == Linux ]] && other="$other -latomic"
+    [[ $SYSTEM == FreeBSD ]] && other="$other -lprocstat"
+    [[ $SYSTEM == OpenBSD || $SYSTEM == NetBSD ]] && other="$other -lkvm"
+    echo "$(cmd_lib)/libtsduck.a $srt $rist $(curl-config --static-libs 2>/dev/null) -ledit $other $(libs_common)"
 }
 
 version_major() {
@@ -226,6 +236,7 @@ else
             --java) cmd_java ;;
             --lib) cmd_lib ;;
             --libs) cmd_libs ;;
+            --nostdcpp) cmd_nostdcpp ;;
             --plugin) cmd_plugin ;;
             --prefix) cmd_prefix ;;
             --python) cmd_python ;;

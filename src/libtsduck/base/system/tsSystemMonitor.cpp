@@ -1,37 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsSystemMonitor.h"
-#include "tsGuardCondition.h"
 #include "tsxmlModelDocument.h"
 #include "tsxmlElement.h"
-#include "tsIntegerUtils.h"
 #include "tsForkPipe.h"
 #include "tsSysUtils.h"
 #include "tsTime.h"
@@ -47,11 +24,7 @@
 ts::SystemMonitor::SystemMonitor(Report& report, const UString& config) :
     Thread(ThreadAttributes().setPriority(ThreadAttributes::GetMinimumPriority()).setStackSize(MONITOR_STACK_SIZE)),
     _report(report),
-    _config_file(config),
-    _periods(),
-    _mutex(),
-    _wake_up(),
-    _terminate(false)
+    _config_file(config)
 {
 }
 
@@ -59,21 +32,6 @@ ts::SystemMonitor::~SystemMonitor()
 {
     stop();
     waitForTermination();
-}
-
-ts::SystemMonitor::Config::Config() :
-    log_messages(false),
-    stable_memory(false),
-    max_cpu(0),
-    alarm_command()
-{
-}
-
-ts::SystemMonitor::Period::Period() :
-    Config(),
-    duration(0),
-    interval(0)
-{
 }
 
 
@@ -93,9 +51,9 @@ ts::UString ts::SystemMonitor::MonPrefix(const ts::Time& date)
 
 void ts::SystemMonitor::stop()
 {
-    GuardCondition lock(_mutex, _wake_up);
+    std::lock_guard<std::mutex> lock(_mutex);
     _terminate = true;
-    lock.signal();
+    _wake_up.notify_one();
 }
 
 
@@ -107,7 +65,7 @@ void ts::SystemMonitor::main()
 {
     // Load configuration file, consider as terminated on error.
     if (!loadConfigurationFile(_config_file)) {
-        _report.error(u"monitoring ignored, invalid system monitoring XML file %s", {_config_file});
+        _report.error(u"monitoring ignored, invalid system monitoring XML file %s", _config_file);
         return;
     }
 
@@ -126,18 +84,19 @@ void ts::SystemMonitor::main()
     Time start_next_period(start_time + period->duration);
 
     // Get initial system metrics.
-    ProcessMetrics start_metrics;
-    GetProcessMetrics(start_metrics);
+    const cn::milliseconds start_cpu_time = GetProcessCpuTime();
+    const size_t start_vmem_size = GetProcessVirtualSize();
 
     // Time and metrics at the last interval.
     Time last_time(start_time);
-    ProcessMetrics last_metrics(start_metrics);
+    cn::milliseconds last_cpu_time = start_cpu_time;
+    size_t last_vmem_size = start_vmem_size;
 
     // Time and value of last virtual memory size increase.
     Time vsize_uptime(start_time);
-    size_t vsize_max(start_metrics.vmem_size);
+    size_t vsize_max(start_vmem_size);
 
-    _report.info(u"%sresource monitoring started", {MonPrefix(start_time)});
+    _report.info(u"%sresource monitoring started", MonPrefix(start_time));
     bool mute_reported = false;
 
     // Loop on monitoring intervals.
@@ -150,14 +109,14 @@ void ts::SystemMonitor::main()
             period_index++;
             start_next_period += period->duration;
             mute_reported = false;
-            _report.debug(u"starting monitoring period #%d, duration: %'d ms, interval: %'d ms", {period_index, period->duration, period->interval});
+            _report.debug(u"starting monitoring period #%d, duration: %'!s, interval: %'!s", period_index, period->duration, period->interval);
         }
 
         // Wait until due time or termination request
         {
-            GuardCondition lock(_mutex, _wake_up);
+            std::unique_lock<std::mutex> lock(_mutex);
             if (!_terminate) {
-                lock.waitCondition(period->interval);
+                _wake_up.wait_for(lock, cn::milliseconds(cn::milliseconds(period->interval)));
             }
             if (_terminate) {
                 break;
@@ -166,23 +125,23 @@ void ts::SystemMonitor::main()
 
         // If we no longer log monitoring messages, issue a last message.
         if (!period->log_messages && !mute_reported) {
-            _report.info(u"%sstopping stable monitoring messages to avoid infinitely large log files", {MonPrefix(Time::CurrentLocalTime())});
+            _report.info(u"%sstopping stable monitoring messages to avoid infinitely large log files", MonPrefix(Time::CurrentLocalTime()));
             mute_reported = true;
         }
 
         // Get current process metrics
         Time current_time(Time::CurrentLocalTime());
-        ProcessMetrics metrics;
-        GetProcessMetrics(metrics);
+        const cn::milliseconds cpu_time = GetProcessCpuTime();
+        const size_t vmem_size = GetProcessVirtualSize();
 
         // Build the monitoring message.
         UString message(MonPrefix(current_time));
 
         // Format virtual memory size status.
-        message.format(u"VM: %s", {UString::HumanSize(metrics.vmem_size)});
-        if (metrics.vmem_size != last_metrics.vmem_size) {
+        message.format(u"VM: %s", UString::HumanSize(vmem_size));
+        if (vmem_size != last_vmem_size) {
             // Virtual memory has changed
-            message.format(u" (%s)", {UString::HumanSize(ptrdiff_t(metrics.vmem_size) - ptrdiff_t(last_metrics.vmem_size), u"B", true)});
+            message.format(u" (%s)", UString::HumanSize(ptrdiff_t(vmem_size) - ptrdiff_t(last_vmem_size), u"B", true));
         }
         else {
             // VM stable since last time. Check if temporarily stable or safely stable.
@@ -192,52 +151,54 @@ void ts::SystemMonitor::main()
 
         // Format CPU load.
         message += u", CPU:";
-        message += UString::Percentage(metrics.cpu_time - last_metrics.cpu_time, current_time - last_time);
+        message += UString::Percentage(cpu_time - last_cpu_time, current_time - last_time);
         message += u" (average:";
-        message += UString::Percentage(metrics.cpu_time - start_metrics.cpu_time, current_time - start_time);
+        message += UString::Percentage(cpu_time - start_cpu_time, current_time - start_time);
         message += u")";
 
         // Display monitoring message if allowed in this period or if vmem has increased.
-        if (period->log_messages || metrics.vmem_size > vsize_max) {
+        if (period->log_messages || vmem_size > vsize_max) {
             _report.info(message);
         }
 
         // Compute CPU percentage during last period.
-        const int cpu = current_time <= last_time ? 0 : int((100 * (metrics.cpu_time - last_metrics.cpu_time)) / (current_time - last_time));
+        const int cpu = current_time <= last_time ? 0 : int((100 * (cpu_time - last_cpu_time).count()) / (current_time - last_time).count());
 
         // Raise an alarm if the CPU usage is above defined limit for this period.
         if (cpu > period->max_cpu) {
-            _report.warning(u"%sALARM, CPU usage is %d%%, max defined to %d%%", {MonPrefix(current_time), cpu, period->max_cpu});
+            _report.warning(u"%sALARM, CPU usage is %d%%, max defined to %d%%", MonPrefix(current_time), cpu, period->max_cpu);
             if (!period->alarm_command.empty()) {
                 UString command;
-                command.format(u"%s \"%s\" cpu %d", {period->alarm_command, message, cpu});
+                command.format(u"%s \"%s\" cpu %d", period->alarm_command, message, cpu);
                 ForkPipe::Launch(command, _report, ForkPipe::STDERR_ONLY, ForkPipe::STDIN_NONE);
             }
         }
 
         // Raise an alarm if the virtual memory is not stable while it should be.
-        if (period->stable_memory && metrics.vmem_size > last_metrics.vmem_size) {
+        if (period->stable_memory && vmem_size > last_vmem_size) {
             _report.warning(u"%sALARM, VM is not stable: %s in last monitoring interval",
-                            {MonPrefix(current_time), UString::HumanSize(ptrdiff_t(metrics.vmem_size) - ptrdiff_t(last_metrics.vmem_size), u"B", true)});
+                            MonPrefix(current_time),
+                            UString::HumanSize(ptrdiff_t(vmem_size) - ptrdiff_t(last_vmem_size), u"B", true));
             if (!period->alarm_command.empty()) {
                 UString command;
-                command.format(u"%s \"%s\" memory %d", {period->alarm_command, message, metrics.vmem_size});
+                command.format(u"%s \"%s\" memory %d", period->alarm_command, message, vmem_size);
                 ForkPipe::Launch(command, _report, ForkPipe::STDERR_ONLY, ForkPipe::STDIN_NONE);
             }
         }
 
         // Remember points when virtual memory increases.
-        if (metrics.vmem_size > vsize_max) {
-            vsize_max = metrics.vmem_size;
+        if (vmem_size > vsize_max) {
+            vsize_max = vmem_size;
             vsize_uptime = current_time;
         }
 
         // Save current metrics for next interval.
         last_time = current_time;
-        last_metrics = metrics;
+        last_vmem_size = vmem_size;
+        last_cpu_time = cpu_time;
     }
 
-    _report.info(u"%sresource monitoring terminated", {MonPrefix(Time::CurrentLocalTime())});
+    _report.info(u"%sresource monitoring terminated", MonPrefix(Time::CurrentLocalTime()));
 }
 
 
@@ -282,16 +243,17 @@ bool ts::SystemMonitor::loadConfigurationFile(const UString& config)
     // Parse all <period> entries.
     for (auto it = periods.begin(); ok && it != periods.end(); ++it) {
         Period period;
-        ok = (*it)->getIntAttribute(period.duration, u"duration", false, std::numeric_limits<MilliSecond>::max(), 1) &&
-             (*it)->getIntAttribute(period.interval, u"interval", true, 0, 1) &&
-             loadConfig(period, *it, &defconfig);
         // XML values are in seconds, we use milliseconds internally.
-        period.duration *= MilliSecPerSec;
-        period.interval *= MilliSecPerSec;
+        cn::seconds xduration {}, xinterval {};
+        ok = (*it)->getChronoAttribute(xduration, u"duration", false, cn::seconds::max(), cn::seconds(1)) &&
+             (*it)->getChronoAttribute(xinterval, u"interval", true, cn::seconds::zero(), cn::seconds(1)) &&
+             loadConfig(period, *it, &defconfig);
+        period.duration = cn::duration_cast<cn::milliseconds>(xduration);
+        period.interval = cn::duration_cast<cn::milliseconds>(xinterval);
         _periods.push_back(period);
     }
 
-    _report.debug(u"monitoring configuration loaded, %d periods", {_periods.size()});
+    _report.debug(u"monitoring configuration loaded, %d periods", _periods.size());
     return ok;
 }
 

@@ -2,31 +2,8 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  Get configuration for Vatek core API on current Linux or macOS system.
 #  Vatek provides an open-source API on GitHub for their modulator chips.
@@ -38,7 +15,7 @@
 #-----------------------------------------------------------------------------
 
 # All possible options.
-OPTIONS="--cflags --ldlibs --lib --include --src-url --bin-url --src-tarball --bin-tarball --download --force --rebuild"
+OPTIONS="--support --cflags --ldlibs --lib --include --src-url --bin-url --src-tarball --bin-tarball --download --force --rebuild"
 
 # Error reporting.
 SCRIPT=$(basename $BASH_SOURCE)
@@ -52,24 +29,49 @@ VATEK_BUILD="$VATEK_ROOT/build"
 VATEK_INSTALL="$VATEK_ROOT/install"
 SYSTEM=$(uname -s)
 
-# Get Vatek API source tarball URL for the latest release.
+# GitHub authentication for curl.
+curl-auth()
+{
+    if [[ -n "$GITHUB_TOKEN" ]]; then
+        curl -sL --header "authorization: Bearer $GITHUB_TOKEN" "$@"
+    else
+        curl -sL "$@"
+    fi
+}
+
+# Check if Vatek is supported on the current system.
+vatek-support()
+{
+    case "$SYSTEM" in
+        Linux|Darwin)
+            return 0
+            ;;
+        *)
+            return -1
+            ;;
+    esac
+}
+
+ # Get Vatek API source tarball URL for the latest release.
 get-src-url()
 {
     # Use the GitHub REST API to get the source tarball of the latest release of the Vatek API.
-    curl -sL https://api.github.com/repos/VisionAdvanceTechnologyInc/vatek_sdk_2/releases/latest |
+    curl-auth https://api.github.com/repos/VisionAdvanceTechnologyInc/vatek_sdk_2/releases/latest |
         grep '"tarball_url"' |
         sed 's/.*"tarball_url"[ :"]*\([^"]*\)".*/\1/' |
         head -1
 }
 
-# Get Vatek API binary tarball URL for the latest release.
+# Get Vatek API binary tarball URL for the latest release on Linux.
 get-bin-url()
 {
     # Use the GitHub REST API to get the URL if an asset named VATek-Linux-x86_64.*\.tgz in the latest release of the Vatek API.
-    curl -sL https://api.github.com/repos/VisionAdvanceTechnologyInc/vatek_sdk_2/releases/latest |
-        grep '"browser_download_url" *:.*/VATek-Linux-x86_64.*\.tgz"' |
-        sed 's/.*"browser_download_url"[ :"]*\([^"]*\)".*/\1/' |
-        head -1
+    if [[ $SYSTEM == Linux ]]; then
+        curl-auth https://api.github.com/repos/VisionAdvanceTechnologyInc/vatek_sdk_2/releases/latest |
+            grep '"browser_download_url" *:.*/VATek-Linux-x86_64.*\.tgz"' |
+            sed 's/.*"browser_download_url"[ :"]*\([^"]*\)".*/\1/' |
+            head -1
+    fi
 }
 
 # Check if the Vatek API binary tarball can be used on this platform or must be rebuilt.
@@ -114,9 +116,9 @@ get-lib()
     if [[ -n "$brew" ]]; then
         local suffix=$(solib-suffix)
         [[ -e "$brew/lib/libvatek_core$suffix" ]] && echo "$brew/lib/libvatek_core$suffix"
-    elif [[ -e "$VATEK_INSTALL/lib/libvatek_core.a" ]]; then
+    elif [[ $SYSTEM == Linux && -e "$VATEK_INSTALL/lib/libvatek_core.a" ]]; then
         echo "$VATEK_INSTALL/lib/libvatek_core.a"
-    fi    
+    fi
 }
 
 # Get compilation flags for Vatek library.
@@ -135,7 +137,7 @@ get-ldlibs()
     if [[ $lib == *$suffix ]]; then
         lib=$(basename "$lib" $suffix)
         echo -l${lib/#lib/}
-    else
+    elif [[ $SYSTEM == Linux ]]; then
         echo "$lib -lusb-1.0"
     fi
 }
@@ -143,6 +145,7 @@ get-ldlibs()
 # Get local source tarball file name.
 get-src-tarball()
 {
+    [[ $SYSTEM != Linux ]] && return
     local link=$(readlink "$VATEK_ROOT/src-tarball")
     local tarball=
     [[ -n "$link" ]] && tarball="$VATEK_ROOT/$link"
@@ -152,6 +155,7 @@ get-src-tarball()
 # Get local binary tarball file name.
 get-bin-tarball()
 {
+    [[ $SYSTEM != Linux ]] && return
     local link=$(readlink "$VATEK_ROOT/bin-tarball")
     local tarball=
     [[ -n "$link" ]] && tarball="$VATEK_ROOT/$link"
@@ -161,6 +165,9 @@ get-bin-tarball()
 # Download and rebuild (when necessary) the Vatek API.
 download-vatek()
 {
+    # Only if platform is supported.
+    vatek-support || return
+
     # With Homebrew, use installed binary Vatek library, do not download.
     [[ -n "$(homebrew-root)" ]] && return
 
@@ -201,6 +208,7 @@ download-vatek()
             (
                 rm -rf "$VATEK_BUILD"
                 # Remain compatible with old versions of cmake.
+                CFLAGS="-Wno-error=incompatible-pointer-types" \
                 cmake -S "$srcdir" -B "$VATEK_BUILD" -DCMAKE_INSTALL_PREFIX:PATH="$VATEK_INSTALL" \
                       -DSDK2_EN_QT=OFF -DSDK2_EN_APP=OFF -DSDK2_EN_SAMPLE=OFF -DSDK2_EN_STATIC_ONLY=ON &&
                     cmake --build "$VATEK_BUILD" &&
@@ -267,6 +275,7 @@ if $OPT_ALL; then
     echo "VATEK_BIN_URL=$(get-bin-url)"
 else
     # Execute specific options only. Download first if requested.
+    $OPT_SUPPORT && vatek-support && echo supported
     $OPT_DOWNLOAD && download-vatek
     $OPT_SRC_URL && get-src-url
     $OPT_BIN_URL && get-bin-url

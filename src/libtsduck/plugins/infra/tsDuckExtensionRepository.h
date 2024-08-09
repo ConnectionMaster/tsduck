@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,7 +12,7 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsSingletonManager.h"
+#include "tsSingleton.h"
 #include "tsReport.h"
 #include "tsVersionInfo.h"
 
@@ -99,7 +78,7 @@ namespace ts {
             //! @param [in] tools List of tools (executables) which are provided by this extension.
             //!
             Register(const UString& name,
-                     const UString& file_name,
+                     const fs::path& file_name,
                      const UString& description,
                      const UStringVector& plugins = UStringVector(),
                      const UStringVector& tools = UStringVector());
@@ -113,7 +92,7 @@ namespace ts {
         {
         public:
             const UString       name;         // Extension name.
-            const UString       file_name;    // Extension shared library file name.
+            const fs::path      file_name;    // Extension shared library file name.
             const UString       description;  // One-line description of the extension.
             const UStringVector plugins;      // List of tsp plugin names which are provided by this extension.
             const UStringVector tools;        // List of tools (executables) which are provided by this extension.
@@ -121,7 +100,7 @@ namespace ts {
         TS_POP_WARNING()
 
         // List of loaded extensions.
-        std::list<Extension> _extensions;
+        std::list<Extension> _extensions {};
 
         // Load all extensions in constructor of an internal singleton.
         // There is a trick here. If we load all extensions in the constructor of DuckExtensionRepository,

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -39,39 +18,29 @@
 ts::TSScrambling::TSScrambling(Report& report, uint8_t scrambling) :
     _report(report),
     _scrambling_type(scrambling),
-    _explicit_type(false),
-    _out_cw_name(),
-    _out_cw_file(),
-    _cw_list(),
     _next_cw(_cw_list.end()),
-    _encrypt_scv(SC_CLEAR),
-    _decrypt_scv(SC_CLEAR),
-    _dvbcsa(),
-    _dvbcissa(),
-    _idsa(),
-    _aescbc(),
-    _aesctr(),
-    _scrambler{nullptr, nullptr}
+    _dvbcsa(),    // required on old gcc 10 and below (gcc bug)
+    _dvbcissa(),  // required on old gcc 10 and below (gcc bug)
+    _idsa(),      // required on old gcc 10 and below (gcc bug)
+    _aescbc(),    // required on old gcc 10 and below (gcc bug)
+    _aesctr()     // required on old gcc 10 and below (gcc bug)
+
 {
     setScramblingType(scrambling);
 }
 
 ts::TSScrambling::TSScrambling(const TSScrambling& other) :
+    BlockCipherAlertInterface(other),  // required on old gcc 8.5 and below (gcc bug)
     _report(other._report),
     _scrambling_type(other._scrambling_type),
     _explicit_type(other._explicit_type),
-    _out_cw_name(),
-    _out_cw_file(),
     _cw_list(other._cw_list),
     _next_cw(_cw_list.end()),
-    _encrypt_scv(SC_CLEAR),
-    _decrypt_scv(SC_CLEAR),
-    _dvbcsa(),
-    _dvbcissa(),
-    _idsa(),
-    _aescbc(),
-    _aesctr(),
-    _scrambler{nullptr, nullptr}
+    _dvbcsa(),    // required on old gcc 10 and below (gcc bug)
+    _dvbcissa(),  // required on old gcc 10 and below (gcc bug)
+    _idsa(),      // required on old gcc 10 and below (gcc bug)
+    _aescbc(),    // required on old gcc 10 and below (gcc bug)
+    _aesctr()     // required on old gcc 10 and below (gcc bug)
 {
     setScramblingType(_scrambling_type);
     _dvbcsa[0].setEntropyMode(other._dvbcsa[0].entropyMode());
@@ -82,18 +51,13 @@ ts::TSScrambling::TSScrambling(TSScrambling&& other) :
     _report(other._report),
     _scrambling_type(other._scrambling_type),
     _explicit_type(other._explicit_type),
-    _out_cw_name(),
-    _out_cw_file(),
     _cw_list(other._cw_list),
     _next_cw(_cw_list.end()),
-    _encrypt_scv(SC_CLEAR),
-    _decrypt_scv(SC_CLEAR),
-    _dvbcsa(),
-    _dvbcissa(),
-    _idsa(),
-    _aescbc(),
-    _aesctr(),
-    _scrambler{nullptr, nullptr}
+    _dvbcsa(),    // required on old gcc 10 and below (gcc bug)
+    _dvbcissa(),  // required on old gcc 10 and below (gcc bug)
+    _idsa(),      // required on old gcc 10 and below (gcc bug)
+    _aescbc(),    // required on old gcc 10 and below (gcc bug)
+    _aesctr()     // required on old gcc 10 and below (gcc bug)
 {
     setScramblingType(_scrambling_type);
     _dvbcsa[0].setEntropyMode(other._dvbcsa[0].entropyMode());
@@ -144,7 +108,7 @@ bool ts::TSScrambling::setScramblingType(uint8_t scrambling, bool overrideExplic
 
         // Set scrambling type.
         if (_scrambling_type != scrambling) {
-            _report.debug(u"switching scrambling type from %s to %s", {NameFromSection(u"ScramblingMode", _scrambling_type), NameFromSection(u"ScramblingMode", scrambling)});
+            _report.debug(u"switching scrambling type from %s to %s", NameFromDTV(u"ScramblingMode", _scrambling_type), NameFromDTV(u"ScramblingMode", scrambling));
             _scrambling_type = scrambling;
         }
     }
@@ -161,6 +125,12 @@ void ts::TSScrambling::setEntropyMode(DVBCSA2::EntropyMode mode)
 {
     _dvbcsa[0].setEntropyMode(mode);
     _dvbcsa[1].setEntropyMode(mode);
+}
+
+ts::DVBCSA2::EntropyMode ts::TSScrambling::entropyMode() const
+{
+    return (_scrambling_type == SCRAMBLING_DVB_CSA1 || _scrambling_type == SCRAMBLING_DVB_CSA2) ?
+            _dvbcsa[0].entropyMode() : DVBCSA2::FULL_CW;
 }
 
 
@@ -199,7 +169,7 @@ void ts::TSScrambling::defineArgs(Args &args)
               u"Use ATIS-IDSA scrambling (ATIS-0800006) instead of DVB-CSA2 (the "
               u"default). The control words are 16-byte long instead of 8-byte.");
 
-    args.option(u"iv", 0, Args::HEXADATA, 0, Args::UNLIMITED_COUNT, AES::BLOCK_SIZE, AES::BLOCK_SIZE);
+    args.option(u"iv", 0, Args::HEXADATA, 0, Args::UNLIMITED_COUNT, AES128::BLOCK_SIZE, AES128::BLOCK_SIZE);
     args.help(u"iv",
               u"With --aes-cbc or --aes-ctr, specifies a fixed initialization vector for all TS packets. "
               u"The value must be a string of 32 hexadecimal digits. "
@@ -290,7 +260,7 @@ bool ts::TSScrambling::loadArgs(DuckContext& duck, Args& args)
     setEntropyMode(args.present(u"no-entropy-reduction") ? DVBCSA2::FULL_CW : DVBCSA2::REDUCE_ENTROPY);
 
     // Set AES-CBC/CTR initialization vector. The default is all zeroes.
-    const ByteBlock iv(args.hexaValue(u"iv", ByteBlock(AES::BLOCK_SIZE, 0x00)));
+    const ByteBlock iv(args.hexaValue(u"iv", ByteBlock(AES128::BLOCK_SIZE, 0x00)));
     if (!_aescbc[0].setIV(iv.data(), iv.size()) ||
         !_aescbc[1].setIV(iv.data(), iv.size()) ||
         !_aesctr[0].setIV(iv.data(), iv.size()) ||
@@ -316,7 +286,7 @@ bool ts::TSScrambling::loadArgs(DuckContext& duck, Args& args)
     else if (args.present(u"cw-file")) {
         const UString file(args.value(u"cw-file"));
         if (!UString::Load(lines, file)) {
-            args.error(u"error loading file %s", {file});
+            args.error(u"error loading file %s", file);
         }
     }
 
@@ -327,7 +297,7 @@ bool ts::TSScrambling::loadArgs(DuckContext& duck, Args& args)
         it.trim();
         if (!it.empty()) {
             if (!it.hexaDecode(cw) || cw.size() != cwSize()) {
-                args.error(u"invalid control word \"%s\", specify %d hexa digits", {it, 2 * cwSize()});
+                args.error(u"invalid control word \"%s\", specify %d hexa digits", it, 2 * cwSize());
             }
             else {
                 _cw_list.push_back(cw);
@@ -335,7 +305,7 @@ bool ts::TSScrambling::loadArgs(DuckContext& duck, Args& args)
         }
     }
     if (!_cw_list.empty()) {
-        args.verbose(u"loaded %d control words", {_cw_list.size()});
+        args.verbose(u"loaded %d control words", _cw_list.size());
     }
 
     // Name of the output file for control words.
@@ -361,7 +331,7 @@ bool ts::TSScrambling::start()
         _out_cw_file.open(_out_cw_name.toUTF8().c_str(), std::ios::out);
         success = !_out_cw_file.fail();
         if (!success) {
-            _report.error(u"error creating %s", {_out_cw_name});
+            _report.error(u"error creating %s", _out_cw_name);
         }
     }
 
@@ -393,11 +363,9 @@ bool ts::TSScrambling::handleBlockCipherAlert(BlockCipher& cipher, AlertReason r
         case FIRST_ENCRYPTION:
         case FIRST_DECRYPTION: {
             // First usage of a new CW. Report it on debug and add it in --output-cw-file when necessary.
-            ByteBlock key;
-            cipher.getKey(key);
-            if (!key.empty()) {
-                const UString key_string(UString::Dump(key, UString::SINGLE_LINE));
-                _report.debug(u"starting using CW %s (%s)", {key_string, cipher.cipherId() == 0 ? u"even" : u"odd"});
+            if (cipher.hasKey()) {
+                const UString key_string(UString::Dump(cipher.currentKey(), UString::SINGLE_LINE));
+                _report.debug(u"starting using CW %s (%s)", key_string, cipher.cipherId() == 0 ? u"even" : u"odd");
                 if (_out_cw_file.is_open()) {
                     _out_cw_file << key_string << std::endl;
                 }
@@ -458,7 +426,7 @@ bool ts::TSScrambling::setNextFixedCW(int parity)
 
 bool ts::TSScrambling::setCW(const ByteBlock& cw, int parity)
 {
-    CipherChaining* algo = _scrambler[parity & 1];
+    BlockCipher* algo = _scrambler[parity & 1];
     assert(algo != nullptr);
 
     if (algo->setKey(cw.data(), cw.size())) {
@@ -466,7 +434,7 @@ bool ts::TSScrambling::setCW(const ByteBlock& cw, int parity)
         return true;
     }
     else {
-        _report.error(u"error setting %d-byte key to %s", {cw.size(), algo->name()});
+        _report.error(u"error setting %d-byte key to %s", cw.size(), algo->name());
         return false;
     }
 }
@@ -511,7 +479,7 @@ bool ts::TSScrambling::encrypt(TSPacket& pkt)
 
     // Select scrambling algo.
     assert(_encrypt_scv == SC_EVEN_KEY || _encrypt_scv == SC_ODD_KEY);
-    CipherChaining* algo = _scrambler[_encrypt_scv & 1];
+    BlockCipher* algo = _scrambler[_encrypt_scv & 1];
     assert(algo != nullptr);
 
     // Check if the residue shall be included in the scrambling.
@@ -522,13 +490,13 @@ bool ts::TSScrambling::encrypt(TSPacket& pkt)
         psize -= psize % algo->blockSize();
     }
 
-    // Encrypt the packet.
-    const bool ok = psize == 0 || algo->encryptInPlace(pkt.getPayload(), psize);
+    // Encrypt the packet. Encrypting "in place" is handled by the API.
+    const bool ok = psize == 0 || algo->encrypt(pkt.getPayload(), psize, pkt.getPayload(), psize);
     if (ok) {
         pkt.setScrambling(_encrypt_scv);
     }
     else {
-        _report.error(u"packet encryption error using %s", {algo->name()});
+        _report.error(u"packet encryption error using %s", algo->name());
     }
     return ok;
 }
@@ -556,7 +524,7 @@ bool ts::TSScrambling::decrypt(TSPacket& pkt)
     }
 
     // Select descrambling algo.
-    CipherChaining* algo = _scrambler[_decrypt_scv & 1];
+    BlockCipher* algo = _scrambler[_decrypt_scv & 1];
     assert(algo != nullptr);
 
     // Check if the residue shall be included in the scrambling.
@@ -567,13 +535,13 @@ bool ts::TSScrambling::decrypt(TSPacket& pkt)
         psize -= psize % algo->blockSize();
     }
 
-    // Decrypt the packet.
-    const bool ok = psize == 0 || algo->decryptInPlace(pkt.getPayload(), psize);
+    // Decrypt the packet. Decrypting "in place" is handled by the API.
+    const bool ok = psize == 0 || algo->decrypt(pkt.getPayload(), psize, pkt.getPayload(), psize);
     if (ok) {
         pkt.setScrambling(SC_CLEAR);
     }
     else {
-        _report.error(u"packet decryption error using %s", {algo->name()});
+        _report.error(u"packet decryption error using %s", algo->name());
     }
     return ok;
 }

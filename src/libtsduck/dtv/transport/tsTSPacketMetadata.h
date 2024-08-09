@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -36,17 +15,29 @@
 #include "tsTS.h"
 #include "tsByteBlock.h"
 #include "tsTimeSource.h"
+#include "tsCompactBitSet.h"
 #include "tsResidentBuffer.h"
 
 namespace ts {
-    //
-    // The TSPacketMetadata class is used in large arrays.
-    // We want to make sure we don't loose space:
-    // - No vtable (ie. no virtual method).
-    // - The order of private fields is carefully set to avoid padding.
-    // - Pragma pack to 1-byte alignment.
-    //
-    #pragma pack(push, 1)
+    //!
+    //! A set of labels used as metadata for a TS packet.
+    //!
+    //! Each packet in a tsp processing chain has a set of "labels".
+    //! A label is a integer value from 0 to 31. Various plugins may
+    //! set or reset labels on packets. Any plugin can be conditioned
+    //! to work on packets having specific labels only.
+    //!
+    //! When TS packets are passed between processes, using a pipe for
+    //! instance, the labels can passed as well as other metadata using
+    //! "--format duck".
+    //!
+    //! The type TSPacketLabelSet is crafted to use 32 bits exactly.
+    //! It was previously implemented as std::bitset<32> but this
+    //! type may use up to 64 bits, depending on the platform.
+    //!
+    //! @ingroup mpeg
+    //!
+    using TSPacketLabelSet = CompactBitSet<32>;
 
     //!
     //! Metadata of an MPEG-2 transport packet for tsp plugins.
@@ -57,33 +48,6 @@ namespace ts {
     class TSDUCKDLL TSPacketMetadata final
     {
     public:
-        //!
-        //! Maximum numbers of labels per TS packet.
-        //! A plugin can set label numbers, from 0 to 31, to any packet.
-        //! Other plugins, downward in the processing chain, can check the labels of the packet.
-        //!
-        static constexpr size_t LABEL_COUNT = 32;
-
-        //!
-        //! Maximum value for labels.
-        //!
-        static constexpr size_t LABEL_MAX = LABEL_COUNT - 1;
-
-        //!
-        //! A set of labels for TS packets.
-        //!
-        typedef std::bitset<LABEL_COUNT> LabelSet;
-
-        //!
-        //! A set of labels where all labels are cleared (no label).
-        //!
-        static const LabelSet NoLabel;
-
-        //!
-        //! A set of labels where all labels are set.
-        //!
-        static const LabelSet AllLabels;
-
         //!
         //! Constructor.
         //!
@@ -153,7 +117,7 @@ namespace ts {
         //! @param [in] label The label to check.
         //! @return True if the TS packet has @a label set.
         //!
-        bool hasLabel(size_t label) const;
+        bool hasLabel(size_t label) const { return _labels.test(label); }
 
         //!
         //! Check if the TS packet has any label set.
@@ -166,14 +130,14 @@ namespace ts {
         //! @param [in] mask The mask of labels to check.
         //! @return True if the TS packet has any label from @a mask.
         //!
-        bool hasAnyLabel(const LabelSet& mask) const;
+        bool hasAnyLabel(const TSPacketLabelSet& mask) const { return (_labels & mask).any(); }
 
         //!
         //! Check if the TS packet has all labels set from a set of labels.
         //! @param [in] mask The mask of labels to check.
         //! @return True if the TS packet has all labels from @a mask.
         //!
-        bool hasAllLabels(const LabelSet& mask) const;
+        bool hasAllLabels(const TSPacketLabelSet& mask) const { return (_labels & mask) == mask; }
 
         //!
         //! Set a specific label for the TS packet.
@@ -185,7 +149,7 @@ namespace ts {
         //! Set a specific set of labels for the TS packet.
         //! @param [in] mask The mask of labels to set.
         //!
-        void setLabels(const LabelSet& mask);
+        void setLabels(const TSPacketLabelSet& mask) { _labels |= mask; }
 
         //!
         //! Clear a specific label for the TS packet.
@@ -197,7 +161,7 @@ namespace ts {
         //! Clear a specific set of labels for the TS packet.
         //! @param [in] mask The mask of labels to clear.
         //!
-        void clearLabels(const LabelSet& mask);
+        void clearLabels(const TSPacketLabelSet& mask) { _labels &= ~mask; }
 
         //!
         //! Clear all labels for the TS packet.
@@ -227,7 +191,7 @@ namespace ts {
         //!   various PCR in the transport stream. You can compare time stamp differences, not
         //!   absolute values.
         //!
-        uint64_t getInputTimeStamp() const { return _input_time; }
+        PCR getInputTimeStamp() const { return PCR(_input_time); }
 
         //!
         //! Get the identification of the source of the input time stamp.
@@ -248,17 +212,12 @@ namespace ts {
 
         //!
         //! Set the optional input time stamp of the packet.
-        //! @param [in] time_stamp Input time stamp value. This value should be taken from a
-        //! monotonic clock. The time unit is specified in @a ticks_per_second.
-        //! @param [in] ticks_per_second Base unit of the @a time_stamp value.
-        //! This is the number of units per second. For instance, @a ticks_per_second
-        //! should be 1000 when @a time_stamp is in milliseconds and it should be
-        //! @link SYSTEM_CLOCK_FREQ @endlink when @a time_stamp is in PCR units.
-        //! If @a ticks_per_second is zero, then the input time stamp is cleared.
+        //! @param [in] time_stamp Input time stamp value. This value should be taken from a monotonic clock.
         //! @param [in] source Identification of time stamp source.
         //! @see getInputTimeStamp()
         //!
-        void setInputTimeStamp(uint64_t time_stamp, uint64_t ticks_per_second, TimeSource source);
+        template <class Rep, class Period>
+        void setInputTimeStamp(const cn::duration<Rep,Period>& time_stamp, TimeSource source);
 
         //!
         //! Get the input time stamp as a string, typically for debug messages.
@@ -326,27 +285,57 @@ namespace ts {
         //!
         bool deserialize(const void* data, size_t size);
 
-    private:
-        uint64_t   _input_time;       // 64 bits: Input timestamp in PCR units, INVALID_PCR if unknown.
-        LabelSet   _labels;           // 32 bits: Bit mask of labels.
-        TimeSource _time_source;      // 8 bits: Source for time stamps.
-        bool       _flush;            // Flush the packet buffer asap.
-        bool       _bitrate_changed;  // Call getBitrate() callback as soon as possible.
-        bool       _input_stuffing;   // Packet was artificially inserted as input stuffing.
-        bool       _nullified;        // Packet was explicitly turned into a null packet by a plugin.
-    };
+        //!
+        //! Display the structure layout of the data structure (for debug only).
+        //! @param [in,out] out Output stream, where to display.
+        //! @param [in] prefix Optional prefix on each line.
+        //!
+        static void DisplayLayout(std::ostream& out, const char* prefix = "");
 
-    // Restore default packing after TSPacketMetadata.
-    #pragma pack(pop)
+    private:
+        uint64_t         _input_time;           // 64 bits: Input timestamp in PCR units, INVALID_PCR if unknown.
+        TSPacketLabelSet _labels;               // 32 bits: Bit mask of labels.
+        TimeSource       _time_source;          // 8 bits: Source for time stamps.
+        bool             _flush : 1;            // Flush the packet buffer asap.
+        bool             _bitrate_changed : 1;  // Call getBitrate() callback as soon as possible.
+        bool             _input_stuffing : 1;   // Packet was artificially inserted as input stuffing.
+        bool             _nullified : 1;        // Packet was explicitly turned into a null packet by a plugin.
+        TS_PUSH_WARNING()
+        TS_LLVM_NOWARNING(unused-private-field)
+        unsigned int     _pad1 : 4;             // Padding to next byte.
+        unsigned int     _pad2 : 16;            // Padding to next multiple of 4 bytes.
+        TS_POP_WARNING()
+    };
 
     //!
     //! Vector of packet metadata.
     //!
-    typedef std::vector<TSPacketMetadata> TSPacketMetadataVector;
+    using TSPacketMetadataVector = std::vector<TSPacketMetadata>;
 
     //!
     //! Metadata for TS packet are accessed in a memory-resident buffer.
     //! A packet and its metadata have the same index in their respective buffer.
     //!
-    typedef ResidentBuffer<TSPacketMetadata> PacketMetadataBuffer;
+    using PacketMetadataBuffer = ResidentBuffer<TSPacketMetadata>;
 }
+
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+#if !defined(DOXYGEN)
+
+// Set the optional input time stamp of the packet.
+template <class Rep, class Period>
+void ts::TSPacketMetadata::setInputTimeStamp(const cn::duration<Rep,Period>& time_stamp, TimeSource source)
+{
+    _time_source = source;
+    const PCR pcr = cn::duration_cast<PCR>(time_stamp);
+    // Make sure we remain in the usual PCR range.
+    // This can create an issue if the input value wraps up at 2^64.
+    // In which case, the PCR value will warp at another value than PCR_SCALE.
+    _input_time = uint64_t(pcr.count() % PCR_SCALE);
+}
+
+#endif // DOXYGEN

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -57,7 +36,7 @@ namespace ts {
         //! Default constructor.
         //! Section is initially marked invalid.
         //!
-        MPEPacket();
+        MPEPacket() = default;
 
         //!
         //! Copy constructor.
@@ -255,13 +234,13 @@ namespace ts {
         //! @return Address of the binary content of the complete network datagram.
         //! May be invalidated after modification in section.
         //!
-        const uint8_t* datagram() const { return _is_valid && !_datagram.isNull() ? _datagram->data() : nullptr; }
+        const uint8_t* datagram() const { return _is_valid && _datagram != nullptr ? _datagram->data() : nullptr; }
 
         //!
         //! Size of the binary content of the complete network datagram.
         //! @return Size of the binary content of the complete network datagram.
         //!
-        size_t datagramSize() const { return _is_valid && !_datagram.isNull() ? _datagram->size() : 0; }
+        size_t datagramSize() const { return _is_valid && _datagram != nullptr ? _datagram->size() : 0; }
 
         //!
         //! Replace the binary content of the UDP message.
@@ -274,10 +253,10 @@ namespace ts {
 
     private:
         // Private fields
-        bool         _is_valid;    // A valid datagram is present.
-        PID          _source_pid;  // Source PID (informational).
-        MACAddress   _dest_mac;    // Destination MAC address (in DSM-CC section).
-        ByteBlockPtr _datagram;    // Full binary content of the datagram.
+        bool         _is_valid = false;      // A valid datagram is present.
+        PID          _source_pid = PID_NULL; // Source PID (informational).
+        MACAddress   _dest_mac {};           // Destination MAC address (in DSM-CC section).
+        ByteBlockPtr _datagram {};           // Full binary content of the datagram.
 
         // Locate UDP payload and size in a datagram.
         // Output parameters are optional. Return false on error.

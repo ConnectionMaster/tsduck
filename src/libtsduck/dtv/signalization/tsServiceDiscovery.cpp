@@ -1,35 +1,19 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsServiceDiscovery.h"
 #include "tsDuckContext.h"
 #include "tsBinaryTable.h"
+#include "tsPAT.h"
+#include "tsSDT.h"
+#include "tsMGT.h"
+#include "tsCVCT.h"
+#include "tsTVCT.h"
 
 
 //----------------------------------------------------------------------------
@@ -37,12 +21,8 @@
 //----------------------------------------------------------------------------
 
 ts::ServiceDiscovery::ServiceDiscovery(DuckContext& duck, SignalizationHandlerInterface* pmtHandler) :
-    Service(),
     _duck(duck),
-    _notFound(false),
-    _pmtHandler(pmtHandler),
-    _pmt(),
-    _demux(duck, this)
+    _pmtHandler(pmtHandler)
 {
     _pmt.invalidate();
 }
@@ -66,7 +46,8 @@ ts::ServiceDiscovery::ServiceDiscovery(DuckContext& duck, const UString& desc, S
 void ts::ServiceDiscovery::set(const UString& desc)
 {
     // Clear and set superclass.
-    Service::set(desc);
+    // In discovery mode (this subclass), "-" means first service in the PAT, same as an empty string.
+    Service::set(desc == u"-" ? UString() : desc);
 
     // Start to intercept tables.
     if (hasName()) {
@@ -189,7 +170,7 @@ void ts::ServiceDiscovery::processSDT(const SDT& sdt)
         // Service not found by name in SDT. If we already know the service id, this is fine.
         // If we do not know the service id, then there is no way to find the service.
         if (!hasId()) {
-            _duck.report().error(u"service \"%s\" not found in SDT", {getName()});
+            _duck.report().error(u"service \"%s\" not found in SDT", getName());
             _notFound = true;
         }
         return;
@@ -215,7 +196,7 @@ void ts::ServiceDiscovery::processSDT(const SDT& sdt)
         _demux.resetPID(PID_PAT);
         _demux.addPID(PID_PAT);
 
-        _duck.report().verbose(u"found service \"%s\", service id is 0x%X (%d)", {getName(), getId(), getId()});
+        _duck.report().verbose(u"found service \"%s\", service id is %n", getName(), getId());
     }
 
     // Now collect suitable information from the SDT.
@@ -238,13 +219,13 @@ void ts::ServiceDiscovery::processSDT(const SDT& sdt)
 void ts::ServiceDiscovery::analyzeMGT(const MGT& mgt)
 {
     // Process all table types.
-    for (auto it = mgt.tables.begin(); it != mgt.tables.end(); ++it) {
+    for (const auto& it : mgt.tables) {
 
         // Intercept TVCT and CVCT, they contain the service names.
-        switch (it->second.table_type) {
+        switch (it.second.table_type) {
             case ATSC_TTYPE_TVCT_CURRENT:
             case ATSC_TTYPE_CVCT_CURRENT:
-                _demux.addPID(it->second.table_type_PID);
+                _demux.addPID(it.second.table_type_PID);
                 break;
             default:
                 break;
@@ -275,7 +256,7 @@ void ts::ServiceDiscovery::analyzeVCT(const VCT& vct)
         // Service not found by name in VCT. If we already know the service id, this is fine.
         // If we do not know the service id, then there is no way to find the service.
         if (!hasId()) {
-            _duck.report().error(u"service \"%s\" not found in VCT", {getName()});
+            _duck.report().error(u"service \"%s\" not found in VCT", getName());
             _notFound = true;
         }
         return;
@@ -302,7 +283,7 @@ void ts::ServiceDiscovery::analyzeVCT(const VCT& vct)
         _demux.resetPID(PID_PAT);
         _demux.addPID(PID_PAT);
 
-        _duck.report().verbose(u"found service \"%s\", service id is 0x%X (%d)", {getName(), getId(), getId()});
+        _duck.report().verbose(u"found service \"%s\", service id is %n", getName(), getId());
     }
 
     // Now collect suitable information from the VCT.
@@ -322,7 +303,7 @@ void ts::ServiceDiscovery::processPAT(const PAT& pat)
         // A service id was known, locate the service in the PAT.
         it = pat.pmts.find(getId());
         if (it == pat.pmts.end()) {
-            _duck.report().error(u"service id 0x%X (%d) not found in PAT", {getId(), getId()});
+            _duck.report().error(u"service id %n not found in PAT", getId());
             _notFound = true;
             return;
         }
@@ -354,7 +335,7 @@ void ts::ServiceDiscovery::processPAT(const PAT& pat)
         // Invalidate out PMT.
         _pmt.invalidate();
 
-        _duck.report().verbose(u"found service id 0x%X (%d), PMT PID is 0x%X (%d)", {getId(), getId(), getPMTPID(), getPMTPID()});
+        _duck.report().verbose(u"found service id %n, PMT PID is %n", getId(), getPMTPID());
     }
 }
 

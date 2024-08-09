@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -32,9 +11,6 @@
 //----------------------------------------------------------------------------
 
 #include "tsjson.h"
-#include "tsjsonNull.h"
-#include "tsjsonTrue.h"
-#include "tsjsonFalse.h"
 #include "tsjsonValue.h"
 #include "tsjsonNumber.h"
 #include "tsjsonString.h"
@@ -42,6 +18,8 @@
 #include "tsjsonArray.h"
 #include "tsjsonRunningDocument.h"
 #include "tsFileUtils.h"
+#include "tsErrCodeReport.h"
+#include "tsIntegerUtils.h"
 #include "tsCerrReport.h"
 #include "tsNullReport.h"
 #include "tsunit.h"
@@ -53,30 +31,21 @@
 
 class JsonTest: public tsunit::Test
 {
-public:
-    JsonTest();
+    TSUNIT_DECLARE_TEST(Simple);
+    TSUNIT_DECLARE_TEST(Numbers);
+    TSUNIT_DECLARE_TEST(GitHub);
+    TSUNIT_DECLARE_TEST(Factory);
+    TSUNIT_DECLARE_TEST(Query);
+    TSUNIT_DECLARE_TEST(RunningDocumentEmpty);
+    TSUNIT_DECLARE_TEST(RunningDocument);
+    TSUNIT_DECLARE_TEST(Issue1353);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
 
-    void testSimple();
-    void testGitHub();
-    void testFactory();
-    void testQuery();
-    void testRunningDocumentEmpty();
-    void testRunningDocument();
-
-    TSUNIT_TEST_BEGIN(JsonTest);
-    TSUNIT_TEST(testSimple);
-    TSUNIT_TEST(testGitHub);
-    TSUNIT_TEST(testFactory);
-    TSUNIT_TEST(testQuery);
-    TSUNIT_TEST(testRunningDocumentEmpty);
-    TSUNIT_TEST(testRunningDocument);
-    TSUNIT_TEST_END();
-
 private:
-    ts::UString _tempFileName;
+    fs::path _tempFileName {};
 
     static ts::UString LoadFile(const ts::UString& filename);
     ts::UString loadTempFile() const { return LoadFile(_tempFileName); }
@@ -89,25 +58,19 @@ TSUNIT_REGISTER(JsonTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-JsonTest::JsonTest() :
-    _tempFileName()
-{
-}
-
 // Test suite initialization method.
 void JsonTest::beforeTest()
 {
     if (_tempFileName.empty()) {
         _tempFileName = ts::TempFile(u".tmp.json");
     }
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void JsonTest::afterTest()
 {
-    ts::DeleteFile(_tempFileName, NULLREP);
+    fs::remove(_tempFileName, &ts::ErrCodeReport());
 }
 
 // Load the content of a text file.
@@ -124,22 +87,22 @@ ts::UString JsonTest::LoadFile(const ts::UString& filename)
 // Test cases
 //----------------------------------------------------------------------------
 
-void JsonTest::testSimple()
+TSUNIT_DEFINE_TEST(Simple)
 {
     ts::json::ValuePtr jv;
     TSUNIT_ASSERT(!ts::json::Parse(jv, u"", NULLREP));
-    TSUNIT_ASSERT(jv.isNull());
+    TSUNIT_ASSERT(jv == nullptr);
 
     TSUNIT_ASSERT(ts::json::Parse(jv, u" null  ", CERR));
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_ASSERT(jv->isNull());
 
     TSUNIT_ASSERT(!ts::json::Parse(jv, u"   false  true  ", NULLREP));
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_ASSERT(jv->isFalse());
 
     TSUNIT_ASSERT(ts::json::Parse(jv, u"[ true, {\"ab\":67, \"foo\" : \"bar\"} ]", CERR));
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_ASSERT(jv->isArray());
     TSUNIT_EQUAL(2, jv->size());
     TSUNIT_ASSERT(jv->at(0).isTrue());
@@ -162,7 +125,51 @@ void JsonTest::testSimple()
         jv->printed());
 }
 
-void JsonTest::testGitHub()
+TSUNIT_DEFINE_TEST(Numbers)
+{
+    static const ts::UChar* response = u"{\"a\": 12, \"b\": 1.23, \"c\": 1e-2, \"d\": 1E2}";
+
+    ts::json::ValuePtr jv;
+    TSUNIT_ASSERT(ts::json::Parse(jv, response, CERR));
+    TSUNIT_ASSERT(jv != nullptr);
+    TSUNIT_ASSERT(jv->isObject());
+
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->value(u"a").type());
+    TSUNIT_ASSERT(jv->value(u"a").isInteger());
+    TSUNIT_EQUAL(12, jv->value(u"a").toInteger());
+    TSUNIT_EQUAL(12.0, jv->value(u"a").toFloat());
+
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->value(u"a").type());
+    TSUNIT_ASSERT(jv->value(u"a").isInteger());
+    TSUNIT_EQUAL(12, jv->value(u"a").toInteger());
+    TSUNIT_EQUAL(12.0, jv->value(u"a").toFloat());
+
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->value(u"b").type());
+    TSUNIT_ASSERT(!jv->value(u"b").isInteger());
+    TSUNIT_EQUAL(1, jv->value(u"b").toInteger());
+    TSUNIT_EQUAL(1.23, jv->value(u"b").toFloat());
+
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->value(u"c").type());
+    TSUNIT_ASSERT(!jv->value(u"c").isInteger());
+    TSUNIT_EQUAL(0, jv->value(u"c").toInteger());
+    TSUNIT_EQUAL(0.01, jv->value(u"c").toFloat());
+
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->value(u"d").type());
+    TSUNIT_ASSERT(jv->value(u"d").isInteger());
+    TSUNIT_EQUAL(100, jv->value(u"d").toInteger());
+    TSUNIT_EQUAL(100.0, jv->value(u"d").toFloat());
+
+    TSUNIT_EQUAL(
+        u"{\n"
+        u"  \"a\": 12,\n"
+        u"  \"b\": 1.23,\n"
+        u"  \"c\": 0.01,\n"
+        u"  \"d\": 100\n"
+        u"}",
+        jv->printed());
+}
+
+TSUNIT_DEFINE_TEST(GitHub)
 {
     // Typical response from GitHub:
     static const ts::UChar* response =
@@ -399,7 +406,7 @@ void JsonTest::testGitHub()
 
     ts::json::ValuePtr jv;
     TSUNIT_ASSERT(ts::json::Parse(jv, response, CERR));
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_ASSERT(jv->isObject());
     TSUNIT_EQUAL(u"v3.5-419", jv->value(u"tag_name").toString());
     TSUNIT_EQUAL(u"https://api.github.com/repos/tsduck/tsduck/tarball/v3.5-419", jv->value(u"tarball_url").toString());
@@ -641,42 +648,63 @@ void JsonTest::testGitHub()
         jv->printed());
 }
 
-void JsonTest::testFactory()
+TSUNIT_DEFINE_TEST(Factory)
 {
     ts::json::ValuePtr jv;
 
     jv = ts::json::Factory(ts::json::Type::True);
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_EQUAL(ts::json::Type::True, jv->type());
     TSUNIT_ASSERT(jv->isTrue());
 
     jv = ts::json::Factory(ts::json::Type::Object);
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_EQUAL(ts::json::Type::Object, jv->type());
     TSUNIT_ASSERT(jv->isObject());
 
     jv = ts::json::Factory(ts::json::Type::String, u"abcdef");
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_EQUAL(ts::json::Type::String, jv->type());
     TSUNIT_ASSERT(jv->isString());
     TSUNIT_EQUAL(u"abcdef", jv->toString());
 
     jv = ts::json::Factory(ts::json::Type::Number, u"1,234");
-    TSUNIT_ASSERT(!jv.isNull());
+    TSUNIT_ASSERT(jv != nullptr);
     TSUNIT_EQUAL(ts::json::Type::Number, jv->type());
     TSUNIT_ASSERT(jv->isNumber());
+    TSUNIT_ASSERT(jv->isInteger());
     TSUNIT_EQUAL(1234, jv->toInteger());
+    TSUNIT_EQUAL(1234.0, jv->toFloat());
+    TSUNIT_EQUAL(u"1234", jv->toString());
+
+    jv = ts::json::Factory(ts::json::Type::Number, u"12.450");
+    TSUNIT_ASSERT(jv != nullptr);
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->type());
+    TSUNIT_ASSERT(jv->isNumber());
+    TSUNIT_ASSERT(!jv->isInteger());
+    TSUNIT_EQUAL(12, jv->toInteger());
+    TSUNIT_EQUAL(12.45, jv->toFloat());
+    TSUNIT_EQUAL(u"12.45", jv->toString());
+
+    jv = ts::json::Factory(ts::json::Type::Number, u"-12.450");
+    TSUNIT_ASSERT(jv != nullptr);
+    TSUNIT_EQUAL(ts::json::Type::Number, jv->type());
+    TSUNIT_ASSERT(jv->isNumber());
+    TSUNIT_ASSERT(!jv->isInteger());
+    TSUNIT_EQUAL(-12, jv->toInteger());
+    TSUNIT_EQUAL(-12.45, jv->toFloat());
+    TSUNIT_EQUAL(u"-12.45", jv->toString());
 }
 
-void JsonTest::testQuery()
+TSUNIT_DEFINE_TEST(Query)
 {
     ts::json::Object root;
 
-    root.value(u"obj1", true).value(u"obj2", true).value(u"obj3", true).add(u"num4", new ts::json::Number(123));
-    root.value(u"obj1").value(u"obj2").value(u"obj3").add(u"str4", new ts::json::String(u"abc"));
-    root.value(u"obj1").add(u"arr2", new ts::json::Array());
-    root.value(u"obj1").value(u"arr2").set(new ts::json::Number(456));
-    root.value(u"obj1").value(u"arr2").set(new ts::json::String(u"def"));
+    root.value(u"obj1", true).value(u"obj2", true).value(u"obj3", true).add(u"num4", std::make_shared<ts::json::Number>(123));
+    root.value(u"obj1").value(u"obj2").value(u"obj3").add(u"str4", std::make_shared<ts::json::String>(u"abc"));
+    root.value(u"obj1").add(u"arr2", std::make_shared<ts::json::Array>());
+    root.value(u"obj1").value(u"arr2").set(std::make_shared<ts::json::Number>(456));
+    root.value(u"obj1").value(u"arr2").set(std::make_shared<ts::json::String>(u"def"));
 
     TSUNIT_EQUAL(
         u"{\n"
@@ -730,21 +758,21 @@ void JsonTest::testQuery()
     debug() << "JsonTest::testQuery:" << std::endl << root.printed() << std::endl;
 }
 
-void JsonTest::testRunningDocumentEmpty()
+TSUNIT_DEFINE_TEST(RunningDocumentEmpty)
 {
     ts::json::RunningDocument doc(CERR);
 
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(doc.open(ts::json::ValuePtr(), _tempFileName));
 
     doc.add(ts::json::String(u"foo"));
     doc.add(ts::json::Number(-23));
     ts::json::Object obj1;
-    obj1.value(u"obj1", true).add(u"arr2", new ts::json::Array());
+    obj1.value(u"obj1", true).add(u"arr2", std::make_shared<ts::json::Array>());
     doc.add(obj1);
     doc.close();
 
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
     TSUNIT_EQUAL(u"[\n"
                  u"  \"foo\",\n"
                  u"  -23,\n"
@@ -758,7 +786,7 @@ void JsonTest::testRunningDocumentEmpty()
                  loadTempFile());
 }
 
-void JsonTest::testRunningDocument()
+TSUNIT_DEFINE_TEST(RunningDocument)
 {
     ts::json::RunningDocument doc(CERR);
     ts::json::ValuePtr root(new ts::json::Object());
@@ -769,7 +797,7 @@ void JsonTest::testRunningDocument()
     root->query(u"init_obj2.subobj4", true).add(u"val5", u"zeval5");
     root->query(u"init_obj3.subobj5", true).add(u"val6", u"zeval6");
 
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(!fs::exists(_tempFileName));
     TSUNIT_ASSERT(doc.open(root, _tempFileName));
 
     doc.add(ts::json::String(u"foo"));
@@ -779,7 +807,7 @@ void JsonTest::testRunningDocument()
     doc.add(obj1);
     doc.close();
 
-    TSUNIT_ASSERT(ts::FileExists(_tempFileName));
+    TSUNIT_ASSERT(fs::exists(_tempFileName));
     TSUNIT_EQUAL(u"{\n"
                  u"  \"init_obj1\": {\n"
                  u"    \"subobj1\": {\n"
@@ -820,4 +848,41 @@ void JsonTest::testRunningDocument()
                  u"  }\n"
                  u"}",
                  loadTempFile());
+}
+
+TSUNIT_DEFINE_TEST(Issue1353)
+{
+    ts::json::Object root;
+
+    root.add(u"a", 0);
+    root.add(u"b", 0.0);
+    int i = 0;
+    root.add(u"c", i);
+    double f = 0.0;
+    root.add(u"d", f);
+    f = 0.000001;
+    root.add(u"e", f);
+
+    TSUNIT_ASSERT(root.query(u"a").isNumber());
+    TSUNIT_ASSERT(root.query(u"b").isNumber());
+    TSUNIT_ASSERT(root.query(u"c").isNumber());
+    TSUNIT_ASSERT(root.query(u"d").isNumber());
+    TSUNIT_ASSERT(root.query(u"e").isNumber());
+
+    TSUNIT_ASSERT(root.query(u"a").isInteger());
+    TSUNIT_ASSERT(root.query(u"b").isInteger());
+    TSUNIT_ASSERT(root.query(u"c").isInteger());
+    TSUNIT_ASSERT(root.query(u"d").isInteger());
+    TSUNIT_ASSERT(!root.query(u"e").isInteger());
+
+    f = 1.2;
+    for (size_t pow = 0; pow <= 9; pow++) {
+        ts::UString name(ts::UString::Format(u"f%d", pow));
+        root.add(name, f / double(ts::Power10(pow)));
+    }
+
+    TSUNIT_EQUAL(u"{ \"a\": 0, \"b\": 0, \"c\": 0, \"d\": 0, \"e\": 1.0e-6, "
+                 u"\"f0\": 1.2, \"f1\": 0.12, \"f2\": 0.012, \"f3\": 0.0012, \"f4\": 1.2e-4, "
+                 "\"f5\": 1.2e-5, \"f6\": 1.2e-6, \"f7\": 1.2e-7, \"f8\": 1.2e-8, \"f9\": 1.2e-9 }",
+                 root.oneLiner(CERR));
 }

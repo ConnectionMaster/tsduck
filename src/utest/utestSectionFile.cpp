@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -38,9 +17,9 @@
 #include "tsTDT.h"
 #include "tsCAIdentifierDescriptor.h"
 #include "tsFileUtils.h"
-#include "tsBinaryTable.h"
+#include "tsErrCodeReport.h"
+#include "tsxmlElement.h"
 #include "tsDuckContext.h"
-#include "tsTSPacket.h"
 #include "tsCerrReport.h"
 #include "tsunit.h"
 
@@ -56,44 +35,28 @@
 
 class SectionFileTest: public tsunit::Test
 {
-public:
-    SectionFileTest();
+    TSUNIT_DECLARE_TEST(ConfigurationFile);
+    TSUNIT_DECLARE_TEST(GenericDescriptor);
+    TSUNIT_DECLARE_TEST(GenericShortTable);
+    TSUNIT_DECLARE_TEST(GenericLongTable);
+    TSUNIT_DECLARE_TEST(PAT1);
+    TSUNIT_DECLARE_TEST(SCTE35);
+    TSUNIT_DECLARE_TEST(Memory);
+    TSUNIT_DECLARE_TEST(BuildSections);
+    TSUNIT_DECLARE_TEST(MultiSectionsCAT);
+    TSUNIT_DECLARE_TEST(MultiSectionsAtProgramLevelPMT);
+    TSUNIT_DECLARE_TEST(MultiSectionsAtStreamLevelPMT);
 
+public:
     virtual void beforeTest() override;
     virtual void afterTest() override;
-
-    void testConfigurationFile();
-    void testGenericDescriptor();
-    void testGenericShortTable();
-    void testGenericLongTable();
-    void testPAT1();
-    void testSCTE35();
-    void testMemory();
-    void testBuildSections();
-    void testMultiSectionsCAT();
-    void testMultiSectionsAtProgramLevelPMT();
-    void testMultiSectionsAtStreamLevelPMT();
-
-    TSUNIT_TEST_BEGIN(SectionFileTest);
-    TSUNIT_TEST(testConfigurationFile);
-    TSUNIT_TEST(testGenericDescriptor);
-    TSUNIT_TEST(testGenericShortTable);
-    TSUNIT_TEST(testGenericLongTable);
-    TSUNIT_TEST(testPAT1);
-    TSUNIT_TEST(testSCTE35);
-    TSUNIT_TEST(testMemory);
-    TSUNIT_TEST(testBuildSections);
-    TSUNIT_TEST(testMultiSectionsCAT);
-    TSUNIT_TEST(testMultiSectionsAtProgramLevelPMT);
-    TSUNIT_TEST(testMultiSectionsAtStreamLevelPMT);
-    TSUNIT_TEST_END();
 
 private:
     // Unitary test for one table.
     void testTable(const char* name, const ts::UChar* ref_xml, const uint8_t* ref_sections, size_t ref_sections_size);
     ts::Report& report();
-    ts::UString _tempFileNameBin;
-    ts::UString _tempFileNameXML;
+    fs::path _tempFileNameBin {};
+    fs::path _tempFileNameXML {};
 };
 
 TSUNIT_REGISTER(SectionFileTest);
@@ -103,13 +66,6 @@ TSUNIT_REGISTER(SectionFileTest);
 // Initialization.
 //----------------------------------------------------------------------------
 
-// Constructor.
-SectionFileTest::SectionFileTest() :
-    _tempFileNameBin(),
-    _tempFileNameXML()
-{
-}
-
 // Test suite initialization method.
 void SectionFileTest::beforeTest()
 {
@@ -117,15 +73,15 @@ void SectionFileTest::beforeTest()
         _tempFileNameBin = ts::TempFile(u".tmp.bin");
         _tempFileNameXML = ts::TempFile(u".tmp.xml");
     }
-    ts::DeleteFile(_tempFileNameBin, NULLREP);
-    ts::DeleteFile(_tempFileNameXML, NULLREP);
+    fs::remove(_tempFileNameBin, &ts::ErrCodeReport());
+    fs::remove(_tempFileNameXML, &ts::ErrCodeReport());
 }
 
 // Test suite cleanup method.
 void SectionFileTest::afterTest()
 {
-    ts::DeleteFile(_tempFileNameBin, NULLREP);
-    ts::DeleteFile(_tempFileNameXML, NULLREP);
+    fs::remove(_tempFileNameBin, &ts::ErrCodeReport());
+    fs::remove(_tempFileNameXML, &ts::ErrCodeReport());
 }
 
 ts::Report& SectionFileTest::report()
@@ -167,7 +123,7 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
     const std::string sections(strm.str());
 
     // In debug mode, analyze data before failing.
-    if (debugMode() && (ref_sections_size != sections.size() || ::memcmp(ref_sections, sections.data(), ref_sections_size) != 0)) {
+    if (debugMode() && (ref_sections_size != sections.size() || !ts::MemEqual(ref_sections, sections.data(), ref_sections_size))) {
         const size_t size = std::min(ref_sections_size, sections.size());
         // Search index of first differing byte.
         size_t diff = 0;
@@ -193,7 +149,7 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
 
     // Compare serialized section data to reference section data.
     TSUNIT_EQUAL(ref_sections_size, sections.size());
-    TSUNIT_EQUAL(0, ::memcmp(ref_sections, sections.data(), ref_sections_size));
+    TSUNIT_EQUAL(0, ts::MemCompare(ref_sections, sections.data(), ref_sections_size));
 
     // Convert binary tables to XML.
     TSUNIT_EQUAL(ref_xml, xml.toXML());
@@ -204,14 +160,14 @@ void SectionFileTest::testTable(const char* name, const ts::UChar* ref_xml, cons
 // Other unitary tests.
 //----------------------------------------------------------------------------
 
-void SectionFileTest::testConfigurationFile()
+TSUNIT_DEFINE_TEST(ConfigurationFile)
 {
     const ts::UString conf(ts::SearchConfigurationFile(ts::SectionFile::XML_TABLES_MODEL));
     debug() << "SectionFileTest::testConfigurationFile: " << conf << std::endl;
-    TSUNIT_ASSERT(ts::FileExists(conf));
+    TSUNIT_ASSERT(fs::exists(conf));
 }
 
-void SectionFileTest::testGenericDescriptor()
+TSUNIT_DEFINE_TEST(GenericDescriptor)
 {
     static const uint8_t descData[] = {
         0x72,   // tag
@@ -263,12 +219,12 @@ void SectionFileTest::testGenericDescriptor()
     TSUNIT_ASSERT(ts::ByteBlock(desc2.payload(), desc2.payloadSize()) == ts::ByteBlock(descData + 2, sizeof(descData) - 2));
 }
 
-void SectionFileTest::testGenericShortTable()
+TSUNIT_DEFINE_TEST(GenericShortTable)
 {
     static const uint8_t refData[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
 
     const ts::SectionPtr refSection(new ts::Section(0xAB, false, refData, sizeof(refData)));
-    TSUNIT_ASSERT(!refSection.isNull());
+    TSUNIT_ASSERT(refSection != nullptr);
     TSUNIT_ASSERT(refSection->isValid());
 
     ts::DuckContext duck;
@@ -314,7 +270,7 @@ void SectionFileTest::testGenericShortTable()
     TSUNIT_EQUAL(1, tab.sectionCount());
 
     ts::SectionPtr sec(tab.sectionAt(0));
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_EQUAL(0xAB, sec->tableId());
     TSUNIT_ASSERT(sec->isShortSection());
@@ -323,15 +279,15 @@ void SectionFileTest::testGenericShortTable()
     TSUNIT_ASSERT(ts::ByteBlock(sec->payload(), sec->payloadSize()) == ts::ByteBlock(refData, sizeof(refData)));
 }
 
-void SectionFileTest::testGenericLongTable()
+TSUNIT_DEFINE_TEST(GenericLongTable)
 {
     static const uint8_t refData0[] = {0x01, 0x02, 0x03, 0x04, 0x05};
     static const uint8_t refData1[] = {0x11, 0x12, 0x13, 0x14};
 
     ts::DuckContext duck;
     ts::BinaryTable refTable;
-    refTable.addSection(new ts::Section(0xCD, true, 0x1234, 7, true, 0, 0, refData0, sizeof(refData0)));
-    refTable.addSection(new ts::Section(0xCD, true, 0x1234, 7, true, 1, 1, refData1, sizeof(refData1)));
+    refTable.addNewSection(0xCD, true, 0x1234, 7, true, 0, 0, refData0, sizeof(refData0));
+    refTable.addNewSection(0xCD, true, 0x1234, 7, true, 1, 1, refData1, sizeof(refData1));
     TSUNIT_ASSERT(refTable.isValid());
     TSUNIT_ASSERT(!refTable.isShortSection());
     TSUNIT_EQUAL(0xCD, refTable.tableId());
@@ -381,7 +337,7 @@ void SectionFileTest::testGenericLongTable()
     TSUNIT_EQUAL(2, tab.sectionCount());
 
     ts::SectionPtr sec(tab.sectionAt(0));
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_EQUAL(0xCD, sec->tableId());
     TSUNIT_EQUAL(0x1234, sec->tableIdExtension());
@@ -393,7 +349,7 @@ void SectionFileTest::testGenericLongTable()
     TSUNIT_ASSERT(ts::ByteBlock(sec->payload(), sec->payloadSize()) == ts::ByteBlock(refData0, sizeof(refData0)));
 
     sec = tab.sectionAt(1);
-    TSUNIT_ASSERT(!sec.isNull());
+    TSUNIT_ASSERT(sec != nullptr);
     TSUNIT_ASSERT(sec->isValid());
     TSUNIT_EQUAL(0xCD, sec->tableId());
     TSUNIT_EQUAL(0x1234, sec->tableIdExtension());
@@ -405,7 +361,7 @@ void SectionFileTest::testGenericLongTable()
     TSUNIT_ASSERT(ts::ByteBlock(sec->payload(), sec->payloadSize()) == ts::ByteBlock(refData1, sizeof(refData1)));
 }
 
-void SectionFileTest::testBuildSections()
+TSUNIT_DEFINE_TEST(BuildSections)
 {
     ts::DuckContext duck;
 
@@ -418,7 +374,7 @@ void SectionFileTest::testBuildSections()
 
     // Serialize the PAT.
     ts::BinaryTablePtr patBin(new(ts::BinaryTable));
-    TSUNIT_ASSERT(!patBin.isNull());
+    TSUNIT_ASSERT(patBin != nullptr);
     pat.serialize(duck, *patBin);
     TSUNIT_ASSERT(patBin->isValid());
     TSUNIT_EQUAL(2, patBin->sectionCount());
@@ -445,7 +401,7 @@ void SectionFileTest::testBuildSections()
     ts::TDT tdt(tdtTime);
 
     ts::BinaryTablePtr tdtBin(new(ts::BinaryTable));
-    TSUNIT_ASSERT(!tdtBin.isNull());
+    TSUNIT_ASSERT(tdtBin != nullptr);
     tdt.serialize(duck, *tdtBin);
     TSUNIT_ASSERT(tdtBin->isValid());
     TSUNIT_EQUAL(1, tdtBin->sectionCount());
@@ -457,14 +413,14 @@ void SectionFileTest::testBuildSections()
 
     // Save files.
     debug() << "SectionFileTest::testBuildSections: saving " << _tempFileNameBin << std::endl;
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileNameBin));
+    TSUNIT_ASSERT(!fs::exists(_tempFileNameBin));
     TSUNIT_ASSERT(file.saveBinary(_tempFileNameBin));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileNameBin));
+    TSUNIT_ASSERT(fs::exists(_tempFileNameBin));
 
     debug() << "SectionFileTest::testBuildSections: saving " << _tempFileNameXML << std::endl;
-    TSUNIT_ASSERT(!ts::FileExists(_tempFileNameXML));
+    TSUNIT_ASSERT(!fs::exists(_tempFileNameXML));
     TSUNIT_ASSERT(file.saveXML(_tempFileNameXML));
-    TSUNIT_ASSERT(ts::FileExists(_tempFileNameXML));
+    TSUNIT_ASSERT(fs::exists(_tempFileNameXML));
 
     // Reload files.
     ts::SectionFile binFile(duck);
@@ -510,7 +466,7 @@ void SectionFileTest::testBuildSections()
     TSUNIT_ASSERT(tdtTime == xmlTDT.utc_time);
 }
 
-void SectionFileTest::testMultiSectionsCAT()
+TSUNIT_DEFINE_TEST(MultiSectionsCAT)
 {
     ts::DuckContext duck;
     ts::CAT cat1;
@@ -565,7 +521,7 @@ void SectionFileTest::testMultiSectionsCAT()
     }
 }
 
-void SectionFileTest::testMultiSectionsAtProgramLevelPMT()
+TSUNIT_DEFINE_TEST(MultiSectionsAtProgramLevelPMT)
 {
     ts::DuckContext duck;
     ts::PMT pmt1;
@@ -642,7 +598,7 @@ void SectionFileTest::testMultiSectionsAtProgramLevelPMT()
     }
 }
 
-void SectionFileTest::testMultiSectionsAtStreamLevelPMT()
+TSUNIT_DEFINE_TEST(MultiSectionsAtStreamLevelPMT)
 {
     ts::DuckContext duck;
     ts::PMT pmt1;
@@ -719,14 +675,14 @@ void SectionFileTest::testMultiSectionsAtStreamLevelPMT()
     }
 
     TSUNIT_EQUAL(90, pmt2.streams.size());
-    for (auto si = pmt2.streams.begin(); si != pmt2.streams.end(); ++si) {
-        TSUNIT_EQUAL(es_pid, si->first);
+    for (const auto& si : pmt2.streams) {
+        TSUNIT_EQUAL(es_pid, si.first);
         es_pid++;
-        TSUNIT_EQUAL(stype, si->second.stream_type);
+        TSUNIT_EQUAL(stype, si.second.stream_type);
         stype++;
-        TSUNIT_EQUAL(2, si->second.descs.size());
-        for (size_t di = 0; di < si->second.descs.size(); ++di) {
-            ts::CAIdentifierDescriptor desc(duck, *si->second.descs[di]);
+        TSUNIT_EQUAL(2, si.second.descs.size());
+        for (size_t di = 0; di < si.second.descs.size(); ++di) {
+            ts::CAIdentifierDescriptor desc(duck, *si.second.descs[di]);
             TSUNIT_ASSERT(desc.isValid());
             TSUNIT_EQUAL(4, desc.casids.size());
             for (size_t ii = 0; ii < desc.casids.size(); ++ii) {
@@ -737,7 +693,7 @@ void SectionFileTest::testMultiSectionsAtStreamLevelPMT()
     }
 }
 
-void SectionFileTest::testMemory()
+TSUNIT_DEFINE_TEST(Memory)
 {
     ts::ByteBlock input(5);
     input.append(psi_pat1_sections, sizeof(psi_pat1_sections));
@@ -757,15 +713,15 @@ void SectionFileTest::testMemory()
     ts::ByteBlock output(3);
     TSUNIT_EQUAL(87, sf1.saveBuffer(output));
     TSUNIT_EQUAL(90, output.size());
-    TSUNIT_EQUAL(0, ::memcmp(&output[3], psi_pat1_sections, sizeof(psi_pat1_sections)));
-    TSUNIT_EQUAL(0, ::memcmp(&output[3 + 32], psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
+    TSUNIT_EQUAL(0, ts::MemCompare(&output[3], psi_pat1_sections, sizeof(psi_pat1_sections)));
+    TSUNIT_EQUAL(0, ts::MemCompare(&output[3 + 32], psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
 
     uint8_t out1[40];
     TSUNIT_EQUAL(32, sf1.saveBuffer(out1, sizeof(out1)));
-    TSUNIT_EQUAL(0, ::memcmp(out1, psi_pat1_sections, sizeof(psi_pat1_sections)));
+    TSUNIT_EQUAL(0, ts::MemCompare(out1, psi_pat1_sections, sizeof(psi_pat1_sections)));
 
     uint8_t out2[100];
     TSUNIT_EQUAL(87, sf1.saveBuffer(out2, sizeof(out2)));
-    TSUNIT_EQUAL(0, ::memcmp(out2, psi_pat1_sections, sizeof(psi_pat1_sections)));
-    TSUNIT_EQUAL(0, ::memcmp(out2 + 32, psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
+    TSUNIT_EQUAL(0, ts::MemCompare(out2, psi_pat1_sections, sizeof(psi_pat1_sections)));
+    TSUNIT_EQUAL(0, ts::MemCompare(out2 + 32, psi_pmt_scte35_sections, sizeof(psi_pmt_scte35_sections)));
 }

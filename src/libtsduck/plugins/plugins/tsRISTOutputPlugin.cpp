@@ -1,34 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2020-2022, Anthony Delannoy
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2020-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsRISTOutputPlugin.h"
 #include "tsRISTPluginData.h"
+#include "tsTSDatagramOutput.h"
 #include "tsPluginRepository.h"
 #include "tsFatal.h"
 
@@ -44,20 +24,21 @@ bool ts::RISTOutputPlugin::isRealTime()
 
 
 //----------------------------------------------------------------------------
-// Stubs in the absence of libsrt.
+// Stubs in the absence of librist.
 //----------------------------------------------------------------------------
 
 #if defined(TS_NO_RIST)
 
 #define NORIST_ERROR_MSG u"This version of TSDuck was compiled without RIST support"
-#define NORIST_ERROR { tsp->error(NORIST_ERROR_MSG); return false; }
+#define NORIST_ERROR { error(NORIST_ERROR_MSG); return false; }
 
-ts::RISTOutputPlugin::RISTOutputPlugin(TSP* t) : AbstractDatagramOutputPlugin(t, u"", u"", NONE), _guts(nullptr) {}
+ts::RISTOutputPlugin::RISTOutputPlugin(TSP* t) : OutputPlugin(t, u"", u"") {}
 ts::RISTOutputPlugin::~RISTOutputPlugin() {}
 bool ts::RISTOutputPlugin::getOptions() NORIST_ERROR
 bool ts::RISTOutputPlugin::start() NORIST_ERROR
 bool ts::RISTOutputPlugin::stop() NORIST_ERROR
-bool ts::RISTOutputPlugin::sendDatagram(const void*, size_t) NORIST_ERROR
+bool ts::RISTOutputPlugin::send(const TSPacket*, const TSPacketMetadata*, size_t) NORIST_ERROR
+bool ts::RISTOutputPlugin::sendDatagram(const void*, size_t, Report&) NORIST_ERROR
 
 #else
 
@@ -72,13 +53,14 @@ class ts::RISTOutputPlugin::Guts
 {
      TS_NOBUILD_NOCOPY(Guts);
 public:
-     RISTPluginData data;
-     bool           npd;   // null packet deletion
+     TSDatagramOutput datagram;
+     RISTPluginData   rist;
+     bool             npd = false;  // null packet deletion
 
      // Constructor.
-     Guts(Args* args, TSP* tsp) :
-         data(args, tsp),
-         npd(false)
+     Guts(RISTOutputPlugin* plugin) :
+         datagram(TSDatagramOutputOptions::NONE, plugin),
+         rist(*plugin)
      {
      }
 };
@@ -89,10 +71,13 @@ public:
 //----------------------------------------------------------------------------
 
 ts::RISTOutputPlugin::RISTOutputPlugin(TSP* tsp_) :
-    AbstractDatagramOutputPlugin(tsp_, u"Send TS packets using Reliable Internet Stream Transport (RIST)", u"[options] url [url...]", NONE),
-    _guts(new Guts(this, tsp))
+    OutputPlugin(tsp_, u"Send TS packets using Reliable Internet Stream Transport (RIST)", u"[options] url [url...]"),
+    _guts(new Guts(this))
 {
     CheckNonNull(_guts);
+
+    _guts->datagram.defineArgs(*this);
+    _guts->rist.defineArgs(*this);
 
     option(u"null-packet-deletion", 'n');
     help(u"null-packet-deletion", u"Enable null packet deletion. The receiver needs to support this.");
@@ -114,7 +99,7 @@ ts::RISTOutputPlugin::~RISTOutputPlugin()
 bool ts::RISTOutputPlugin::getOptions()
 {
     _guts->npd = present(u"null-packet-deletion");
-    return _guts->data.getOptions(this) && AbstractDatagramOutputPlugin::getOptions();
+    return _guts->datagram.loadArgs(duck, *this) && _guts->rist.loadArgs(duck, *this);
 }
 
 
@@ -124,40 +109,44 @@ bool ts::RISTOutputPlugin::getOptions()
 
 bool ts::RISTOutputPlugin::start()
 {
-    if (_guts->data.ctx != nullptr) {
-        tsp->error(u"already started");
+    if (_guts->rist.ctx != nullptr) {
+        error(u"already started");
         return false;
     }
 
-    // Initialize the superclass.
-    if (!AbstractDatagramOutputPlugin::start()) {
+    // Initialize the datagram output.
+    if (!_guts->datagram.open(*this)) {
         return false;
     }
 
     // Initialize the RIST context.
-    tsp->debug(u"calling rist_sender_create, profile: %d", {_guts->data.profile});
-    if (::rist_sender_create(&_guts->data.ctx, _guts->data.profile, 0, &_guts->data.log) != 0) {
-        tsp->error(u"error in rist_sender_create");
+    debug(u"calling rist_sender_create, profile: %d", _guts->rist.profile);
+    if (::rist_sender_create(&_guts->rist.ctx, _guts->rist.profile, 0, &_guts->rist.log) != 0) {
+        error(u"error in rist_sender_create");
+        _guts->datagram.close(0, *this);
         return false;
     }
 
     // Add null packet deletion option if requested.
-    if (_guts->npd && ::rist_sender_npd_enable(_guts->data.ctx) < 0) {
-        tsp->error(u"error setting null-packet deletion");
-        _guts->data.cleanup();
+    if (_guts->npd && ::rist_sender_npd_enable(_guts->rist.ctx) < 0) {
+        error(u"error setting null-packet deletion");
+        _guts->datagram.close(0, *this);
+        _guts->rist.cleanup();
         return false;
     }
 
     // Add all peers to the RIST context.
-    if (!_guts->data.addPeers()) {
+    if (!_guts->rist.addPeers()) {
+        _guts->datagram.close(0, *this);
         return false;
     }
 
     // Start transmission.
-    tsp->debug(u"calling rist_start");
-    if (::rist_start(_guts->data.ctx) != 0) {
-        tsp->error(u"error starting RIST transmission");
-        _guts->data.cleanup();
+    debug(u"calling rist_start");
+    if (::rist_start(_guts->rist.ctx) != 0) {
+        error(u"error starting RIST transmission");
+        _guts->datagram.close(0, *this);
+        _guts->rist.cleanup();
         return false;
     }
 
@@ -171,20 +160,27 @@ bool ts::RISTOutputPlugin::start()
 
 bool ts::RISTOutputPlugin::stop()
 {
-    // Let the superclass send trailing data, if any.
-    AbstractDatagramOutputPlugin::stop();
-
-    // Close RIST communication.
-    _guts->data.cleanup();
+    _guts->datagram.close(tsp->bitrate(), *this);
+    _guts->rist.cleanup();
     return true;
 }
 
 
 //----------------------------------------------------------------------------
-// Output method
+// Send packets method.
 //----------------------------------------------------------------------------
 
-bool ts::RISTOutputPlugin::sendDatagram(const void* address, size_t size)
+bool ts::RISTOutputPlugin::send(const TSPacket* packets, const TSPacketMetadata* metadata, size_t packet_count)
+{
+    return _guts->datagram.send(packets, packet_count, tsp->bitrate(), *this);
+}
+
+
+//----------------------------------------------------------------------------
+// Implementation of TSDatagramOutputHandlerInterface: send one datagram.
+//----------------------------------------------------------------------------
+
+bool ts::RISTOutputPlugin::sendDatagram(const void* address, size_t size, Report& report)
 {
     // Build a RIST data block describing the data to send.
     ::rist_data_block dblock;
@@ -193,14 +189,14 @@ bool ts::RISTOutputPlugin::sendDatagram(const void* address, size_t size)
     dblock.payload_len = size;
 
     // Send the RIST message.
-    const int sent = ::rist_sender_data_write(_guts->data.ctx, &dblock);
+    const int sent = ::rist_sender_data_write(_guts->rist.ctx, &dblock);
     if (sent < 0) {
-        tsp->error(u"error sending data to RIST");
+        report.error(u"error sending data to RIST");
         return false;
     }
     else if (size_t(sent) != size) {
         // Don't really know what to do, retry with the rest?
-        tsp->warning(u"sent %d bytes to RIST, only %d were written", {size, sent});
+        report.warning(u"sent %d bytes to RIST, only %d were written", size, sent);
     }
     return true;
 }

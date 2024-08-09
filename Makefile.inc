@@ -1,31 +1,8 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  Common makefile definitions for the TSDuck project.
 #  To be included in all makefiles in the project.
@@ -47,12 +24,13 @@ ROOTDIR := $(abspath $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST)))))
 
 # Project specific directories.
 
-INSTALLERDIR = $(ROOTDIR)/installers
+INSTALLERDIR = $(ROOTDIR)/pkg/installers
 SCRIPTSDIR   = $(ROOTDIR)/scripts
 SRCROOT      = $(ROOTDIR)/src
 LIBTSDUCKDIR = $(SRCROOT)/libtsduck
 TSTOOLSDIR   = $(SRCROOT)/tstools
 TSPLUGINSDIR = $(SRCROOT)/tsplugins
+BINROOT      = $(ROOTDIR)/bin
 
 # TSDuck library files. See BINDIR later.
 
@@ -76,9 +54,9 @@ COMMA = ,
 
 # Some nerds define exotic shells as default. Stay to a known shell.
 # Skip initialization files to speed up and reproduceability.
-# Print all commands if VERBOSE is defined.
+# Print all commands if SHELL_VERBOSE is defined.
 
-SHELL = /usr/bin/env bash --noprofile --norc $(if $(VERBOSE),-x)
+SHELL = /usr/bin/env bash --noprofile --norc $(if $(SHELL_VERBOSE),-x)
 
 # Recursive invocations of make should be silent.
 
@@ -121,14 +99,27 @@ F_SEARCH = $(firstword $(wildcard $(addsuffix /$(1),$(subst :, ,$(F_SEARCH_PATH)
 F_COMMAND = $(eval _tmp := $(call F_SEARCH,$(1)))$(if $(_tmp),$(_tmp),$(2))
 
 # Find GNU alternatives to sed, grep. fgrep, chmod.
-# Also use command python3 when available, fallback as python alone.
 
 ifeq ($(SED),)
-    export SED    := $(call F_COMMAND,gsed,sed)
-    export GREP   := $(call F_COMMAND,ggrep,grep)
-    export FGREP  := $(call F_COMMAND,gfgrep,fgrep)
-    export CHMOD  := $(call F_COMMAND,gchmod,chmod)
+    export TAR   := $(call F_COMMAND,gtar,tar)
+    export SED   := $(call F_COMMAND,gsed,sed)
+    export GREP  := $(call F_COMMAND,ggrep,grep)
+    export FGREP := $(call F_COMMAND,gfgrep,fgrep)
+    export CHMOD := $(call F_COMMAND,gchmod,chmod)
+    export DATE  := $(call F_COMMAND,gdate,date)
+endif
+
+# Use command python3 when available, fallback as python alone.
+# But Python 3 is required for build scripts.
+
+ifeq ($(PYTHON),)
     export PYTHON := $(call F_COMMAND,python3,python)
+    ifeq ($(notdir $(PYTHON)),python)
+        PYVERSION := $(filter-out Python python,$(shell $(PYTHON) --version 2>&1))
+        ifneq ($(firstword $(subst ., ,$(PYVERSION))),3)
+            $(error Python 3 required, current version: $(PYVERSION))
+        endif
+    endif
 endif
 
 # Command prefix for commands requiring superuser rights.
@@ -137,6 +128,10 @@ endif
 
 SUDO = $(if $(subst 0,,$(shell id -u)),sudo)
 
+# Shell command to get TSDuck version.
+
+GET_VERSION = $(PYTHON) $(SCRIPTSDIR)/get-version-from-sources.py
+
 #-----------------------------------------------------------------------------
 # Identify the system environment.
 # - ALTDEVROOT : alternative root for development tools and library; can be
@@ -144,21 +139,28 @@ SUDO = $(if $(subst 0,,$(shell id -u)),sudo)
 # - BASHCOMP_DIR : directory for bash completion scripts
 # - BASHCOMP_AUTO : if non-empty, automatic bash completions based on command
 #   name, create links for each command if necessary
+# - BSD : non-empty on all BSD systems
 # - CORE_COUNT : number of physical CPU cores in the machine
 # - CPU_COUNT : number of logical CPU's in the machine; with hyperthreaded
 #   CPU cores, CPU_COUNT is typically twice CORE_COUNT
+# - DRAGONFLYBSD : non-empty on DragonFlyBSD systems
 # - ETCDIR : system configuration directory; /etc if $(SYSPREFIX) is /usr
 #   and $(SYSPREFIX)/etc otherwise
+# - FREEBSD : non-empty on FreeBSD systems
 # - HOSTNAME : host name without domain name
+# - LINUX : non-empty on Linux systems
 # - LINUXBREW : to be set on input; force a compilation in a Homebrew
 #   environment on Linux. Homebrew on Linux (aka "Linuxbrew") installs a
 #   non-standard environment where libraries are fetched from $HOMEBREW_PREFIX
 #   instead of /usr. By default, ignore the Homebrew environment on Linux and
 #   build using system libraries.
 # - LOCAL_ARCH : local processor exact architecture ("x86_64", "armv7l", etc)
-# - LOCAL_OS : operating system (linux, darwin)
+# - LOCAL_OS : operating system (linux, darwin, freebsd, openbsd, netbsd, dragonfly)
+# - LOCAL_OSDIR : system-specific directory (linux, mac, freebsd, openbsd, netbsd, dragonflybsd)
 # - MAIN_ARCH : target processor architecture family ("x86_64", "arm", etc)
 # - MACOS : non-empty on macOS systems
+# - NETBSD : non-empty on NetBSD systems
+# - OPENBSD : non-empty on OpenBSD systems
 # - SO_SUFFIX : shared libraries suffix (".so", ".dylib")
 # - SYSPREFIX : installation prefix; if not already set on input, it is defined
 #   as /usr on Linux and HomeBrew root on macOS.
@@ -177,12 +179,19 @@ export LANG = en_US.UTF-8
 # Operating system, architecture, host name.
 
 ifeq ($(LOCAL_OS),)
-    export LOCAL_OS   := $(shell uname -s | tr A-Z a-z)
-    export LOCAL_ARCH := $(shell uname -m)
-    export HOSTNAME   := $(firstword $(subst ., ,$(shell hostname 2>/dev/null)))
+    export LOCAL_OS    := $(shell uname -s | tr A-Z a-z)
+    export LOCAL_OSDIR := $(subst darwin,mac,$(subst dragonfly,dragonflybsd,$(LOCAL_OS)))
+    export LOCAL_ARCH  := $(shell uname -m)
+    export HOSTNAME    := $(firstword $(subst ., ,$(shell hostname 2>/dev/null)))
 endif
 
-MACOS = $(if $(findstring darwin,$(LOCAL_OS)),true)
+LINUX        = $(if $(findstring linux,$(LOCAL_OS)),true)
+MACOS        = $(if $(findstring darwin,$(LOCAL_OS)),true)
+FREEBSD      = $(if $(findstring freebsd,$(LOCAL_OS)),true)
+NETBSD       = $(if $(findstring netbsd,$(LOCAL_OS)),true)
+OPENBSD      = $(if $(findstring openbsd,$(LOCAL_OS)),true)
+DRAGONFLYBSD = $(if $(findstring dragonfly,$(LOCAL_OS)),true)
+BSD          = $(if $(FREEBSD)$(NETBSD)$(OPENBSD)$(DRAGONFLYBSD),true)
 
 ifneq ($(M32),)
     # 32-bit cross-comppilation.
@@ -203,6 +212,15 @@ ifeq ($(CPU_COUNT),)
         export CPU_COUNT  := $(if $(CPU_COUNT),$(CPU_COUNT),1)
         export CORE_COUNT := $(shell sysctl -n hw.physicalcpu 2>/dev/null)
         export CORE_COUNT := $(if $(CORE_COUNT),$(CORE_COUNT),$(CPU_COUNT))
+    else ifneq ($(FREEBSD),)
+        export CPU_COUNT  := $(shell sysctl -n kern.smp.cpus 2>/dev/null)
+        export CPU_COUNT  := $(if $(CPU_COUNT),$(CPU_COUNT),1)
+        export CORE_COUNT := $(shell sysctl -n kern.smp.cores 2>/dev/null)
+        export CORE_COUNT := $(if $(CORE_COUNT),$(CORE_COUNT),$(CPU_COUNT))
+    else ifneq ($(OPENBSD)$(NETBSD)$(DRAGONFLYBSD),)
+        export CPU_COUNT  := $(shell sysctl -n hw.ncpu 2>/dev/null)
+        export CPU_COUNT  := $(if $(CPU_COUNT),$(CPU_COUNT),1)
+        export CORE_COUNT := $(CPU_COUNT)
     else
         export CPU_COUNT  := $(shell nproc 2>/dev/null)
         export CPU_COUNT  := $(if $(CPU_COUNT),$(CPU_COUNT),1)
@@ -213,25 +231,29 @@ endif
 
 # On macOS, Homebrew development packages are installed in /usr/local (Intel) or /opt/homebrew (Arm).
 # On Linux, when Homebrew is forced, use it as alternative development root.
+# On FreeBSD, OpenBSD, DragonFlyBSD, the packages are installed in /usr/local.
+# On NetBSD, the packages are installed in /usr/pkg.
 
-ifneq ($(MACOS)$(LINUXBREW),)
+ifneq ($(MACOS)$(LINUXBREW)$(FREEBSD)$(OPENBSD)$(DRAGONFLYBSD),)
     $(if $(LINUXBREW),$(if $(HOMEBREW_PREFIX),,$(error LINUXBREW is defined but not HOMEBREW_PREFIX)))
     ALTDEVROOT := $(if $(HOMEBREW_PREFIX),$(HOMEBREW_PREFIX),$(if $(wildcard /opt/homebrew/bin),/opt/homebrew,/usr/local))
+else ifneq ($(NETBSD),)
+    ALTDEVROOT := /usr/pkg
 else
     ALTDEVROOT := /usr
 endif
 
 # Locate system directories.
 
-USELIB64  := $(if $(findstring linux-x86_64,$(LOCAL_OS)-$(MAIN_ARCH)),$(if $(LINUXBREW),,$(if $(wildcard /usr/lib64/libc.so*),true)))
-SYSPREFIX ?= $(if $(MACOS)$(LINUXBREW),$(ALTDEVROOT),/usr)
+USELIB64  := $(if $(findstring linux,$(LOCAL_OS)),$(if $(findstring 64,$(MAIN_ARCH)),$(if $(LINUXBREW),,$(if $(wildcard /usr/lib64/libc.so*),true))))
+SYSPREFIX ?= $(if $(MACOS)$(LINUXBREW)$(FREEBSD)$(OPENBSD)$(NETBSD)$(DRAGONFLYBSD),$(ALTDEVROOT),/usr)
 USRLIBDIR ?= $(if $(USELIB64),$(SYSPREFIX)/lib64,$(SYSPREFIX)/lib)
 ETCDIR    ?= $(if $(subst /usr,,$(SYSPREFIX)),$(SYSPREFIX)/etc,/etc)
 UDEVDIR   ?= $(if $(subst /usr,,$(SYSPREFIX)),$(SYSPREFIX)/etc/udev/rules.d,/lib/udev/rules.d)
 
 # Locate bash completions facility.
-BASHCOMP_DIR ?= $(if $(MACOS)$(LINUXBREW),$(ALTDEVROOT)/etc/bash_completion.d,$(SYSPREFIX)/share/bash-completion/completions)
-BASHCOMP_AUTO = $(if $(MACOS)$(LINUXBREW),,true)
+BASHCOMP_DIR ?= $(if $(MACOS)$(LINUXBREW)$(FREEBSD)$(OPENBSD)$(DRAGONFLYBSD),$(ALTDEVROOT)/etc/bash_completion.d,$(SYSPREFIX)/share/bash-completion/completions)
+BASHCOMP_AUTO = $(if $(MACOS)$(LINUXBREW)$(FREEBSD)$(OPENBSD)$(NETBSD)$(DRAGONFLYBSD),,true)
 
 #-----------------------------------------------------------------------------
 # Output directories for final binaries and objects.
@@ -249,6 +271,12 @@ endif
 ifneq ($(GPROF),)
     BINDIR_SUFFIX += -gprof
 endif
+ifneq ($(ASAN),)
+    BINDIR_SUFFIX += -asan
+endif
+ifneq ($(UBSAN),)
+    BINDIR_SUFFIX += -ubsan
+endif
 ifneq ($(LLVM),)
     BINDIR_SUFFIX += -clang
 endif
@@ -262,9 +290,9 @@ ifneq ($(BINDIR),)
     override BINDIR := $(abspath $(INBINDIR))
     MAKEOVERRIDES := $(subst BINDIR=$(INBINDIR),BINDIR=$(BINDIR),$(MAKEOVERRIDES))
 else ifneq ($(DEBUG),)
-    BINDIR = $(ROOTDIR)/bin/debug-$(MAIN_ARCH)$(if $(HOSTNAME),-$(HOSTNAME),)$(BINDIR_SUFFIX)
+    BINDIR = $(BINROOT)/debug-$(MAIN_ARCH)$(if $(HOSTNAME),-$(HOSTNAME),)$(BINDIR_SUFFIX)
 else
-    BINDIR = $(ROOTDIR)/bin/release-$(MAIN_ARCH)$(if $(HOSTNAME),-$(HOSTNAME),)$(BINDIR_SUFFIX)
+    BINDIR = $(BINROOT)/release-$(MAIN_ARCH)$(if $(HOSTNAME),-$(HOSTNAME),)$(BINDIR_SUFFIX)
 endif
 
 OBJDIR = $(BINDIR)/objs-$(notdir $(CURDIR))
@@ -315,28 +343,46 @@ OBJDIR = $(BINDIR)/objs-$(notdir $(CURDIR))
 
 GCC ?= gcc
 
-# Define compilation flags for 32-bit cross-compilation.
-# Target architecture is skipped on ARM because of numerous variants.
+# Compilation target options.
+
+CXXFLAGS_M32 =
+LDFLAGS_M32 =
 
 ifneq ($(M32),)
-    override CXXFLAGS_TARGET := -march=i686
-    override CXXFLAGS_M32 := -m32
-    override LDFLAGS_M32  := -m32
+    # Define compilation flags for 32-bit cross-compilation.
+    override CXXFLAGS_TARGET = -march=i686
+    override CXXFLAGS_M32 = -m32
+    override LDFLAGS_M32 = -m32
 else
-    CXXFLAGS_TARGET :=
-    CXXFLAGS_M32 :=
-    LDFLAGS_M32  :=
+    CXXFLAGS_TARGET =
 endif
 
 # Cross-compilation support.
 # If $(CROSS) is defined (any non-empty value), perform a cross-compilation build.
-# $(CROSS_TARGET) is the target name of the cross-compilation (e.g. arm-unknown-linux-gnueabi).
-# If undefined but $(CROSS) is defined, we locate the first GCC executable with path
-# $(CROSS_PREFIX)/TARGET/bin/TARGET-gcc.
+# Cross-build tools:
+#   $(CROSS_TARGET) is the target name of the cross-compilation (e.g. arm-unknown-linux-gnueabi).
+#   If $(CROSS_TARGET) is undefined but $(CROSS) is defined, we locate the first GCC executable
+#   with path $(CROSS_PREFIX)/TARGET/bin/TARGET-gcc.
+# Native installation of TSDuck:
+#   The last phase of the build uses tsxml, a TSDuck tool which is built in earlier phases.
+#   Using cross-compilation, this tsxml cannot run on the native system. A native installation
+#   of TSDuck is required. If not installed in the $PATH, a native TSDuck must have been compiled
+#   somewhere and NATIVEBINDIR must point to the BINDIR of the native build.
+
+ifneq ($(NATIVEBINDIR),)
+    # NATIVEBINDIR is specified in input, transform it into an absolute path for recursion.
+    INNATIVEBINDIR := $(NATIVEBINDIR)
+    override NATIVEBINDIR := $(abspath $(INNATIVEBINDIR))
+    MAKEOVERRIDES := $(subst NATIVEBINDIR=$(INNATIVEBINDIR),NATIVEBINDIR=$(NATIVEBINDIR),$(MAKEOVERRIDES))
+endif
 
 ifeq ($(CROSS)$(CROSS_TARGET),)
     CXXFLAGS_CROSS =
     LDFLAGS_CROSS =
+    NATIVEBINDIR ?= $(BINDIR)
+    TSXML = LD_LIBRARY_PATH="$(NATIVEBINDIR):$(LD_LIBRARY_PATH)" \
+        $(if $(MACOS),DYLD_LIBRARY_PATH="$(NATIVEBINDIR):$(DYLD_LIBRARY_PATH)") \
+        $(NATIVEBINDIR)/tsxml
 else
     CROSS ?= true
     # Cross-compilation tools are in /usr/local by default.
@@ -354,9 +400,16 @@ else
     override CXXFLAGS_TARGET :=
     override GCC_VERSION_DONE :=
     # Redirect build tools.
-    CXX = $(CROSS_PREFIX)/$(CROSS_TARGET)/bin/$(CROSS_TARGET)-g++
-    GCC = $(CROSS_PREFIX)/$(CROSS_TARGET)/bin/$(CROSS_TARGET)-gcc
-    LD  = $(CROSS_PREFIX)/$(CROSS_TARGET)/bin/$(CROSS_TARGET)-ld
+    F_SEARCH_CROSS = $(firstword $(wildcard \
+        $(CROSS_PREFIX)/$(CROSS_TARGET)/bin/$(CROSS_TARGET)-$(1) \
+        $(CROSS_PREFIX)/$(CROSS_TARGET)/bin/$(1) \
+        $(CROSS_PREFIX)/bin/$(CROSS_TARGET)-$(1)))
+    CXX := $(call F_SEARCH_CROSS,g++)
+    GCC := $(call F_SEARCH_CROSS,gcc)
+    LD  := $(call F_SEARCH_CROSS,ld)
+    $(if $(CXX),,$(error cross g++ not found for $(CROSS_TARGET)))
+    $(if $(GCC),,$(error cross gcc not found for $(CROSS_TARGET)))
+    $(if $(LD),,$(error cross ld not found for $(CROSS_TARGET)))
     # Add options. The layout can be different, so use them all.
     CXXFLAGS_CROSS = -I$(CROSS_PREFIX)/$(CROSS_TARGET)/include \
                      -I$(CROSS_PREFIX)/$(CROSS_TARGET)/$(CROSS_TARGET)/include \
@@ -364,29 +417,49 @@ else
     LDFLAGS_CROSS  = -L$(CROSS_PREFIX)/$(CROSS_TARGET)/lib \
                      -L$(CROSS_PREFIX)/$(CROSS_TARGET)/$(CROSS_TARGET)/lib \
                      -L$(CROSS_PREFIX)/$(CROSS_TARGET)/$(CROSS_TARGET)/libc/lib
+    TSXML ?= $(call F_SEARCH,tsxml)
+    ifeq ($(TSXML),)
+        ifneq ($(wildcard $(NATIVEBINDIR)/tsxml),)
+            TSXML = LD_LIBRARY_PATH="$(NATIVEBINDIR):$(LD_LIBRARY_PATH)" \
+                $(if $(MACOS),DYLD_LIBRARY_PATH="$(NATIVEBINDIR):$(DYLD_LIBRARY_PATH)") \
+                $(NATIVEBINDIR)/tsxml
+        endif
+    endif
+    $(if $(TSXML),,$(error no native TSDuck found for cross-compilation, check NATIVEBINDIR))
 endif
 
 # Get current compiler version, usually in form x.y.z
 
 ifeq ($(GCC_VERSION_DONE),)
-    export GCC_VERSION_DONE = true
+    export GCC_VERSION_DONE := true
     export GCC_VERSION := $(shell $(GCC) -dumpversion 2>/dev/null)
     export GCC_MAJOR := $(firstword $(subst .,$(SPACE),$(GCC_VERSION)))
     export LLVM_VERSION := $(shell clang -dumpversion 2>/dev/null)
     export LLVM_MAJOR := $(firstword $(subst .,$(SPACE),$(LLVM_VERSION)))
-    export USE_GCC := $(if $(shell $(CXX) --version 2>/dev/null | grep -i -e gcc -e g++),true)
-    export USE_LLVM := $(if $(shell $(CXX) --version 2>/dev/null | grep -i clang),true)
+    export USE_GCC := $(if $(shell $(CXX) --version 2>/dev/null | $(GREP) -i -e gcc -e g++),true)
+    export USE_LLVM := $(if $(shell $(CXX) --version 2>/dev/null | $(GREP) -i clang),true)
+    export LLVM_10 := $(call F_GE,$(LLVM_MAJOR),10)
     export LLVM_12 := $(call F_GE,$(LLVM_MAJOR),12)
+    export LLVM_15 := $(call F_GE,$(LLVM_MAJOR),15)
     export GCC_5 := $(call F_GE,$(GCC_MAJOR),5)
     export GCC_6 := $(call F_GE,$(GCC_MAJOR),6)
+    export GCC_9 := $(call F_GE,$(GCC_MAJOR),9)
 endif
 
 # Forced usage of LLVM (clang).
+# FreeBSD and OpenBSD have switched to clang by default.
 
-ifneq ($(LLVM),)
+ifneq ($(LLVM)$(FREEBSD)$(OPENBSD),)
     export USE_GCC :=
     export USE_LLVM := true
     CXX = clang++
+    CC  = clang
+    # On some systems (e.g. Ubuntu 22.04), clang-14 is the default but is
+    # incompatible with the installed gcc header files in C++20 mode.
+    # If clang-15 is installed, use it instead of clang-14.
+    ifeq ($(LLVM_MAJOR),14)
+        CXX := $(call F_COMMAND,clang++-15,clang++)
+    endif
 endif
 
 # Compilation flags for various types of optimization.
@@ -425,9 +498,9 @@ else
         $(if $(findstring arm,$(MAIN_ARCH)),-Wno-psabi)
 endif
 
-# Language levels.
+# Language levels. Minimum level is C++17.
 
-CXXFLAGS_STANDARD ?= -std=c++11
+CXXFLAGS_STANDARD ?= -std=c++17
 
 # Compilation flags for security.
 
@@ -445,6 +518,26 @@ ifneq ($(DEBUG),)
 else
     CXXFLAGS_DEBUG = $(CXXFLAGS_OPTIMIZE)
     LDFLAGS_DEBUG =
+endif
+
+# Compilation flags for code sanitizing using AddressSanitizer with default optimization.
+
+ifneq ($(ASAN),)
+    CXXFLAGS_ASAN = -fsanitize=address -g3
+    LDFLAGS_ASAN = -fsanitize=address -g3
+else
+    CXXFLAGS_ASAN =
+    LDFLAGS_ASAN =
+endif
+
+# Compilation flags for code sanitizing using UndefinedBehaviorSanitizer with default optimization.
+
+ifneq ($(UBSAN),)
+    CXXFLAGS_UBSAN = -fsanitize=undefined -fno-sanitize=unsigned-integer-overflow -fno-sanitize=alignment -g3
+    LDFLAGS_UBSAN = -fsanitize=undefined -fno-sanitize=unsigned-integer-overflow -fno-sanitize=alignment -g3
+else
+    CXXFLAGS_UBSAN =
+    LDFLAGS_UBSAN =
 endif
 
 # Compilation flags for code coverage using gcov.
@@ -474,44 +567,58 @@ LDFLAGS_PTHREAD = $(if $(MACOS),,-pthread)
 
 # External libraries
 
-LDLIBS += -lstdc++ -lpthread $(if $(MACOS),,-lrt -latomic) -lm
+LDLIBS += -lpthread $(if $(MACOS)$(OPENBSD),,-lrt) -lm
 
 # Global compilation flags.
 # Additional flags can be passed on the "make" command line using xxFLAGS_EXTRA.
 
-CXXFLAGS = $(CXXFLAGS_DEBUG) $(CXXFLAGS_M32) $(CXXFLAGS_GCOV) $(CXXFLAGS_GPROF) $(CXXFLAGS_WARNINGS) \
-           $(CXXFLAGS_SECURITY) $(CXXFLAGS_INCLUDES) $(CXXFLAGS_TARGET) $(CXXFLAGS_FPIC) $(CXXFLAGS_STANDARD) \
-           $(CXXFLAGS_CROSS) $(CXXFLAGS_PTHREAD) $(CXXFLAGS_EXTRA)
-LDFLAGS  = $(LDFLAGS_DEBUG) $(LDFLAGS_M32) $(LDFLAGS_GCOV) $(LDFLAGS_GPROF) $(CXXFLAGS_TARGET) \
-           $(LDFLAGS_CROSS) $(LDFLAGS_PTHREAD) $(LDFLAGS_EXTRA)
+CXXFLAGS = $(CXXFLAGS_DEBUG) $(CXXFLAGS_M32) $(CXXFLAGS_ASAN) $(CXXFLAGS_UBSAN) $(CXXFLAGS_GCOV) $(CXXFLAGS_GPROF) \
+           $(CXXFLAGS_WARNINGS) $(CXXFLAGS_SECURITY) $(CXXFLAGS_INCLUDES) $(CXXFLAGS_TARGET) $(CXXFLAGS_FPIC) \
+           $(CXXFLAGS_STANDARD) $(CXXFLAGS_CROSS) $(CXXFLAGS_PTHREAD) $(CXXFLAGS_EXTRA)
+LDFLAGS  = $(LDFLAGS_DEBUG) $(LDFLAGS_M32) $(LDFLAGS_ASAN) $(LDFLAGS_UBSAN) $(LDFLAGS_GCOV) $(LDFLAGS_GPROF) \
+           $(CXXFLAGS_TARGET) $(LDFLAGS_CROSS) $(LDFLAGS_PTHREAD) $(LDFLAGS_EXTRA)
 ARFLAGS  = rc$(if $(MACOS),,U) $(ARFLAGS_EXTRA)
 
 # $(SOFLAGS) specifies options when creating shared objects (.so or .dylib files).
 
-ifeq ($(MACOS),)
-    # Link flags on Linux
-    CXXFLAGS_INCLUDES += -I$(LIBTSDUCKDIR)/linux
+ifneq ($(LINUX),)
+    # Build flags on Linux
     LDFLAGS += -Wl,-rpath,'$$ORIGIN',-z,noexecstack
     SOFLAGS = -Wl,-soname=$(notdir $@),-z,noexecstack
-else
-    # Link flags on macOS
-    CXXFLAGS_INCLUDES += -I$(LIBTSDUCKDIR)/mac
-    LDFLAGS += -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/../lib
+else ifneq ($(FREEBSD),)
+    # Build flags on FreeBSD
+    LDFLAGS += -Wl,-rpath,'$$ORIGIN',-z,noexecstack
+    SOFLAGS = -Wl,-soname=$(notdir $@),-z,noexecstack
+else ifneq ($(OPENBSD),)
+    # Build flags on OpenBSD
+    LDFLAGS += -Wl,-z,origin,-rpath,'$$ORIGIN',-z,noexecstack
+    SOFLAGS = -Wl,-soname=$(notdir $@),-z,noexecstack
+else ifneq ($(NETBSD),)
+    # Build flags on NetBSD
+    LDFLAGS += -Wl,-rpath,'$$ORIGIN',-rpath,$(ALTDEVROOT)/lib,-z,noexecstack
+    SOFLAGS = -Wl,-soname=$(notdir $@),-z,noexecstack
+else ifneq ($(DRAGONFLYBSD),)
+    # Build flags on DragonFlyBSD
+    LDFLAGS += -Wl,-z,origin,-rpath,'$$ORIGIN',-z,noexecstack
+    SOFLAGS = -Wl,-soname=$(notdir $@),-z,noexecstack
+else ifneq ($(MACOS),)
+    # Build flags on macOS
+    LDFLAGS += -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/../lib -Xlinker $(if $(LLVM_15),-no_warn_duplicate_libraries)
     SOFLAGS = -install_name '@rpath/$(notdir $@)'
 endif
+
+# Display synthetic or full commands.
+
+LOG = $(if $(VERBOSE)$(V),,@echo '  $(1)';)
 
 # Compilation rules
 
 $(OBJDIR)/%.o: %.cpp
-	@echo '  [CXX] $<'; \
-	mkdir -p $(OBJDIR); \
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
+	$(call LOG,[CXX] $<) mkdir -p $(OBJDIR); $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c -o $@ $<
 $(BINDIR)/%: $(OBJDIR)/%.o
-	@echo '  [LD] $@'; \
-	$(CXX) $(LDFLAGS) $^ $(LDLIBS_EXTRA) $(LDLIBS) -o $@
+	$(call LOG,[LD] $@) $(CXX) $(LDFLAGS) $^ $(LDLIBS_EXTRA) $(LDLIBS) -o $@
 $(BINDIR)/%$(SO_SUFFIX): $(OBJDIR)/%.o
-	@echo '  [LD] $@'; \
-	$(CXX) $(CXXFLAGS) $(SOFLAGS) $(LDFLAGS) $^ $(LDLIBS_EXTRA) $(LDLIBS) -shared -o $@
+	$(call LOG,[LD] $@) $(CXX) $(SOFLAGS) $(LDFLAGS) $^ $(LDLIBS_EXTRA) $(LDLIBS) -shared -o $@
 
 #-----------------------------------------------------------------------------
 # Static linking.
@@ -528,13 +635,15 @@ static:
 
 ifeq ($(STATIC),)
     # Dynamic (default) link
-    LDLIBS := -ldl $(LDLIBS)
+    LDLIBS := $(if $(OPENBSD)$(NETBSD),,-ldl) $(LDLIBS)
 else ifneq ($(MACOS),)
     $(error static linking is not supported on macOS)
 else
+    $(if $(NOSTATIC),$(error cannot define STATIC and NOSTATIC together))
     NOCURL     = true
     NOPCSC     = true
     NODTAPI    = true
+    NOVATEK    = true
     NOSRT      = true
     NORIST     = true
     NOEDITLINE = true
@@ -551,6 +660,7 @@ ifneq ($(CROSS)$(CROSS_TARGET),)
     NOCURL     = true
     NOPCSC     = true
     NODTAPI    = true
+    NOVATEK    = true
     NOSRT      = true
     NORIST     = true
     NOEDITLINE = true
@@ -571,10 +681,15 @@ ifeq ($(NOCURL),)
     NOCURL := $(if $(call F_SEARCH,curl-config),,true)
 endif
 
-ifneq ($(MACOS),)
-    # Dektec and HiDes devices are not supported on macOS (no driver).
+ifneq ($(MACOS)$(BSD),)
+    # Dektec and HiDes devices are not supported on macOS and BSD systems (no driver).
     NODTAPI = true
     NOHIDES = true
+endif
+
+ifneq ($(BSD),)
+    # Vatek library has not yet been validated on BSD systems (only depends on libusb).
+    NOVATEK = true
 endif
 
 ifneq ($(NODEKTEC),)
@@ -619,8 +734,8 @@ ifneq ($(NOPCSC),)
 else ifneq ($(MACOS),)
     # On macOS, use PCSC.framework
     LDLIBS_PCSC = -framework PCSC
-else ifneq ($(LINUXBREW),)
-    # PCSC on Linuxbrew
+else ifneq ($(LINUXBREW)$(BSD),)
+    # PCSC on Linuxbrew and all BSD systems.
     CXXFLAGS_INCLUDES += -I$(ALTDEVROOT)/include/PCSC
     LDLIBS_PCSC = -lpcsclite
 else
@@ -633,12 +748,17 @@ ifneq ($(NOGITHUB),)
     CXXFLAGS_INCLUDES += -DTS_NO_GITHUB=1
 endif
 
-ifneq ($(NOTELETEXT),)
-    CXXFLAGS_INCLUDES += -DTS_NO_TELETEXT=1
-endif
-
 ifneq ($(ASSERTIONS),)
     CXXFLAGS_INCLUDES += -DTS_KEEP_ASSERTIONS=1
+endif
+
+ifneq ($(NOHWACCEL),)
+    CXXFLAGS_INCLUDES += -DTS_NO_ARM_CRC32_INSTRUCTIONS=1
+    CXXFLAGS_INCLUDES += -DTS_NO_ARM_AES_INSTRUCTIONS=1
+endif
+
+ifneq ($(NODEPRECATE),)
+    CXXFLAGS_INCLUDES += -DTS_NODEPRECATE=1
 endif
 
 # These variables are used when building the TSDuck library, not in the
@@ -646,7 +766,10 @@ endif
 # when linking applications against the TSDuck static library.
 
 LIBTSDUCK_CXXFLAGS_INCLUDES +=
-LIBTSDUCK_LDLIBS += $(LDLIBS_PCSC)
+LIBTSDUCK_LDLIBS += -lcrypto $(LDLIBS_PCSC) \
+    $(if $(FREEBSD),-lprocstat) \
+    $(if $(OPENBSD)$(NETBSD)$(DRAGONFLYBSD),-lkvm) \
+    $(if $(LINUX),-latomic)
 
 ifneq ($(NODTAPI),)
     LIBTSDUCK_CXXFLAGS_INCLUDES += -DTS_NO_DTAPI=1
@@ -671,8 +794,10 @@ ifneq ($(NOCURL),)
 else
     ifeq ($(CURL_DONE),)
         export CXXFLAGS_CURL := $(shell curl-config --cflags)
-	export LDLIBS_CURL := $(shell curl-config --libs)
+        export LDLIBS_CURL := $(shell curl-config --libs)
         export CURL_DONE := true
+        # Remove useless explicit references to /usr/lib which break usage of alternative compilers
+        export LDLIBS_CURL := $(patsubst -L/usr/lib,,$(patsubst -Wl$(COMMA)-R/usr/lib,,$(LDLIBS_CURL)))
     endif
     LIBTSDUCK_CXXFLAGS_INCLUDES += $(CXXFLAGS_CURL)
     LIBTSDUCK_LDLIBS += $(LDLIBS_CURL)
@@ -697,7 +822,11 @@ endif
 # List of libtsduck directories containing private and public headers.
 
 ifeq ($(PUBLIC_INCLUDES),)
-    export ALL_INCLUDES := $(filter-out %/windows %/$(if $(MACOS),linux,mac),$(patsubst %/,%,$(sort $(dir $(wildcard $(LIBTSDUCKDIR)/*.h $(LIBTSDUCKDIR)/*/*.h $(LIBTSDUCKDIR)/*/*/*.h)))))
+    export OTHER_OS := $(filter-out $(LOCAL_OSDIR),linux mac freebsd netbsd openbsd dragonflybsd windows)
+    ifeq ($(BSD),)
+        export OTHER_OS := $(OTHER_OS) bsd
+    endif
+    export ALL_INCLUDES := $(filter-out $(addprefix %/,$(OTHER_OS)),$(patsubst %/,%,$(sort $(dir $(wildcard $(LIBTSDUCKDIR)/*.h $(LIBTSDUCKDIR)/*/*.h $(LIBTSDUCKDIR)/*/*/*.h $(LIBTSDUCKDIR)/*/*/*/*.h)))))
     export PRIVATE_INCLUDES := $(filter %/private,$(ALL_INCLUDES))
     export PUBLIC_INCLUDES := $(filter-out %/private,$(ALL_INCLUDES))
 endif
@@ -710,7 +839,7 @@ ifeq ($(TSPLUGINS),)
     TSPLUGINS := $(sort $(notdir $(basename $(wildcard $(TSPLUGINSDIR)/tsplugin_*.cpp))))
     TSTOOLS := $(sort $(notdir $(basename $(wildcard $(TSTOOLSDIR)/ts*.cpp))))
     # Obsolete plugins, were in separate shared libraries, now in libtsduck.so.
-    # Maintenance: also update scripts/tsduck.nsi (Windows).
+    # Maintenance: also update pkg/nsis/tsduck.nsi (Windows).
     NO_TSPLUGINS := $(addprefix tsplugin_,dektec drop file fork hls http ip null psi rist skip srt table teletext)
     # Build a list of tools and plugins to not build or deinstall from the system tree.
     NO_TSTOOLS :=
@@ -756,13 +885,15 @@ endif
 # $(NODEPS) lists the make targets in the parent makefile which shall
 # not enforce the generation of header dependency files. This is a bit
 # complicated and, most of the time, there is no need to set this variable.
+#
+# $(NODEPS_SRC) lists local source files for which we should not generate
+# a .dep, probably because they are not used on that platform and trying
+# to parse them for .dep would return an error.
 #-----------------------------------------------------------------------------
 
 $(OBJDIR)/%.dep: %.cpp
-	@echo '  [DEP] $<'; \
-	mkdir -p $(OBJDIR); \
-	$(CXX) -MM $(CPPFLAGS) $(CXXFLAGS_INCLUDES) $(CXXFLAGS_STANDARD) $(CXXFLAGS_NO_WARNINGS) -MT $(OBJDIR)/$*.o -MT $@ $< >$@ || \
-	rm -f $@
+	$(call LOG,[DEP] $<) mkdir -p $(OBJDIR); \
+	$(CXX) -MM $(CPPFLAGS) $(CXXFLAGS_INCLUDES) $(CXXFLAGS_STANDARD) $(CXXFLAGS_NO_WARNINGS) -MT $(OBJDIR)/$*.o -MT $@ $< >$@ || rm -f $@
 
 NODEPS += clean cmacros coverity cppcheck cppcheck-xml cxxmacros distclean doxygen \
           flawfinder cloc listvars scan-build unixify
@@ -774,7 +905,7 @@ ifeq ($(DONT_BUILD_DEPS),)
 endif
 
 ifeq ($(DONT_BUILD_DEPS),)
-    -include $(addprefix $(OBJDIR)/,$(addsuffix .dep,$(notdir $(basename $(CURCPP) $(wildcard *.cpp)))))
+    -include $(addprefix $(OBJDIR)/,$(addsuffix .dep,$(notdir $(basename $(filter-out $(NODEPS_SRC),$(wildcard *.cpp))))))
 endif
 
 #-----------------------------------------------------------------------------
@@ -791,7 +922,7 @@ unixify:
 	  mv -f $$f.tmp $$f; \
 	done
 	for f in $$(find . -name \*.c -o -name \*.cpp -o -name \*.h -o -name Makefile\* -o -name \*.sh -o -name \*.dox -o -name \*.md -o -name \*.xml -o -name \*.txt); do \
-	  dos2unix -q $$f; \
+	  dos2unix $(if $(FREEBSD)$(DRAGONFLYBSD),,-q) $$f; \
 	  $(SED) -i -e 's/  *$$//' $$f; \
 	done
 

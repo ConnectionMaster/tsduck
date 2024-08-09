@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -162,7 +141,7 @@ ts::HiDesDevice::Guts::Guts() :
 {
     TS_ZERO(overlapped);
     assert(sizeof(kslist) == sizeof(kslist_template));
-    ::memcpy(kslist, kslist_template, sizeof(kslist));
+    MemCopy(kslist, kslist_template, sizeof(kslist));
 }
 
 ts::HiDesDevice::Guts::~Guts()
@@ -185,7 +164,7 @@ bool ts::HiDesDevice::Guts::ksProperty(KSPROPERTY& prop, void *data, ::DWORD siz
     }
 
     if (!ok) {
-        report.error(u"IOCTL_KS_PROPERTY error: %s", {WinErrorMessage(::GetLastError())});
+        report.error(u"IOCTL_KS_PROPERTY error: %s", WinErrorMessage(::GetLastError()));
     }
 
     return ok;
@@ -228,7 +207,7 @@ bool ts::HiDesDevice::Guts::getDevices(HiDesDeviceInfoList* list, int index, con
 
     // Get a canonical version of CLSID_Proxy, the expected class id of it950x devices.
     const UString itclsid(CanonicalGUID(CLSID_Proxy));
-    report.debug(u"HiDes: CLSID_Proxy: %s", {itclsid});
+    report.debug(u"HiDes: CLSID_Proxy: %s", itclsid);
 
     // Count devices to match index.
     int deviceIndex = 0;
@@ -241,12 +220,12 @@ bool ts::HiDesDevice::Guts::getDevices(HiDesDeviceInfoList* list, int index, con
         // Get friendly name and class id of this filter.
         const UString fname(GetStringPropertyBag(monikers[i].pointer(), L"FriendlyName", report));
         const UString clsid(GetStringPropertyBag(monikers[i].pointer(), L"CLSID", report));
-        report.debug(u"HiDes: checking \"%s\", CLSID %s", {fname, clsid});
+        report.debug(u"HiDes: checking \"%s\", CLSID %s", fname, clsid);
 
         // Check if the name has the required prefix and class id for an it950x device.
         // Filter out names containing " RX " in case this means a receiver (not verified yet).
         if (fname.startWith(u"IT95") && !fname.contain(u" RX ") && CanonicalGUID(clsid) == itclsid) {
-            report.debug(u"HiDes: found device \"%s\"", {fname});
+            report.debug(u"HiDes: found device \"%s\"", fname);
 
             // We must increment deviceIndex now because this is an index of all it950x devices.
             // If there is an error later, this means that we may have no right to access this device.
@@ -291,11 +270,11 @@ bool ts::HiDesDevice::Guts::getDevices(HiDesDeviceInfoList* list, int index, con
         return true;
     }
     else if (index >= 0) {
-        report.error(u"device index %d not found", {index});
+        report.error(u"device index %d not found", index);
         return false;
     }
     else {
-        report.error(u"device %s not found", {name});
+        report.error(u"device %s not found", name);
         return false;
     }
 }
@@ -331,9 +310,9 @@ bool ts::HiDesDevice::Guts::getDeviceInfo(const ComPtr<::IMoniker>& moniker, Rep
 
     // Create an event for overlapped operations.
     report.log(2, u"HiDesDevice: creating event for overlapped");
-    overlapped.hEvent = ::CreateEventW(NULL, true, false, NULL);
-    if (overlapped.hEvent == NULL) {
-        report.error(u"CreateEvent error: %s", {WinErrorMessage(::GetLastError())});
+    overlapped.hEvent = ::CreateEventW(nullptr, true, false, nullptr);
+    if (overlapped.hEvent == nullptr) {
+        report.error(u"CreateEvent error: %s", WinErrorMessage(::GetLastError()));
         close();
         return false;
     }
@@ -349,7 +328,7 @@ bool ts::HiDesDevice::Guts::getDeviceInfo(const ComPtr<::IMoniker>& moniker, Rep
         prop.Flags = KSPROPERTY_TYPE_BASICSUPPORT;
         ::DWORD want = 0;
 
-        report.log(2, u"HiDesDevice: checking support for property %d, index %d", {prop.Id, i});
+        report.log(2, u"HiDesDevice: checking support for property %d, index %d", prop.Id, i);
 
         // Check that basic support is provided.
         ::DWORD got = 0;
@@ -365,7 +344,7 @@ bool ts::HiDesDevice::Guts::getDeviceInfo(const ComPtr<::IMoniker>& moniker, Rep
             }
         }
         if (!ok || (got & want) == 0) {
-            report.error(u"Property %d not fully supported on %s (%s)", {prop.Id, info.name, info.path});
+            report.error(u"Property %d not fully supported on %s (%s)", prop.Id, info.name, info.path);
             status = false;
         }
     }
@@ -454,7 +433,7 @@ bool ts::HiDesDevice::Guts::getDeviceInfo(const ComPtr<::IMoniker>& moniker, Rep
 
 ts::UString ts::HiDesDevice::Guts::FormatVersion(uint32_t v)
 {
-    return v == 0 ? UString() : UString::Format(u"%d.%d.%d.%d", {(v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF});
+    return v == 0 ? UString() : UString::Format(u"%d.%d.%d.%d", (v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
 }
 
 
@@ -481,7 +460,7 @@ bool ts::HiDesDevice::open(int index, Report& report)
 {
     // Error if already open.
     if (_is_open) {
-        report.error(u"%s already open", {_guts->info.path});
+        report.error(u"%s already open", _guts->info.path);
         return false;
     }
 
@@ -494,7 +473,7 @@ bool ts::HiDesDevice::open(const UString& name, Report& report)
 {
     // Error if already open.
     if (_is_open) {
-        report.error(u"%s already open", {_guts->info.path});
+        report.error(u"%s already open", _guts->info.path);
         return false;
     }
 
@@ -576,7 +555,7 @@ bool ts::HiDesDevice::Guts::setTransmission(bool enable, Report& report)
 {
     ite::IoctlGeneric ioc(ite::IOCTL_IT95X_SET_RF_OUTPUT, enable);
     if (!ioctlSet(&ioc, sizeof(ioc), report)) {
-        report.error(u"error setting transmission %s", {UString::OnOff(enable)});
+        report.error(u"error setting transmission %s", UString::OnOff(enable));
         return false;
     }
     else {
@@ -589,7 +568,7 @@ bool ts::HiDesDevice::Guts::setPower(bool enable, Report& report)
 {
     ite::IoctlGeneric ioc(ite::IOCTL_IT95X_SET_POWER, enable);
     if (!ioctlSet(&ioc, sizeof(ioc), report)) {
-        report.error(u"error setting power %s", {UString::OnOff(enable)});
+        report.error(u"error setting power %s", UString::OnOff(enable));
         return false;
     }
     else {
@@ -641,7 +620,7 @@ bool ts::HiDesDevice::Guts::setGetGain(uint32_t code, int& gain, Report& report)
                 gain = - int(ioc.param1);
                 break;
             default:
-                report.error(u"error setting output gain, invalid returned sign value: %d", {ioc.param2});
+                report.error(u"error setting output gain, invalid returned sign value: %d", ioc.param2);
                 return false;
         }
         return true;
@@ -721,7 +700,7 @@ bool ts::HiDesDevice::tune(const ModulationArgs& in_params, Report& report)
 
     // Get tuning parameters with default values.
     ModulationArgs params(in_params);
-    params.delivery_system.setDefault(DS_DVB_T);
+    set_default(params.delivery_system, DS_DVB_T);
     params.setDefaultValues();
     if (params.delivery_system != DS_DVB_T) {
         report.error(u"invalid tuning parameters for HiDes device, not DVB-T parameters");
@@ -895,9 +874,9 @@ bool ts::HiDesDevice::send(const TSPacket* packets, size_t packet_count, Report&
         // Copy a chunk of packets in the transmission control block.
         const size_t count = std::min<size_t>(packet_count, IT95X_TX_BLOCK_PKTS);
         ioc.size = uint32_t(count * PKT_SIZE);
-        ::memcpy(ioc.data, packets, ioc.size);
+        MemCopy(ioc.data, packets, ioc.size);
 
-        report.log(2, u"HiDesDevice: calling IOCTL_IT95X_SEND_TS_DATA, size = %d, packets: %d", {ioc.size, count});
+        report.log(2, u"HiDesDevice: calling IOCTL_IT95X_SEND_TS_DATA, size = %d, packets: %d", ioc.size, count);
 
         // Send packets.
         if (!_guts->ioctlSet(&ioc, sizeof(ioc), report)) {
@@ -905,7 +884,7 @@ bool ts::HiDesDevice::send(const TSPacket* packets, size_t packet_count, Report&
             return false;
         }
 
-        report.log(2, u"HiDesDevice: after IOCTL_IT95X_SEND_TS_DATA, size = %d", {ioc.size});
+        report.log(2, u"HiDesDevice: after IOCTL_IT95X_SEND_TS_DATA, size = %d", ioc.size);
 
         packets += count;
         packet_count -= count;

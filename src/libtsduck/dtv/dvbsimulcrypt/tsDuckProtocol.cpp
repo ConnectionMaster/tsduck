@@ -1,38 +1,14 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsDuckProtocol.h"
 #include "tstlvMessageFactory.h"
 #include "tsSection.h"
-
-// Define protocol singleton instance
-TS_DEFINE_SINGLETON(ts::duck::Protocol);
 
 
 //----------------------------------------------------------------------------
@@ -51,8 +27,7 @@ ts::UString ts::duck::Protocol::name() const
 // Protocol Constructor: Define the syntax of the protocol
 //----------------------------------------------------------------------------
 
-ts::duck::Protocol::Protocol() :
-    tlv::Protocol(ts::duck::CURRENT_VERSION)
+ts::duck::Protocol::Protocol() : tlv::Protocol(ts::duck::CURRENT_VERSION)
 {
     // Define the syntax of all commands:
     // add (cmd_tag, param_tag, min_size, max_size, min_count, max_count)
@@ -79,16 +54,16 @@ void ts::duck::Protocol::factory(const tlv::MessageFactory& fact, tlv::MessagePt
 {
     switch (fact.commandTag()) {
         case Tags::MSG_LOG_SECTION:
-            msg = new LogSection(fact);
+            msg = std::make_shared<LogSection>(fact);
             break;
         case Tags::MSG_LOG_TABLE:
-            msg = new LogTable(fact);
+            msg = std::make_shared<LogTable>(fact);
             break;
         case Tags::MSG_ECM:
-            msg = new ClearECM(fact);
+            msg = std::make_shared<ClearECM>(fact);
             break;
         default:
-            throw tlv::DeserializationInternalError(UString::Format(PROTOCOL_NAME u" message 0x%X unimplemented", {fact.commandTag()}));
+            throw tlv::DeserializationInternalError(UString::Format(PROTOCOL_NAME u" message 0x%X unimplemented", fact.commandTag()));
     }
 }
 
@@ -100,7 +75,7 @@ void ts::duck::Protocol::factory(const tlv::MessageFactory& fact, tlv::MessagePt
 void ts::duck::Protocol::buildErrorResponse(const tlv::MessageFactory& fact, tlv::MessagePtr& msg) const
 {
     // Create an error message
-    SafePtr<Error> errmsg(new Error);
+    std::shared_ptr<Error> errmsg(new Error(version()));
 
     // Convert general TLV error code into protocol error_status
     switch (fact.errorStatus()) {
@@ -130,7 +105,7 @@ void ts::duck::Protocol::buildErrorResponse(const tlv::MessageFactory& fact, tlv
     }
 
     // Transfer ownership of safe ptr
-    msg = errmsg.release();
+    msg = errmsg;
 }
 
 
@@ -140,10 +115,10 @@ void ts::duck::Protocol::buildErrorResponse(const tlv::MessageFactory& fact, tlv
 
 namespace {
     // Dump a timestamp.
-    ts::UString DumpTimestamp(size_t indent, const ts::Variable<ts::SimulCryptDate>& timestamp)
+    ts::UString DumpTimestamp(size_t indent, const std::optional<ts::SimulCryptDate>& timestamp)
     {
-        if (timestamp.set()) {
-            return ts::UString::Format(u"%*sTimestamp = %s\n", {indent, u"", ts::UString(timestamp.value())});
+        if (timestamp.has_value()) {
+            return ts::UString::Format(u"%*sTimestamp = %s\n", indent, u"", ts::UString(timestamp.value()));
         }
         else {
             return ts::UString();
@@ -153,13 +128,13 @@ namespace {
     // Dump a section.
     ts::UString DumpSection(size_t indent, const ts::SectionPtr& section)
     {
-        if (section.isNull()) {
+        if (section == nullptr) {
             return ts::UString();
         }
         else {
             const uint32_t flags = ts::UString::HEXA | ts::UString::ASCII | ts::UString::OFFSET | ts::UString::BPL;
             const ts::UString sec(ts::UString::Dump(section->content(), section->size(), flags, indent + 2, 16));
-            return ts::UString::Format(u"%*sSection = \n%s", {indent, u"", sec});
+            return ts::UString::Format(u"%*sSection = \n%s", indent, u"", sec);
         }
     }
 
@@ -170,7 +145,7 @@ namespace {
             return ts::UString();
         }
         else {
-            return ts::UString::Format(u"%*s%s = %s\n", {indent, u"", name, ts::UString::Dump(data, ts::UString::COMPACT)});
+            return ts::UString::Format(u"%*s%s = %s\n", indent, u"", name, ts::UString::Dump(data, ts::UString::COMPACT));
         }
     }
 }
@@ -180,19 +155,8 @@ namespace {
 // Log a section
 //----------------------------------------------------------------------------
 
-ts::duck::LogSection::LogSection() :
-    tlv::Message(duck::Protocol::Instance()->version(), Tags::MSG_LOG_SECTION),
-    pid(),
-    timestamp(),
-    section()
-{
-}
-
 ts::duck::LogSection::LogSection(const tlv::MessageFactory& fact) :
-    tlv::Message(fact.protocolVersion(), fact.commandTag()),
-    pid(),
-    timestamp(),
-    section()
+    tlv::Message(fact.protocolVersion(), fact.commandTag())
 {
     if (1 == fact.count(Tags::PRM_PID)) {
         pid = fact.get<PID>(Tags::PRM_PID);
@@ -204,25 +168,25 @@ ts::duck::LogSection::LogSection(const tlv::MessageFactory& fact) :
     assert(1 == fact.count(Tags::PRM_SECTION));
     ByteBlock bb;
     fact.get(Tags::PRM_SECTION, bb);
-    section = new Section(bb);
+    section = std::make_shared<Section>(bb);
 }
 
 void ts::duck::LogSection::serializeParameters(tlv::Serializer& fact) const
 {
-    if (pid.set()) {
+    if (pid.has_value()) {
         fact.put(Tags::PRM_PID, pid.value());
     }
-    if (timestamp.set()) {
+    if (timestamp.has_value()) {
         timestamp.value().put(fact, Tags::PRM_TIMESTAMP);
     }
-    if (!section.isNull()) {
+    if (section != nullptr) {
         fact.put(Tags::PRM_SECTION, section->content(), section->size());
     }
 }
 
 ts::UString ts::duck::LogSection::dump(size_t indent) const
 {
-    return UString::Format(u"%*sLogSection (" PROTOCOL_NAME u")\n", {indent, u""}) +
+    return UString::Format(u"%*sLogSection (" PROTOCOL_NAME u")\n", indent, u"") +
         tlv::Message::dump(indent) +
         dumpOptionalHexa(indent, u"PID", pid) +
         DumpTimestamp(indent, timestamp) +
@@ -234,19 +198,8 @@ ts::UString ts::duck::LogSection::dump(size_t indent) const
 // Log a table
 //----------------------------------------------------------------------------
 
-ts::duck::LogTable::LogTable() :
-    tlv::Message(duck::Protocol::Instance()->version(), Tags::MSG_LOG_TABLE),
-    pid(),
-    timestamp(),
-    sections()
-{
-}
-
 ts::duck::LogTable::LogTable(const tlv::MessageFactory& fact) :
-    tlv::Message(fact.protocolVersion(), fact.commandTag()),
-    pid(),
-    timestamp(),
-    sections()
+    tlv::Message(fact.protocolVersion(), fact.commandTag())
 {
     if (1 == fact.count(Tags::PRM_PID)) {
         pid = fact.get<PID>(Tags::PRM_PID);
@@ -258,20 +211,20 @@ ts::duck::LogTable::LogTable(const tlv::MessageFactory& fact) :
     std::vector<tlv::MessageFactory::Parameter> params;
     fact.get(Tags::PRM_SECTION, params);
     for (size_t i = 0; i < params.size(); ++i) {
-        sections.push_back(new Section(params[i].addr, params[i].length));
+        sections.push_back(std::make_shared<Section>(params[i].addr, params[i].length));
     }
 }
 
 void ts::duck::LogTable::serializeParameters(tlv::Serializer& fact) const
 {
-    if (pid.set()) {
+    if (pid.has_value()) {
         fact.put(Tags::PRM_PID, pid.value());
     }
-    if (timestamp.set()) {
+    if (timestamp.has_value()) {
         timestamp.value().put(fact, Tags::PRM_TIMESTAMP);
     }
     for (size_t i = 0; i < sections.size(); ++i) {
-        if (!sections[i].isNull()) {
+        if (sections[i] != nullptr) {
             fact.put(Tags::PRM_SECTION, sections[i]->content(), sections[i]->size());
         }
     }
@@ -281,12 +234,12 @@ ts::UString ts::duck::LogTable::dump(size_t indent) const
 {
     UString secDump;
     for (size_t i = 0; i < sections.size(); ++i) {
-        if (!sections[i].isNull()) {
+        if (sections[i] != nullptr) {
             secDump.append(DumpSection(indent, sections[i]));
         }
     }
 
-    return UString::Format(u"%*sLogTable (" PROTOCOL_NAME u")\n", {indent, u""}) +
+    return UString::Format(u"%*sLogTable (" PROTOCOL_NAME u")\n", indent, u"") +
         tlv::Message::dump(indent) +
         dumpOptionalHexa(indent, u"PID", pid) +
         DumpTimestamp(indent, timestamp) +
@@ -298,19 +251,8 @@ ts::UString ts::duck::LogTable::dump(size_t indent) const
 // Fake / demo clear ECM
 //----------------------------------------------------------------------------
 
-ts::duck::ClearECM::ClearECM() :
-    tlv::Message(duck::Protocol::Instance()->version(), Tags::MSG_ECM),
-    cw_even(),
-    cw_odd(),
-    access_criteria()
-{
-}
-
 ts::duck::ClearECM::ClearECM(const tlv::MessageFactory& fact) :
-    tlv::Message(fact.protocolVersion(), fact.commandTag()),
-    cw_even(),
-    cw_odd(),
-    access_criteria()
+    tlv::Message(fact.protocolVersion(), fact.commandTag())
 {
     if (fact.count(Tags::PRM_CW_EVEN) > 0) {
         fact.get(Tags::PRM_CW_EVEN, cw_even);
@@ -338,7 +280,7 @@ void ts::duck::ClearECM::serializeParameters(tlv::Serializer& fact) const
 
 ts::UString ts::duck::ClearECM::dump(size_t indent) const
 {
-    return UString::Format(u"%*sClearECM (" PROTOCOL_NAME u")\n", {indent, u""}) +
+    return UString::Format(u"%*sClearECM (" PROTOCOL_NAME u")\n", indent, u"") +
         tlv::Message::dump(indent) +
         DumpBin(indent, u"CW (even)", cw_even) +
         DumpBin(indent, u"CW (odd)", cw_odd) +
@@ -349,12 +291,6 @@ ts::UString ts::duck::ClearECM::dump(size_t indent) const
 //----------------------------------------------------------------------------
 // Error message
 //----------------------------------------------------------------------------
-
-ts::duck::Error::Error() :
-    tlv::Message(duck::Protocol::Instance()->version(), Tags::MSG_ERROR),
-    error_status(0)
-{
-}
 
 ts::duck::Error::Error(const tlv::MessageFactory& fact) :
     tlv::Message(fact.protocolVersion(), fact.commandTag()),
@@ -369,7 +305,7 @@ void ts::duck::Error::serializeParameters(tlv::Serializer& fact) const
 
 ts::UString ts::duck::Error::dump(size_t indent) const
 {
-    return UString::Format(u"%*sError (" PROTOCOL_NAME u")\n", {indent, u""}) +
+    return UString::Format(u"%*sError (" PROTOCOL_NAME u")\n", indent, u"") +
         tlv::Message::dump(indent) +
         dumpHexa(indent, u"error_status", error_status);
 }

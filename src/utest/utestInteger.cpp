@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,52 +20,24 @@
 
 class IntegerTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testUnit();
-    void testAssignment();
-    void testComparison();
-    void testBounds();
-    void testToString();
-    void testFromString();
-
-    TSUNIT_TEST_BEGIN(IntegerTest);
-    TSUNIT_TEST(testUnit);
-    TSUNIT_TEST(testAssignment);
-    TSUNIT_TEST(testComparison);
-    TSUNIT_TEST(testBounds);
-    TSUNIT_TEST(testToString);
-    TSUNIT_TEST(testFromString);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Unit);
+    TSUNIT_DECLARE_TEST(Assignment);
+    TSUNIT_DECLARE_TEST(Comparison);
+    TSUNIT_DECLARE_TEST(Bounds);
+    TSUNIT_DECLARE_TEST(ToString);
+    TSUNIT_DECLARE_TEST(FromString);
 };
 
 TSUNIT_REGISTER(IntegerTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void IntegerTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void IntegerTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void IntegerTest::testUnit()
+TSUNIT_DEFINE_TEST(Unit)
 {
-    typedef ts::Integer<int32_t> Int;
+    using Int = ts::Integer<int32_t>;
 
     Int i;
     Int n(-3);
@@ -120,9 +71,9 @@ void IntegerTest::testUnit()
     TSUNIT_EQUAL(2, (Int(10) / 4).toInt());
 }
 
-void IntegerTest::testAssignment()
+TSUNIT_DEFINE_TEST(Assignment)
 {
-    typedef ts::Integer<int32_t> Int;
+    using Int = ts::Integer<int32_t>;
 
     Int n;
     TSUNIT_EQUAL(0, n.toInt());
@@ -156,9 +107,9 @@ void IntegerTest::testAssignment()
     TSUNIT_EQUAL(7, n.toInt());
 }
 
-void IntegerTest::testComparison()
+TSUNIT_DEFINE_TEST(Comparison)
 {
-    typedef ts::Integer<int32_t> Int;
+    using Int = ts::Integer<int32_t>;
 
     TSUNIT_ASSERT(Int(-211) == Int(-211));
     TSUNIT_ASSERT(Int(21) == 21);
@@ -193,17 +144,17 @@ void IntegerTest::testComparison()
     TSUNIT_ASSERT(4 >= Int(4));
 }
 
-void IntegerTest::testBounds()
+TSUNIT_DEFINE_TEST(Bounds)
 {
-    typedef ts::Integer<int16_t> Int;
+    using Int = ts::Integer<int16_t>;
 
     TSUNIT_EQUAL(-32768, Int::MIN.toInt());
     TSUNIT_EQUAL(32767, Int::MAX.toInt());
 }
 
-void IntegerTest::testToString()
+TSUNIT_DEFINE_TEST(ToString)
 {
-    typedef ts::Integer<int32_t> Int;
+    using Int = ts::Integer<int32_t>;
 
     TSUNIT_EQUAL(u"1,234", Int(1234).toString());
     TSUNIT_EQUAL(u"   -56,789", Int(-56789).toString(10));
@@ -211,9 +162,9 @@ void IntegerTest::testToString()
 }
 
 
-void IntegerTest::testFromString()
+TSUNIT_DEFINE_TEST(FromString)
 {
-    typedef ts::Integer<int32_t> Int;
+    using Int = ts::Integer<int32_t>;
 
     Int f0;
 

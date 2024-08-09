@@ -1,31 +1,8 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  Makefile for unitary tests.
 #
@@ -37,7 +14,7 @@ default: execs
 	@true
 
 .PHONY: execs
-execs: $(BINDIR)/utest $(BINDIR)/utest_static
+execs: $(BINDIR)/utest $(if $(NOSTATIC),,$(BINDIR)/utest_static)
 
 # All source files participate in one single big unitary test executable.
 OBJS = $(addprefix $(OBJDIR)/,$(addsuffix .o,$(sort $(notdir $(basename $(wildcard *.cpp))))))
@@ -49,17 +26,36 @@ $(BINDIR)/utest: $(OBJS) $(SHARED_LIBTSDUCK)
 # 2) Using static library. Skip plugin tests since they use the shared object.
 # Add libraries which are otherwise only used by the libtsduck shared object.
 $(BINDIR)/utest_static: $(filter-out $(OBJDIR)/utestPluginRepository.o,$(OBJS)) $(STATIC_LIBTSDUCK)
-	@echo '  [LD] $@'; \
-	$(CC) $(LDFLAGS) $^ \
-	      $(if $(NOSRT),,-lsrt) \
-	      $(if $(NORIST),,-lrist) \
-	      $(if $(NOCURL),,$(shell curl-config --libs)) \
-	      $(if $(NOEDITLINE),,-ledit) \
-	      $(LDLIBS) -o $@
+	$(call LOG,[LD] $@) $(CXX) $(LDFLAGS) $^ $(LIBTSDUCK_LDLIBS) $(LDLIBS_EXTRA) $(LDLIBS) -o $@
 
-# Run tests.
+# Run tests. We need to serialize them because they use common resources.
 # Use make UTESTFLAGS="-d -t ClassTest::testName" for one single test in debug mode.
-.PHONY: test
-test: execs
-	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) $(BINDIR)/utest $(UTESTFLAGS)
-	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) $(BINDIR)/utest_static $(UTESTFLAGS)
+.PHONY: test test-shared test-static
+.NOTPARALLEL: test
+test: test-shared $(if $(NOSTATIC),,test-static)
+test-shared: $(BINDIR)/utest
+	$(call LOG,[UTEST] $(BINDIR)/utest $(UTESTFLAGS)) \
+	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) \
+	TS_CURL_RETRY="RETRY=5,INTERVAL=100,HOST=tsduck.io" \
+	$(BINDIR)/utest $(UTESTFLAGS)
+test-static: $(BINDIR)/utest_static
+	$(call LOG,[UTEST] $(BINDIR)/utest_static $(UTESTFLAGS)) \
+	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) \
+	TS_CURL_RETRY="RETRY=5,INTERVAL=100,HOST=tsduck.io" \
+	$(BINDIR)/utest_static $(UTESTFLAGS)
+
+# Same unitary tests under valgrind control
+.PHONY: valgrind valgrind-shared valgrind-static
+.NOTPARALLEL: valgrind
+VGFLAGS += --quiet --leak-check=full --show-leak-kinds=all --suppressions=valgrind.supp
+valgrind: valgrind-shared $(if $(NOSTATIC),,valgrind-static)
+valgrind-shared: $(BINDIR)/utest
+	$(call LOG,[VALGRIND] $(BINDIR)/utest $(UTESTFLAGS)) \
+	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) \
+	TS_CURL_RETRY="RETRY=5,INTERVAL=100,HOST=tsduck.io" \
+	valgrind $(VGFLAGS) $(BINDIR)/utest $(UTESTFLAGS)
+valgrind-static: $(BINDIR)/utest_static
+	$(call LOG,[VALGRIND] $(BINDIR)/utest_static $(UTESTFLAGS)) \
+	TSPLUGINS_PATH=$(BINDIR) LD_LIBRARY_PATH=$(BINDIR) \
+	TS_CURL_RETRY="RETRY=5,INTERVAL=100,HOST=tsduck.io" \
+	valgrind $(VGFLAGS) $(BINDIR)/utest_static $(UTESTFLAGS)

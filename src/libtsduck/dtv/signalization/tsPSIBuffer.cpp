@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -71,9 +50,9 @@ ts::PSIBuffer::PSIBuffer(DuckContext& duck, const Section& section) :
 ts::PID ts::PSIBuffer::getPID()
 {
     if (readIsByteAligned()) {
-        return getUInt16() & 0x1FFF;
+        skipReservedBits(3);
     }
-    else if (currentReadBitOffset() % 8 == 3) {
+    if (currentReadBitOffset() % 8 == 3) {
         return getBits<PID>(13);
     }
     else {
@@ -285,35 +264,34 @@ ts::Time ts::PSIBuffer::getMJD(size_t mjd_size)
 
 
 //----------------------------------------------------------------------------
-// Serialize and deserialize durations in BCD digits.
+// Serialize and deserialize integer values in "vluimsbf5" format.
+// Mind the Rabbit of Caerbannog.
 //----------------------------------------------------------------------------
 
-bool ts::PSIBuffer::putMinutesBCD(SubSecond duration)
+uint64_t ts::PSIBuffer::getVluimsbf5()
 {
-    return putBCD(std::abs(duration) / 60, 2) &&
-           putBCD(std::abs(duration) % 60, 2);
+    // Get the number of 4-Bit fields.
+    size_t n = 1;
+    while (!readError() && getBit() == 1) {
+        n++;
+    }
+
+    // Get the integer value.
+    return getBits<uint64_t>(4 * n);
 }
 
-bool ts::PSIBuffer::putSecondsBCD(Second duration)
+bool ts::PSIBuffer::putVluimsbf5(uint64_t value)
 {
-    return putBCD(std::abs(duration) / 3600, 2) &&
-           putBCD((std::abs(duration) / 60) % 60, 2) &&
-           putBCD(std::abs(duration) % 60, 2);
-}
+    // Compute the required number of 4-bit fields. The maximum value is 16 (full 64-bit unsigned int).
+    size_t n = 1;
+    uint64_t tmp = value;
+    while (tmp > 0x0F) {
+        n++;
+        tmp = tmp >> 4;
+    }
 
-ts::SubSecond ts::PSIBuffer::getMinutesBCD()
-{
-    const SubSecond hours = getBCD<SubSecond>(2);
-    const SubSecond minutes = getBCD<SubSecond>(2);
-    return (hours * 60) + minutes;
-}
-
-ts::Second ts::PSIBuffer::getSecondsBCD()
-{
-    const SubSecond hours = getBCD<SubSecond>(2);
-    const SubSecond minutes = getBCD<SubSecond>(2);
-    const SubSecond seconds = getBCD<SubSecond>(2);
-    return (hours * 3600) + (minutes * 60) + seconds;
+    // Serialize n. Then serialize the value.
+    return putBits(0xFFFFFFFF, n - 1) && putBit(0) && putBits(value, 4 * n);
 }
 
 
@@ -484,7 +462,7 @@ size_t ts::PSIBuffer::getUnalignedLength(size_t length_bits)
         return 0;
     }
     if (readIsByteAligned()) {
-        skipBits(16 - length_bits);
+        skipReservedBits(16 - length_bits);
     }
     const size_t length = getBits<size_t>(length_bits);
     const size_t actual_length = std::min(length, remainingReadBytes());

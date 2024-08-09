@@ -1,57 +1,57 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2022, Thierry Lelegard
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#  1. Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#  2. Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-#  THE POSSIBILITY OF SUCH DAMAGE.
-#
-#-----------------------------------------------------------------------------
+#  Copyright (c) 2005-2024, Thierry Lelegard
+#  BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 #
 #  GitHub Actions configuration file : Continuous Integration
+#
+#  The workflow is triggered on push or pull request, for master branch only.
+#  Manual dispatch from the GitHub UI is also allowed.
+#
+#  TSDuck is built on Ubuntu, macOS and Windows, using C++17 and C++20 levels
+#  of standards. The doxygen documentation is also generated to verify that
+#  no documentation is missing.
+#
+#  Testing strategy: The low-level unitary tests and the high-level test suite
+#  are run on all builds. The high-level test suite is in a separate repo
+#  named tsduck-test. The tests must use the appropriate tsduck-test repo for
+#  the current workflow. It may not be appropriate to use tsduck/tsduck-test,
+#  for instance when the current commit or pull request added new features
+#  or legitimately modified the test reference output. Some effort is made
+#  to locate the "right" tsduck-test repo:
+#
+#  - First, the "origin" repo is located. This can be:
+#    . tsduck/tsduck when directly pushing here.
+#    . USER/tsduck when a user pushes on its forked repo USER/tsduck.
+#    . USER/tsduck when a user submits a pull request to tsduck/tsduck.
+#  - Then we try to grab the test suite from repo "origin"-test, meaning
+#    either tsduck/tsduck-test or USER/tsduck-test.
+#  - If this repo does not exist, we grab the "reference" repo from
+#    tsduck/tsduck-test
 #
 #-----------------------------------------------------------------------------
 
 name: Continuous integration
 
-# Trigger the workflow on push or pull request, for master branch only.
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request:
-    branches: [master]
+    branches: [master, main]
+  workflow_dispatch:
 
-# Build on Ubuntu, macOS and Windows, using C++11 (C++14 on Windows) and C++20 levels of standards.
 jobs:
+
   build_unix:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-latest is currently ubuntu-20.04, too old for C++20, force ubuntu-22.04.
-        os: [ubuntu-22.04, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         compiler: [gcc, clang]
-        std: [11, 20]
+        std: [17, 20]
         include:
-        - os: ubuntu-22.04
+        - os: ubuntu-latest
           compiler: clang
           llvm: true
         - os: macos-latest
@@ -69,6 +69,10 @@ jobs:
       LLVM: ${{ matrix.llvm }}
       BINDIR: ${{ matrix.bindir }}
       CXXFLAGS_STANDARD: -std=c++${{ matrix.std }}
+      ORIGIN_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      REFERENCE_REPO: tsduck/tsduck
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@master
     - name: Install dependencies
@@ -84,8 +88,17 @@ jobs:
       run: make test
     - name: Download test suite
       run: |
+        # Try to download '<repo>-test' from the pull request owner, if there is one.
+        if curl -fsL "https://github.com/${ORIGIN_REPO}-test/tarball/${BRANCH_NAME}" -o test.tgz; then
+            echo "Downloaded test suite from ${BRANCH_NAME} branch of $ORIGIN_REPO"
+        elif curl -fsL "https://github.com/${ORIGIN_REPO}-test/tarball/master" -o test.tgz; then
+            echo "Downloaded test suite from $ORIGIN_REPO"
+        else
+            curl -fsL "https://github.com/${REFERENCE_REPO}-test/tarball/master" -o test.tgz
+            echo "Downloaded test suite from $REFERENCE_REPO"
+        fi
         mkdir -p ../tsduck-test
-        curl -s -L https://github.com/tsduck/tsduck-test/tarball/master | tar xz --strip 1 -C ../tsduck-test
+        tar -C ../tsduck-test -x -z -f test.tgz --strip 1
     - name: Run test suite
       run: |
         make test-suite && status=$? || status=$?
@@ -95,6 +108,18 @@ jobs:
             cat "$f"
         done
         exit $status
+    - name: Build sample applications
+      run: |
+        # Fake installation in a temporary directory.
+        export PREFIX=$(pwd)/bin/systest
+        make install SYSPREFIX=$PREFIX
+        # Build the test applications using that installation.
+        export PATH=$PREFIX/bin:$PATH:
+        export LD_LIBRARY_PATH=$PREFIX/lib:$LD_LIBRARY_PATH:
+        export LD_LIBRARY_PATH2=$LD_LIBRARY_PATH
+        export PYTHONPATH=$PREFIX/share/tsduck/python:$PYTHONPATH:
+        export CLASSPATH=$PREFIX/share/tsduck/java/tsduck.jar:$CLASSPATH:
+        make -C sample
 
   build_windows:
     strategy:
@@ -102,7 +127,7 @@ jobs:
       matrix:
         target: [Win64, Win32]
         configuration: [Release]
-        std: [14, 20]
+        std: [17, 20]
         include:
         - target: Win64
           suffix: x64
@@ -117,14 +142,23 @@ jobs:
     runs-on: windows-latest
     env:
       STDCPP: stdcpp${{ matrix.std }}
+      ORIGIN_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      REFERENCE_REPO: tsduck/tsduck
+      BRANCH_NAME:  ${{ github.head_ref || github.ref_name }} 
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@master
     - name: Install dependencies
       run: |
-        scripts/install-prerequisites.ps1 -GitHubActions -NoDoxygen -NoPause
+        scripts/install-prerequisites.ps1 -GitHubActions -NoDoxygen -NoInstaller -NoPause
+    - name: Dependencies check
+      run: |
+        Write-Output "Path=${env:Path}"
+        python --version
     - name: Build TSDuck
       run: |
         scripts/build.ps1 -${{ matrix.target }} -${{ matrix.configuration }} -Parallel 5 -NoLowPriority -NoPause
+        Get-ChildItem bin/${{ matrix.configuration }}-${{ matrix.suffix }}
     - name: Check built version
       run: |
         bin/${{ matrix.configuration }}-${{ matrix.suffix }}/tsversion.exe --version=all
@@ -139,10 +173,29 @@ jobs:
         bin/${{ matrix.configuration }}-${{ matrix.suffix }}/utests-tsducklib.exe
     - name: Download test suite
       run: |
+        # Try to download '<repo>-test' from the pull request owner, if there is one.
+        $Previous = $ErrorActionPreference
+        $ErrorActionPreference = 'SilentlyContinue'
         $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -UseBasicParsing -Uri https://github.com/tsduck/tsduck-test/archive/master.zip -OutFile test.zip
-        Expand-Archive test.zip -DestinationPath . -Force
-        Move-Item tsduck-test-master ../tsduck-test -Force
+        Invoke-WebRequest -UseBasicParsing -OutFile test.zip -Uri https://github.com/${env:ORIGIN_REPO}-test/archive/${env:BRANCH_NAME}.zip
+        if (Test-Path test.zip) {
+            $ErrorActionPreference = $Previous
+            Write-Output "Downloaded test suite from ${env:BRANCH_NAME} branch of ${env:ORIGIN_REPO}"
+        }
+        else {
+            Invoke-WebRequest -UseBasicParsing -OutFile test.zip -Uri https://github.com/${env:ORIGIN_REPO}-test/archive/master.zip
+            $ErrorActionPreference = $Previous
+            if (Test-Path test.zip) {
+                Write-Output "Downloaded test suite from ${env:ORIGIN_REPO}"
+            }
+            else {
+                Invoke-WebRequest -UseBasicParsing -OutFile test.zip -Uri https://github.com/${env:REFERENCE_REPO}-test/archive/master.zip
+                Write-Output "Downloaded test suite from ${env:REFERENCE_REPO}"
+            }
+        }
+        [void] (New-Item -Type Directory -Force tmp)
+        Expand-Archive test.zip -DestinationPath tmp -Force
+        Move-Item tmp\* ..\tsduck-test -Force
     - name: Run test suite
       shell: bash
       run: |
@@ -154,16 +207,20 @@ jobs:
         done
         exit $status
 
-  build_doxygen:
-    name: Doxygen documentation
-    # ubuntu-latest is currently ubuntu-20.04, try to grab a more recent version of doxygen.
-    runs-on: ubuntu-22.04
+  build_docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@master
     - name: Install dependencies
       run: |
         scripts/install-prerequisites.sh
-        doxygen --version
-    - name: Build TSDuck documentation
+        echo "Doxygen version: $(doxygen --version)"
+    - name: Build guides
       run: |
-        make doxygen
+        make docs
+    - name: Build Doxygen reference
+      run: |
+        make doxygen DOXYFLAGS=--update-doxygen

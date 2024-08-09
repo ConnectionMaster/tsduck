@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 
 #pragma once
 #include "tsPSI.h"
-#include "tsCASFamily.h"
 #include "tsTLVSyntax.h"
 #include "tsDuckContext.h"
 
@@ -62,14 +40,14 @@ namespace ts {
         //! Constructor.
         //! By default, all displays are done on @c std::cout.
         //! Use redirect() to redirect the output to a file.
-        //! @param [in,out] d TSDuck context.
+        //! @param [in,out] duck TSDuck context.
         //!
-        explicit TablesDisplay(DuckContext& d);
+        explicit TablesDisplay(DuckContext& duck) : _duck(duck) {}
 
         //!
         //! Virtual destructor.
         //!
-        virtual ~TablesDisplay();
+        virtual ~TablesDisplay() = default;
 
         //!
         //! Add command line option definitions in an Args.
@@ -118,6 +96,12 @@ namespace ts {
         // above is not resolved on I/O manipulator parameters. So we need this explicit one.
         //
         std::ostream& operator<<(std::ostream& (*manip)(std::ostream&)) { return _duck.out() << manip; }
+
+        //!
+        //! Log a line, either on redirected output or on report if output was not redirected.
+        //! @param [in] line The line to log.
+        //!
+        virtual void logLine(const UString& line);
 
         //!
         //! Display a table on the output stream.
@@ -378,11 +362,106 @@ namespace ts {
                         size_t innerIndent,
                         const TLVSyntax& tlv);
 
+        //!
+        //! Display the 32-bit values in a structured manner with specified number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin  Left margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the hexadecimal value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 6)
+        //!
+        void displayVector(const UString& title,
+                           const std::vector<uint32_t>& values,
+                           const UString& margin = UString(),
+                           bool space_first = true,
+                           size_t num_per_line = 6);
+
+        //!
+        //! Display the 16-bit values in a structured manner with specified number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin  Left margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the hexadecimal value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 6)
+        //!
+        void displayVector(const UString& title,
+                           const std::vector<uint16_t>& values,
+                           const UString& margin = UString(),
+                           bool space_first = true,
+                           size_t num_per_line = 6);
+
+        //!
+        //! Display the 8-bit values in a structured manner with specified number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin  Left margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the hexadecimal value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 8)
+        //!
+        void displayVector(const UString& title,
+                           const std::vector<uint8_t>& values,
+                           const UString& margin = UString(),
+                           bool space_first = true,
+                           size_t num_per_line = 8);
+
+        //!
+        //! Display the signed 8-bit values in a structured manner with specified number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin  Left margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the hexadecimal value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 8)
+        //!
+        void displayVector(const UString& title,
+                           const std::vector<int8_t>& values,
+                           const UString& margin = UString(),
+                           bool space_first = true,
+                           size_t num_per_line = 8);
+
+        //!
+        //! Display boolean values in a structured manner using the characters specified and with the specified
+        //! number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin Left  margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the hexadecimal value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 6)
+        //! @param [in] true_val  Character to display when the value is true (default: '1')
+        //! @param [in] false_val  Character to display when the value is false (default: '0')
+        //!
+        void displayVector(const UString& title,
+                           const std::vector<bool>& values,
+                           const UString& margin = UString(),
+                           bool space_first = false,
+                           size_t num_per_line = 40,
+                           char true_val = '1',
+                           char false_val = '0');
+
+        //!
+        //! Display the string values in a tabular manner with specified number of items on each line
+        //!
+        //! @param [in] title  Label that identifies the values
+        //! @param [in] values  List of values to be output in hexadecimal form
+        //! @param [in] margin  Left margin content (default: "").
+        //! @param [in] space_first  When set, inserts a space character before the value (default: true)
+        //! @param [in] num_per_line  Number of values to be output on a single line (default: 3)
+        //!
+        void displayVector(const UString& title,
+                           const UStringVector& values,
+                           const UString& margin = UString(),
+                           bool space_first = true,
+                           size_t num_per_line = 3);
+
     private:
-        DuckContext&    _duck;            // Reference to the associated TSDuck context.
-        bool            _raw_dump;        // Raw dump of section, no interpretation.
-        uint32_t        _raw_flags;       // Dump flags in raw mode.
-        TLVSyntaxVector _tlv_syntax;      // TLV syntax to apply to unknown sections.
-        size_t          _min_nested_tlv;  // Minimum size of a TLV record after which it is interpreted as a nested TLV (0=disabled).
+        DuckContext&    _duck;                      // Reference to the associated TSDuck context.
+        bool            _raw_dump = false;          // Raw dump of section, no interpretation.
+        uint32_t        _raw_flags = UString::HEXA; // Dump flags in raw mode.
+        TLVSyntaxVector _tlv_syntax {};             // TLV syntax to apply to unknown sections.
+        size_t          _min_nested_tlv = 0;        // Minimum size of a TLV record after which it is interpreted as a nested TLV (0=disabled).
     };
 }

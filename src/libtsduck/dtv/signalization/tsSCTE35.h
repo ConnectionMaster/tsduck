@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,7 +13,6 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsVariable.h"
 #include "tsByteBlock.h"
 
 namespace ts {
@@ -72,10 +50,10 @@ namespace ts {
     //! This is a 33-bit PTS value which can be set or unset.
     //! @ingroup mpeg
     //!
-    class TSDUCKDLL SpliceTime : public Variable<uint64_t>
+    class TSDUCKDLL SpliceTime : public std::optional<uint64_t>
     {
     private:
-        typedef Variable<uint64_t> SuperClass;
+        using SuperClass = std::optional<uint64_t>;
     public:
         //!
         //! Deserialize a SpliceTime structure from binary data.
@@ -98,12 +76,13 @@ namespace ts {
         UString toString() const;
 
         // Inherited methods.
-        //! @cond doxygen
+        //! @cond nodoxygen
         SpliceTime() = default;
-        SpliceTime(const SpliceTime& other) = default;
-        SpliceTime& operator=(const SpliceTime& other) { SuperClass::operator=(other); return *this; }
+        SpliceTime(const SpliceTime&) = default;
+        SpliceTime& operator=(const SpliceTime&) = default;
+        SpliceTime(const SuperClass& other) : SuperClass(other) {}
+        SpliceTime& operator=(const SuperClass& other) { SuperClass::operator=(other); return *this; }
         SpliceTime& operator=(const uint64_t& other) { SuperClass::operator=(other); return *this; }
-        virtual ~SpliceTime() override;
         //! @endcond
     };
 
@@ -115,13 +94,13 @@ namespace ts {
     {
     public:
         // Public fields:
-        uint32_t  identifier;     //!< SMPTE identifier.
-        ByteBlock private_bytes;  //!< Private command content.
+        uint32_t  identifier = 0;    //!< SMPTE identifier.
+        ByteBlock private_bytes {};  //!< Private command content.
 
         //!
         //! Constructor
         //! @param [in] id SMPTE identifier.
         //!
-        SplicePrivateCommand(uint32_t id = 0);
+        SplicePrivateCommand(uint32_t id = 0) : identifier(id) {}
     };
 }

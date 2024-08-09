@@ -1,35 +1,12 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tstsswitchCore.h"
-#include "tsGuardMutex.h"
-#include "tsGuardCondition.h"
 #include "tsAlgorithm.h"
 #include "tsFatal.h"
 
@@ -45,25 +22,19 @@ ts::tsswitch::Core::Core(const InputSwitcherArgs& opt, const PluginEventHandlerR
     _output(_opt, handlers, *this, _log), // load output plugin and analyze options
     _eventDispatcher(_opt, _log),
     _receiveWatchDog(this, _opt.receiveTimeout, 0, _log),
-    _mutex(),
-    _gotInput(),
-    _curPlugin(_opt.firstInput),
-    _curCycle(0),
-    _terminate(false),
-    _actions(),
-    _events()
+    _curPlugin(_opt.firstInput)
 {
     // Load all input plugins, analyze their options.
     for (size_t i = 0; i < _inputs.size(); ++i) {
         _inputs[i] = new InputExecutor(opt, handlers, i, *this, log);
         CheckNonNull(_inputs[i]);
         // Set the asynchronous logger as report method for all executors.
-        _inputs[i]->setReport(&_log);
+        _inputs[i]->delegateReport(&_log);
         _inputs[i]->setMaxSeverity(_log.maxSeverity());
     }
 
     // Set the asynchronous logger as report method for output as well.
-    _output.setReport(&_log);
+    _output.delegateReport(&_log);
     _output.setMaxSeverity(_log.maxSeverity());
 }
 
@@ -145,9 +116,9 @@ void ts::tsswitch::Core::stop(bool success)
 {
     // Wake up all threads waiting for something on the Switch object.
     {
-        GuardCondition lock(_mutex, _gotInput);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         _terminate = true;
-        lock.signal();
+        _gotInput.notify_all();
     }
 
     // Tell the output plugin to terminate.
@@ -166,25 +137,25 @@ void ts::tsswitch::Core::stop(bool success)
 
 void ts::tsswitch::Core::setInput(size_t index)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     setInputLocked(index, false);
 }
 
 void ts::tsswitch::Core::nextInput()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     setInputLocked((_curPlugin + 1) % _inputs.size(), false);
 }
 
 void ts::tsswitch::Core::previousInput()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     setInputLocked((_curPlugin > 0 ? _curPlugin : _inputs.size()) - 1, false);
 }
 
 size_t ts::tsswitch::Core::currentInput()
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     return _curPlugin;
 }
 
@@ -196,10 +167,10 @@ size_t ts::tsswitch::Core::currentInput()
 void ts::tsswitch::Core::setInputLocked(size_t index, bool abortCurrent)
 {
     if (index >= _inputs.size()) {
-        _log.warning(u"invalid input index %d", {index});
+        _log.warning(u"invalid input index %d", index);
     }
     else if (index != _curPlugin) {
-        _log.debug(u"switch input %d to %d", {_curPlugin, index});
+        _log.debug(u"switch input %d to %d", _curPlugin, index);
 
         // The processing depends on the switching mode.
         if (_opt.delayedSwitch) {
@@ -260,10 +231,10 @@ void ts::tsswitch::Core::setInputLocked(size_t index, bool abortCurrent)
 
 void ts::tsswitch::Core::handleWatchDogTimeout(WatchDog& watchdog)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     const size_t next = (_curPlugin + 1) % _inputs.size();
     // Verbose message under mutex is not a good idea when option --synchronous-log is set.
-    _log.verbose(u"receive timeout, switching to next plugin (#%d to #%d)", {_curPlugin, next});
+    _log.verbose(u"receive timeout, switching to next plugin (#%d to #%d)", _curPlugin, next);
     setInputLocked(next, true);
 }
 
@@ -293,7 +264,7 @@ const ts::Enumeration ts::tsswitch::Core::_actionNames({
 
 ts::UString ts::tsswitch::Core::Action::toString() const
 {
-    return UString::Format(u"%s, %d, %s", {_actionNames.name(type), index, flag});
+    return UString::Format(u"%s, %d, %s", _actionNames.name(type), index, flag);
 }
 
 
@@ -321,7 +292,7 @@ bool ts::tsswitch::Core::Action::operator<(const Action& a) const
 
 void ts::tsswitch::Core::enqueue(const Action& action, bool highPriority)
 {
-    _log.debug(u"enqueue action %s", {action});
+    _log.debug(u"enqueue action %s", action);
     if (highPriority) {
         _actions.push_front(action);
     }
@@ -341,7 +312,7 @@ void ts::tsswitch::Core::cancelActions(int typeMask)
         // Check if the current action is one that must be removed.
         if ((int(it->type) & typeMask) != 0) {
             // Yes, remove instruction.
-            _log.debug(u"cancel action %s", {*it});
+            _log.debug(u"cancel action %s", *it);
             it = _actions.erase(it);
         }
         else {
@@ -363,7 +334,7 @@ void ts::tsswitch::Core::execute(const Action& event)
     if (event.type != NONE && !Contains(_events, eventNoFlag)) {
         // The event was not present.
         _events.insert(eventNoFlag);
-        _log.debug(u"setting event: %s", {event});
+        _log.debug(u"setting event: %s", event);
     }
 
     // Loop on all enqueued commands.
@@ -371,7 +342,7 @@ void ts::tsswitch::Core::execute(const Action& event)
 
         // Inspect front command. Will be dequeued if executed.
         const Action& action(_actions.front());
-        _log.debug(u"executing action %s", {action});
+        _log.debug(u"executing action %s", action);
         assert(action.index < _inputs.size());
 
         // Try to execute the front command. Return if wait is required.
@@ -394,7 +365,7 @@ void ts::tsswitch::Core::execute(const Action& event)
             case ABORT_INPUT: {
                 // Abort only if flag is set in action.
                 if (action.flag && !_inputs[action.index]->abortInput()) {
-                    _log.warning(u"input plugin %s does not support interruption, blocking may occur", {_inputs[action.index]->pluginName()});
+                    _log.warning(u"input plugin %s does not support interruption, blocking may occur", _inputs[action.index]->pluginName());
                 }
                 break;
             }
@@ -422,11 +393,11 @@ void ts::tsswitch::Core::execute(const Action& event)
                 const auto it = _events.find(Action(action, false));
                 if (it == _events.end()) {
                     // Event not found, cannot execute further, keep the action in queue and retry later.
-                    _log.debug(u"not ready, waiting: %s", {action});
+                    _log.debug(u"not ready, waiting: %s", action);
                     return;
                 }
                 // Clear the event.
-                _log.debug(u"clearing event: %s", {*it});
+                _log.debug(u"clearing event: %s", *it);
                 _events.erase(it);
                 break;
             }
@@ -451,7 +422,7 @@ bool ts::tsswitch::Core::getOutputArea(size_t& pluginIndex, TSPacket*& first, TS
     assert(pluginIndex < _inputs.size());
 
     // Loop on _gotInput condition until the current input plugin has something to output.
-    GuardCondition lock(_mutex, _gotInput);
+    std::unique_lock<std::recursive_mutex> lock(_mutex);
     for (;;) {
         if (_terminate) {
             first = nullptr;
@@ -468,7 +439,7 @@ bool ts::tsswitch::Core::getOutputArea(size_t& pluginIndex, TSPacket*& first, TS
             return !_terminate;
         }
         // Otherwise, sleep on _gotInput condition.
-        lock.waitCondition();
+        _gotInput.wait(lock);
     }
 }
 
@@ -497,7 +468,7 @@ bool ts::tsswitch::Core::outputSent(size_t pluginIndex, size_t count)
 
 bool ts::tsswitch::Core::inputStarted(size_t pluginIndex, bool success)
 {
-    GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // Execute all commands if waiting on this event.
     execute(Action(WAIT_STARTED, pluginIndex, success));
@@ -518,7 +489,7 @@ bool ts::tsswitch::Core::inputStarted(size_t pluginIndex, bool success)
 
 bool ts::tsswitch::Core::inputReceived(size_t pluginIndex)
 {
-    GuardCondition lock(_mutex, _gotInput);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
 
     // Restart the receive timeout, if any, when the current input receives packets.
     if (pluginIndex == _curPlugin) {
@@ -531,9 +502,9 @@ bool ts::tsswitch::Core::inputReceived(size_t pluginIndex)
     // If input is detected on the primary input and the current plugin is not this one
     // after executing all actions, then automatically switch to it.
     if (pluginIndex == _opt.primaryInput && _curPlugin != _opt.primaryInput) {
-        _log.verbose(u"received data, switching back to primary input plugin (#%d to #%d)", {_curPlugin, _opt.primaryInput});
+        _log.verbose(u"received data, switching back to primary input plugin (#%d to #%d)", _curPlugin, _opt.primaryInput);
         // Remove all pending actions.
-        _log.debug(u"clearing action queue, %s events canceled", {_actions.size()});
+        _log.debug(u"clearing action queue, %s events canceled", _actions.size());
         _actions.clear();
         // Define a new set of actions.
         enqueue(Action(SUSPEND_TIMEOUT));
@@ -553,7 +524,7 @@ bool ts::tsswitch::Core::inputReceived(size_t pluginIndex)
 
     if (pluginIndex == _curPlugin) {
         // Wake up output plugin if it is sleeping, waiting for packets to output.
-        lock.signal();
+        _gotInput.notify_all();
     }
 
     // Return false when the application terminates.
@@ -567,12 +538,12 @@ bool ts::tsswitch::Core::inputReceived(size_t pluginIndex)
 
 bool ts::tsswitch::Core::inputStopped(size_t pluginIndex, bool success)
 {
-    _log.debug(u"input %d completed, success: %s", {pluginIndex, success});
+    _log.debug(u"input %d completed, success: %s", pluginIndex, success);
     bool stopRequest = false;
 
     // Locked sequence.
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
 
         // Count end of cycle when the last plugin terminates.
         if (pluginIndex == _inputs.size() - 1) {

@@ -1,39 +1,13 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsBuffer.h"
 #include "tsFatal.h"
-
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::Buffer::DEFAULT_SIZE;
-constexpr size_t ts::Buffer::MINIMUM_SIZE;
-#endif
 
 
 //----------------------------------------------------------------------------
@@ -71,14 +45,8 @@ bool ts::Buffer::isValid() const
 //----------------------------------------------------------------------------
 
 ts::Buffer::State::State(bool rdonly, size_t size) :
-    reason(Reason::FULL),
     read_only(rdonly),
-    end(size),
-    rbyte(0),
-    wbyte(0),
-    rbit(0),
-    wbit(0),
-    len_bits(0)
+    end(size)
 {
 }
 
@@ -97,13 +65,7 @@ ts::Buffer::Buffer(size_t size) :
     _buffer(nullptr), // adjusted later
     _buffer_size(std::max(MINIMUM_SIZE, size)),
     _allocated(true),
-    _big_endian(true),
-    _read_error(false),
-    _write_error(false),
-    _user_error(false),
-    _state(false, size),
-    _saved_states(),
-    _realigned()
+    _state(false, size)
 {
     _buffer = new uint8_t[_buffer_size];
     CheckNonNull(_buffer);
@@ -142,6 +104,7 @@ void ts::Buffer::reset(size_t size)
     _state.wbit = 0;
     _state.end = size;
     _saved_states.clear();
+    _reserved_bits_errors.clear();
 }
 
 
@@ -153,13 +116,7 @@ ts::Buffer::Buffer(void* data, size_t size, bool read_only) :
     _buffer(reinterpret_cast<uint8_t*>(data)),
     _buffer_size(size),
     _allocated(false),
-    _big_endian(true),
-    _read_error(false),
-    _write_error(false),
-    _user_error(false),
-    _state(read_only, size),
-    _saved_states(),
-    _realigned()
+    _state(read_only, size)
 {
     if (_state.read_only) {
         _state.wbyte = _state.end;
@@ -194,6 +151,7 @@ void ts::Buffer::reset(void* data, size_t size, bool read_only)
     _state.wbyte = _state.read_only ? _state.end : 0;
     _state.wbit = 0;
     _saved_states.clear();
+    _reserved_bits_errors.clear();
 }
 
 
@@ -205,13 +163,7 @@ ts::Buffer::Buffer(const void* data, size_t size) :
     _buffer(reinterpret_cast<uint8_t*>(const_cast<void*>(data))),
     _buffer_size(size),
     _allocated(false),
-    _big_endian(true),
-    _read_error(false),
-    _write_error(false),
-    _user_error(false),
-    _state(true, size),
-    _saved_states(),
-    _realigned()
+    _state(true, size)
 {
     _state.wbyte = _buffer_size;
 }
@@ -243,6 +195,7 @@ void ts::Buffer::reset(const void* data, size_t size)
     _state.end = _state.wbyte = _buffer_size;
     _state.wbit = 0;
     _saved_states.clear();
+    _reserved_bits_errors.clear();
 }
 
 
@@ -260,13 +213,14 @@ ts::Buffer::Buffer(const Buffer& other) :
     _user_error(other._user_error),
     _state(other._state),
     _saved_states(other._saved_states),
-    _realigned()
+    _realigned(),
+    _reserved_bits_errors(other._reserved_bits_errors)
 {
     if (_buffer != nullptr && _allocated) {
         // Private internal buffer, copy resources.
         _buffer = new uint8_t[_buffer_size];
         CheckNonNull(_buffer);
-        ::memcpy(_buffer, other._buffer, _buffer_size);
+        MemCopy(_buffer, other._buffer, _buffer_size);
     }
 }
 
@@ -285,7 +239,8 @@ ts::Buffer::Buffer(Buffer&& other) :
     _user_error(other._user_error),
     _state(other._state),
     _saved_states(std::move(other._saved_states)),
-    _realigned()
+    _realigned(),
+    _reserved_bits_errors(std::move(other._reserved_bits_errors))
 {
     // Clear state of moved buffer.
     other._buffer = nullptr;
@@ -316,13 +271,14 @@ ts::Buffer& ts::Buffer::operator=(const Buffer& other)
         _user_error = other._user_error;
         _state = other._state;
         _saved_states = other._saved_states;
+        _reserved_bits_errors = other._reserved_bits_errors;
 
         // Process buffer content.
         if (_buffer != nullptr && _allocated) {
             // Private internal buffer, copy resources.
             _buffer = new uint8_t[_buffer_size];
             CheckNonNull(_buffer);
-            ::memcpy(_buffer, other._buffer, _buffer_size);
+            MemCopy(_buffer, other._buffer, _buffer_size);
         }
     }
     return *this;
@@ -351,6 +307,7 @@ ts::Buffer& ts::Buffer::operator=(Buffer&& other)
         _write_error = other._write_error;
         _state = other._state;
         _saved_states = std::move(other._saved_states);
+        _reserved_bits_errors = std::move(other._reserved_bits_errors);
 
         // Clear state of moved buffer.
         other._buffer = nullptr;
@@ -576,8 +533,8 @@ bool ts::Buffer::resize(size_t size, bool reallocate)
 {
     // Get the max write pointer in saved values.
     size_t new_size = _state.wbyte + (_state.wbit + 7) / 8;
-    for (auto it = _saved_states.begin(); it != _saved_states.end(); ++it) {
-        new_size = std::max<size_t>(new_size, it->wbyte + (it->wbit + 7) / 8);
+    for (const auto& it : _saved_states) {
+        new_size = std::max<size_t>(new_size, it.wbyte + (it.wbit + 7) / 8);
     }
     assert(new_size <= _buffer_size);
 
@@ -594,7 +551,7 @@ bool ts::Buffer::resize(size_t size, bool reallocate)
 
         // Copy previous buffer and deallocate it.
         if (_buffer != nullptr) {
-            ::memcpy(new_buffer, _buffer, std::min(_buffer_size, new_size));
+            MemCopy(new_buffer, _buffer, std::min(_buffer_size, new_size));
             delete[] _buffer;
         }
 
@@ -603,8 +560,8 @@ bool ts::Buffer::resize(size_t size, bool reallocate)
         _buffer_size = new_buffer_size;
 
         // Make sure that all saved state don't allow more than new size.
-        for (auto it = _saved_states.begin(); it != _saved_states.end(); ++it) {
-            it->end = std::min(it->end, new_size);
+        for (auto& it : _saved_states) {
+            it.end = std::min(it.end, new_size);
         }
     }
 
@@ -766,7 +723,7 @@ bool ts::Buffer::writeSeek(size_t byte, size_t bit, uint8_t stuffing)
             setBits(prev.wbyte, prev.wbit, 8, stuffing);
             prev.wbyte++;
         }
-        ::memset(_buffer + prev.wbyte, stuffing, _state.wbyte - prev.wbyte);
+        MemSet(_buffer + prev.wbyte, stuffing, _state.wbyte - prev.wbyte);
         setBits(_state.wbyte, 0, _state.wbit, stuffing);
     }
 
@@ -916,6 +873,54 @@ bool ts::Buffer::backBits(size_t bits)
 
 
 //----------------------------------------------------------------------------
+// Skip read reserved bits forward.
+//----------------------------------------------------------------------------
+
+bool ts::Buffer::skipReservedBits(size_t bits, int expected)
+{
+    expected &= 1;  // force 0 or 1
+    while (!_read_error && bits-- > 0) {
+        if (getBit() != expected && !_read_error) {
+            // Invalid reserved bit.
+            _reserved_bits_errors.push_back((currentReadBitOffset() << 1) | expected);
+        }
+    }
+    return !_read_error;
+}
+
+
+//----------------------------------------------------------------------------
+// This static method returns a string describing "reserved bits errors".
+//----------------------------------------------------------------------------
+
+ts::UString ts::Buffer::ReservedBitsErrorString(std::vector<size_t>& errors, size_t base_offset, const UString& margin)
+{
+    UString message;
+    std::sort(errors.begin(), errors.end());
+    for (size_t value : errors) {
+        if (!message.empty()) {
+            message.push_back(LINE_FEED);
+        }
+        message.format(u"%sByte %d, bit #%d should be '%d'", margin, (value >> 4) + base_offset, (value >> 1) & 0x07, value & 0x01);
+    }
+    return message;
+}
+
+
+//----------------------------------------------------------------------------
+// Serialize the number of reserved '1' bits
+//----------------------------------------------------------------------------
+
+bool ts::Buffer::putReserved(size_t bits)
+{
+    while (bits >= 32 && putUInt32(~0u)) {
+        bits -= 32;
+    }
+    return putBits<int>(~0, bits);
+}
+
+
+//----------------------------------------------------------------------------
 // Request some read size in bytes. Return actually possible read size.
 //----------------------------------------------------------------------------
 
@@ -951,7 +956,7 @@ void ts::Buffer::readBytesInternal(uint8_t* data, size_t bytes)
 
     if (_state.rbit == 0) {
         // Read pointer is byte aligned, bulk copy.
-        ::memcpy(data, _buffer + _state.rbyte, bytes);
+        MemCopy(data, _buffer + _state.rbyte, bytes);
         _state.rbyte += bytes;
     }
     else {
@@ -1041,7 +1046,7 @@ size_t ts::Buffer::putBytes(const uint8_t* buffer, size_t bytes)
     // Write bytes.
     if (_state.wbit == 0) {
         // Write pointer is byte aligned, bulk copy.
-        ::memcpy(_buffer + _state.wbyte, buffer, bytes);
+        MemCopy(_buffer + _state.wbyte, buffer, bytes);
         _state.wbyte += bytes;
     }
     else {
@@ -1326,7 +1331,7 @@ bool ts::Buffer::getUTFWithLengthInternal(UString& result, size_t length_bits, b
 // Put a string using UTF format.
 //----------------------------------------------------------------------------
 
-size_t ts::Buffer::putUTFInternal(const UString& str, size_t start, size_t count, bool partial, size_t fixed_size, int pad, bool utf8)
+size_t ts::Buffer::putUTFInternal(const UString& str, size_t start, size_t count, bool partial, size_t fixed_size, uint16_t pad, bool utf8)
 {
     // Normalize start and count within allowed bounds.
     start = std::min(start, str.size());
@@ -1379,7 +1384,7 @@ size_t ts::Buffer::putUTFInternal(const UString& str, size_t start, size_t count
         // Fixed-size serialization, pad if necessary and return "true".
         if (utf8) {
             // Pad with 8-bit values.
-            ::memset(out, pad, out_end - out);
+            MemSet(out, uint8_t(pad), out_end - out);
             _state.wbyte = out_end - cbuffer;
         }
         else {
@@ -1452,7 +1457,7 @@ size_t ts::Buffer::putUTFWithLengthInternal(const UString& str, size_t start, si
         // Warning: UChar pointer arithmetics uses 2-byte unit.
         // Always copy an even number of bytes (& ~1).
         const size_t size = std::min(2 * (in_end - in), out_end - out) & ~1;
-        ::memcpy(out, in, size);
+        MemCopy(out, in, size);
         in += size / 2;
         out += size;
     }

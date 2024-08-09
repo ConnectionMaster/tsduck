@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -77,35 +56,17 @@
 
 class DemuxTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testPAT();
-    void testCATR3();
-    void testCATR6();
-    void testPMT();
-    void testSDT();
-    void testNIT();
-    void testBATTvNumeric();
-    void testBATCanalPlus();
-    void testTDT();
-    void testTOT();
-    void testHEVC();
-
-    TSUNIT_TEST_BEGIN(DemuxTest);
-    TSUNIT_TEST(testPAT);
-    TSUNIT_TEST(testCATR3);
-    TSUNIT_TEST(testCATR6);
-    TSUNIT_TEST(testPMT);
-    TSUNIT_TEST(testSDT);
-    TSUNIT_TEST(testNIT);
-    TSUNIT_TEST(testBATTvNumeric);
-    TSUNIT_TEST(testBATCanalPlus);
-    TSUNIT_TEST(testTDT);
-    TSUNIT_TEST(testTOT);
-    TSUNIT_TEST(testHEVC);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(PAT);
+    TSUNIT_DECLARE_TEST(CATR3);
+    TSUNIT_DECLARE_TEST(CATR6);
+    TSUNIT_DECLARE_TEST(PMT);
+    TSUNIT_DECLARE_TEST(SDT);
+    TSUNIT_DECLARE_TEST(NIT);
+    TSUNIT_DECLARE_TEST(BATTvNumeric);
+    TSUNIT_DECLARE_TEST(BATCanalPlus);
+    TSUNIT_DECLARE_TEST(TDT);
+    TSUNIT_DECLARE_TEST(TOT);
+    TSUNIT_DECLARE_TEST(HEVC);
 
 private:
     // Compare a table with the list of reference sections
@@ -119,21 +80,6 @@ private:
 };
 
 TSUNIT_REGISTER(DemuxTest);
-
-
-//----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void DemuxTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void DemuxTest::afterTest()
-{
-}
 
 
 //----------------------------------------------------------------------------
@@ -243,7 +189,7 @@ void DemuxTest::testTable(const char* name, const uint8_t* ref_packets, size_t r
     // Compare contents of reference sections and demuxed sections.
 
     const ts::BinaryTable& table1(*demux.tableAt(0));
-    debug() << "DemuxTest: " << ts::UString::Format(u"  PID %d (0x%X)", {table1.sourcePID(), table1.sourcePID()}) << std::endl;
+    debug() << "DemuxTest: " << ts::UString::Format(u"  PID %n", table1.sourcePID()) << std::endl;
     TSUNIT_ASSERT(checkSections(name, "demuxed table", table1, ref_sections, ref_sections_size));
 
     // Table-specific tests.
@@ -374,9 +320,9 @@ void DemuxTest::testTable(const char* name, const uint8_t* ref_packets, size_t r
             TSUNIT_ASSERT(tot.descs.count() == 0);
             TSUNIT_ASSERT(tot.regions[0].country == u"FRA");
             TSUNIT_ASSERT(tot.regions[0].region_id == 0);
-            TSUNIT_ASSERT(tot.regions[0].time_offset == 60);
+            TSUNIT_ASSERT(tot.regions[0].time_offset == cn::minutes(60));
             TSUNIT_ASSERT(tot.regions[0].next_change == ts::Time(2008, 3, 30, 1, 0, 0));
-            TSUNIT_ASSERT(tot.regions[0].next_time_offset == 120);
+            TSUNIT_ASSERT(tot.regions[0].next_time_offset == cn::minutes(120));
             tot.serialize(duck, table2);
             break;
         }
@@ -435,57 +381,57 @@ void DemuxTest::testTable(const char* name, const uint8_t* ref_packets, size_t r
          psi_##name##_packets, sizeof(psi_##name##_packets),  \
          psi_##name##_sections, sizeof(psi_##name##_sections))
 
-void DemuxTest::testPAT()
+TSUNIT_DEFINE_TEST(PAT)
 {
     TEST_TABLE("PAT: TNT R4", pat_r4);
 }
 
-void DemuxTest::testCATR3()
+TSUNIT_DEFINE_TEST(CATR3)
 {
     TEST_TABLE("CAT: TNT R3", cat_r3);
 }
 
-void DemuxTest::testCATR6()
+TSUNIT_DEFINE_TEST(CATR6)
 {
     TEST_TABLE("CAT: TNT R6", cat_r6);
 }
 
-void DemuxTest::testPMT()
+TSUNIT_DEFINE_TEST(PMT)
 {
     TEST_TABLE("PMT: Planete (TNT R3)", pmt_planete);
 }
 
-void DemuxTest::testSDT()
+TSUNIT_DEFINE_TEST(SDT)
 {
     TEST_TABLE("SDT: TNT R3", sdt_r3);
 }
 
-void DemuxTest::testNIT()
+TSUNIT_DEFINE_TEST(NIT)
 {
     TEST_TABLE("NIT: TNT v23", nit_tntv23);
 }
 
-void DemuxTest::testBATTvNumeric()
+TSUNIT_DEFINE_TEST(BATTvNumeric)
 {
     TEST_TABLE("BAT: Tv Numeric", bat_tvnum);
 }
 
-void DemuxTest::testBATCanalPlus()
+TSUNIT_DEFINE_TEST(BATCanalPlus)
 {
     TEST_TABLE("BAT: Canal+ TNT", bat_cplus);
 }
 
-void DemuxTest::testTDT()
+TSUNIT_DEFINE_TEST(TDT)
 {
     TEST_TABLE("TDT: TNT", tdt_tnt);
 }
 
-void DemuxTest::testTOT()
+TSUNIT_DEFINE_TEST(TOT)
 {
     TEST_TABLE("TOT: TNT", tot_tnt);
 }
 
-void DemuxTest::testHEVC()
+TSUNIT_DEFINE_TEST(HEVC)
 {
     TEST_TABLE("PMT with HEVC descriptor", pmt_hevc);
 }

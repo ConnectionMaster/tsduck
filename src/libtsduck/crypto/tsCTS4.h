@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -33,7 +12,7 @@
 //----------------------------------------------------------------------------
 
 #pragma once
-#include "tsCipherChaining.h"
+#include "tsBlockCipher.h"
 
 namespace ts {
     //!
@@ -48,28 +27,131 @@ namespace ts {
     //!
     //!  @tparam CIPHER A subclass of ts::BlockCipher, the underlying block cipher.
     //!
-    template <class CIPHER>
-    class CTS4: public CipherChainingTemplate<CIPHER>
+    template <class CIPHER, typename std::enable_if<std::is_base_of<BlockCipher, CIPHER>::value>::type* = nullptr>
+    class CTS4: public CIPHER
     {
         TS_NOCOPY(CTS4);
     public:
-        //!
-        //! Constructor.
-        //!
-        CTS4() : CipherChainingTemplate<CIPHER>(0, 0, 1) {}
-
-        // Implementation of CipherChaining interface.
-        virtual size_t minMessageSize() const override;
-        virtual bool residueAllowed() const override;
-
-        // Implementation of BlockCipher interface.
-        virtual UString name() const override;
+        //! Default constructor.
+        CTS4();
 
     protected:
+        TS_BLOCK_CIPHER_DECLARE_PROPERTIES(CTS4);
+
         // Implementation of BlockCipher interface.
+        //! @cond nodoxygen
         virtual bool encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length) override;
         virtual bool decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length) override;
+        //! @endcond
     };
 }
 
-#include "tsCTS4Template.h"
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+#if !defined(DOXYGEN)
+
+TS_BLOCK_CIPHER_DEFINE_PROPERTIES_TEMPLATE(ts::CTS4, CTS4, (CIPHER::PROPERTIES(), u"CTS4", true, CIPHER::BLOCK_SIZE + 1, 1, 0));
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+ts::CTS4<CIPHER,N>::CTS4() : CIPHER(CTS4::PROPERTIES())
+{
+}
+
+
+//----------------------------------------------------------------------------
+// Encryption in CTS4 mode.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+bool ts::CTS4<CIPHER,N>::encryptImpl(const void* plain, size_t plain_length, void* cipher, size_t cipher_maxsize, size_t* cipher_length)
+{
+    const size_t bsize = this->properties.block_size;
+    uint8_t* work1 = this->work.data();
+
+    if (plain_length < bsize || cipher_maxsize < plain_length) {
+        return false;
+    }
+    if (cipher_length != nullptr) {
+        *cipher_length = plain_length;
+    }
+
+    const uint8_t* pt = reinterpret_cast<const uint8_t*>(plain);
+    uint8_t* ct = reinterpret_cast<uint8_t*>(cipher);
+
+    // Process in ECB mode, except the last 2 blocks
+    while (plain_length > 2 * bsize) {
+        if (!CIPHER::encryptImpl(pt, bsize, ct, bsize, nullptr)) {
+            return false;
+        }
+        ct += bsize;
+        pt += bsize;
+        plain_length -= bsize;
+    }
+
+    // Process final two blocks.
+    assert(plain_length > bsize);
+    const size_t residue_size = plain_length - bsize;
+    MemCopy(work1, pt + residue_size, bsize - residue_size);
+    MemCopy(work1 + bsize - residue_size, pt + bsize, residue_size);
+
+    if (!CIPHER::encryptImpl(work1, bsize, ct + residue_size, bsize, nullptr)) {
+        return false;
+    }
+
+    MemCopy(work1, pt, residue_size);
+    MemCopy(work1 + residue_size, ct + residue_size, bsize - residue_size);
+
+    if (!CIPHER::encryptImpl(work1, bsize, ct, bsize, nullptr)) {
+        return false;
+    }
+
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Decryption in CTS4 mode.
+//----------------------------------------------------------------------------
+
+template<class CIPHER, typename std::enable_if<std::is_base_of<ts::BlockCipher, CIPHER>::value>::type* N>
+bool ts::CTS4<CIPHER,N>::decryptImpl(const void* cipher, size_t cipher_length, void* plain, size_t plain_maxsize, size_t* plain_length)
+{
+    const size_t bsize = this->properties.block_size;
+    uint8_t* work1 = this->work.data();
+
+    if (cipher_length < bsize || plain_maxsize < cipher_length) {
+        return false;
+    }
+    if (plain_length != nullptr) {
+        *plain_length = cipher_length;
+    }
+
+    const uint8_t* ct = reinterpret_cast<const uint8_t*>(cipher);
+    uint8_t* pt = reinterpret_cast<uint8_t*>(plain);
+
+    // Process in ECB mode, except the last block
+    while (cipher_length > bsize) {
+        if (!CIPHER::decryptImpl(ct, bsize, pt, bsize, nullptr)) {
+            return false;
+        }
+        ct += bsize;
+        pt += bsize;
+        cipher_length -= bsize;
+    }
+
+    // Process final block
+    assert(cipher_length <= bsize);
+    MemCopy(work1, pt - bsize + cipher_length, bsize - cipher_length);
+    MemCopy(work1 + bsize - cipher_length, ct, cipher_length);
+
+    if (!CIPHER::decryptImpl(work1, bsize, pt - bsize + cipher_length, bsize, nullptr)) {
+        return false;
+    }
+
+    return true;
+}
+
+#endif

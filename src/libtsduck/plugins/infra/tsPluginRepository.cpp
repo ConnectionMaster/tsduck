@@ -1,37 +1,16 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsPluginRepository.h"
 #include "tsApplicationSharedLibrary.h"
+#include "tsEnvironment.h"
 #include "tsAlgorithm.h"
 #include "tsCerrReport.h"
-#include "tsFileUtils.h"
 
 TS_DEFINE_SINGLETON(ts::PluginRepository);
 
@@ -51,11 +30,7 @@ const ts::Enumeration ts::PluginRepository::ListProcessorEnum({
 // Constructors
 //----------------------------------------------------------------------------
 
-ts::PluginRepository::PluginRepository() :
-    _sharedLibraryAllowed(true),
-    _inputPlugins(),
-    _processorPlugins(),
-    _outputPlugins()
+ts::PluginRepository::PluginRepository()
 {
 }
 
@@ -66,56 +41,56 @@ ts::PluginRepository::PluginRepository() :
 
 void ts::PluginRepository::registerInput(const UString& name, InputPluginFactory allocator)
 {
-    CERR.debug(u"registering input plugin \"%s\", status: %s", {name, allocator != nullptr ? u"ok" : u"error, no allocator"});
+    CERR.debug(u"registering input plugin \"%s\", status: %s", name, allocator != nullptr ? u"ok" : u"error, no allocator");
     if (allocator != nullptr) {
         if (_inputPlugins[name] == nullptr) {
             _inputPlugins[name] = allocator;
         }
         else {
-            CERR.debug(u"duplicated input plugin \"%s\" ignored", {name});
+            CERR.debug(u"duplicated input plugin \"%s\" ignored", name);
         }
     }
 }
 
 void ts::PluginRepository::registerProcessor(const UString& name, ProcessorPluginFactory allocator)
 {
-    CERR.debug(u"registering processor plugin \"%s\", status: %s", {name, allocator != nullptr ? u"ok" : u"error, no allocator"});
+    CERR.debug(u"registering processor plugin \"%s\", status: %s", name, allocator != nullptr ? u"ok" : u"error, no allocator");
     if (allocator != nullptr) {
         if (_processorPlugins[name] == nullptr) {
             _processorPlugins[name] = allocator;
         }
         else {
-            CERR.debug(u"duplicated packet processor plugin \"%s\" ignored", {name});
+            CERR.debug(u"duplicated packet processor plugin \"%s\" ignored", name);
         }
     }
 }
 
 void ts::PluginRepository::registerOutput(const UString& name, OutputPluginFactory allocator)
 {
-    CERR.debug(u"registering output plugin \"%s\", status: %s", {name, allocator != nullptr ? u"ok" : u"error, no allocator"});
+    CERR.debug(u"registering output plugin \"%s\", status: %s", name, allocator != nullptr ? u"ok" : u"error, no allocator");
     if (allocator != nullptr) {
         if (_outputPlugins[name] == nullptr) {
             _outputPlugins[name] = allocator;
         }
         else {
-            CERR.debug(u"duplicated output plugin \"%s\" ignored", {name});
+            CERR.debug(u"duplicated output plugin \"%s\" ignored", name);
         }
     }
 }
 
 ts::PluginRepository::Register::Register(const UString& name, InputPluginFactory allocator)
 {
-    PluginRepository::Instance()->registerInput(name, allocator);
+    PluginRepository::Instance().registerInput(name, allocator);
 }
 
 ts::PluginRepository::Register::Register(const UString& name, ProcessorPluginFactory allocator)
 {
-    PluginRepository::Instance()->registerProcessor(name, allocator);
+    PluginRepository::Instance().registerProcessor(name, allocator);
 }
 
 ts::PluginRepository::Register::Register(const UString& name, OutputPluginFactory allocator)
 {
-    PluginRepository::Instance()->registerOutput(name, allocator);
+    PluginRepository::Instance().registerOutput(name, allocator);
 }
 
 
@@ -135,7 +110,7 @@ FACTORY ts::PluginRepository::getFactory(const UString& plugin_name, const UStri
         // the shareable image in memory after returning from this function. Also make
         // sure to include the plugin's directory in the shared library search path:
         // an extension may install a library in the same directory as the plugin.
-        ApplicationSharedLibrary shlib(plugin_name, u"tsplugin_", TS_PLUGINS_PATH, SharedLibraryFlags::PERMANENT, report);
+        ApplicationSharedLibrary shlib(plugin_name, u"tsplugin_", PLUGINS_PATH_ENVIRONMENT_VARIABLE, SharedLibraryFlags::PERMANENT, report);
         if (shlib.isLoaded()) {
             // Search again if the shareable library was loaded.
             // The shareable library is supposed to register its plugins on initialization.
@@ -156,7 +131,7 @@ FACTORY ts::PluginRepository::getFactory(const UString& plugin_name, const UStri
         return it->second;
     }
     else {
-        report.error(u"%s plugin %s not found", {plugin_type, plugin_name});
+        report.error(u"%s plugin %s not found", plugin_type, plugin_name);
         return nullptr;
     }
 }
@@ -183,17 +158,17 @@ ts::PluginRepository::OutputPluginFactory ts::PluginRepository::getOutput(const 
 
 ts::UStringList ts::PluginRepository::inputNames() const
 {
-    return MapKeys(_inputPlugins);
+    return MapKeysList(_inputPlugins);
 }
 
 ts::UStringList ts::PluginRepository::processorNames() const
 {
-    return MapKeys(_processorPlugins);
+    return MapKeysList(_processorPlugins);
 }
 
 ts::UStringList ts::PluginRepository::outputNames() const
 {
-    return MapKeys(_outputPlugins);
+    return MapKeysList(_outputPlugins);
 }
 
 
@@ -205,12 +180,8 @@ namespace {
     class ReportTSP: public ts::TSP
     {
         TS_NOBUILD_NOCOPY(ReportTSP);
-    private:
-        Report& _report;
-    protected:
-        virtual void writeLog(int sev, const ts::UString& msg) override { _report.log(sev, msg); }
     public:
-        ReportTSP(Report& report) : ts::TSP(report.maxSeverity()), _report(report) {}
+        ReportTSP(Report& report) : ts::TSP(report.maxSeverity(), ts::UString(), &report) {}
         virtual ts::UString pluginName() const override { return ts::UString(); }
         virtual ts::Plugin* plugin() const override { return nullptr; }
         virtual size_t pluginIndex() const override { return 0; }
@@ -237,13 +208,13 @@ void ts::PluginRepository::loadAllPlugins(Report& report)
 
     // Get list of shared library files
     UStringVector files;
-    ApplicationSharedLibrary::GetPluginList(files, u"tsplugin_", TS_PLUGINS_PATH);
+    ApplicationSharedLibrary::GetPluginList(files, u"tsplugin_", PLUGINS_PATH_ENVIRONMENT_VARIABLE);
 
     // Load all plugins, let them register their plugins.
     for (size_t i = 0; i < files.size(); ++i) {
         // Permanent load.
         SharedLibrary shlib(files[i], SharedLibraryFlags::PERMANENT, report);
-        CERR.debug(u"loaded plugin file \"%s\", status: %s", {files[i], shlib.isLoaded()});
+        CERR.debug(u"loaded plugin file \"%s\", status: %s", files[i], shlib.isLoaded());
     }
 }
 
@@ -267,18 +238,18 @@ ts::UString ts::PluginRepository::listPlugins(bool loadAll, Report& report, int 
     size_t name_width = 0;
     if ((flags & (LIST_COMPACT | LIST_NAMES)) == 0) {
         if ((flags & LIST_INPUT) != 0) {
-            for (auto it = _inputPlugins.begin(); it != _inputPlugins.end(); ++it) {
-                name_width = std::max(name_width, it->first.width());
+            for (const auto& it : _inputPlugins) {
+                name_width = std::max(name_width, it.first.width());
             }
         }
         if ((flags & LIST_PACKET) != 0) {
-            for (auto it = _processorPlugins.begin(); it != _processorPlugins.end(); ++it) {
-                name_width = std::max(name_width, it->first.width());
+            for (const auto& it : _processorPlugins) {
+                name_width = std::max(name_width, it.first.width());
             }
         }
         if ((flags & LIST_OUTPUT) != 0) {
-            for (auto it = _outputPlugins.begin(); it != _outputPlugins.end(); ++it) {
-                name_width = std::max(name_width, it->first.width());
+            for (const auto& it : _outputPlugins) {
+                name_width = std::max(name_width, it.first.width());
             }
         }
     }
@@ -291,9 +262,9 @@ ts::UString ts::PluginRepository::listPlugins(bool loadAll, Report& report, int 
         if ((flags & (LIST_COMPACT | LIST_NAMES)) == 0) {
             out += u"\nList of tsp input plugins:\n\n";
         }
-        for (auto it = _inputPlugins.begin(); it != _inputPlugins.end(); ++it) {
-            Plugin* p = it->second(&tsp);
-            ListOnePlugin(out, it->first, p, name_width, flags);
+        for (const auto& it : _inputPlugins) {
+            Plugin* p = it.second(&tsp);
+            ListOnePlugin(out, it.first, p, name_width, flags);
             delete p;
         }
     }
@@ -302,9 +273,9 @@ ts::UString ts::PluginRepository::listPlugins(bool loadAll, Report& report, int 
         if ((flags & (LIST_COMPACT | LIST_NAMES)) == 0) {
             out += u"\nList of tsp output plugins:\n\n";
         }
-        for (auto it = _outputPlugins.begin(); it != _outputPlugins.end(); ++it) {
-            Plugin* p = it->second(&tsp);
-            ListOnePlugin(out, it->first, p, name_width, flags);
+        for (const auto& it : _outputPlugins) {
+            Plugin* p = it.second(&tsp);
+            ListOnePlugin(out, it.first, p, name_width, flags);
             delete p;
         }
     }
@@ -313,9 +284,9 @@ ts::UString ts::PluginRepository::listPlugins(bool loadAll, Report& report, int 
         if ((flags & (LIST_COMPACT | LIST_NAMES)) == 0) {
             out += u"\nList of tsp packet processor plugins:\n\n";
         }
-        for (auto it = _processorPlugins.begin(); it != _processorPlugins.end(); ++it) {
-            Plugin* p = it->second(&tsp);
-            ListOnePlugin(out, it->first, p, name_width, flags);
+        for (const auto& it : _processorPlugins) {
+            Plugin* p = it.second(&tsp);
+            ListOnePlugin(out, it.first, p, name_width, flags);
             delete p;
         }
     }

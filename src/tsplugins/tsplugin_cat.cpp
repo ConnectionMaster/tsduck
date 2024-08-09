@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -45,10 +24,9 @@
 namespace ts {
     class CATPlugin: public AbstractTablePlugin
     {
-        TS_NOBUILD_NOCOPY(CATPlugin);
+        TS_PLUGIN_CONSTRUCTORS(CATPlugin);
     public:
         // Implementation of plugin API
-        CATPlugin(TSP*);
         virtual bool getOptions() override;
 
         // Implementation of AbstractTablePlugin.
@@ -57,10 +35,10 @@ namespace ts {
 
     private:
         // Command line options:
-        bool                  _cleanup_priv_desc; // Remove private desc without preceding PDS desc
-        std::vector<uint16_t> _remove_casid;      // Set of CAS id to remove
-        std::vector<uint16_t> _remove_pid;        // Set of EMM PID to remove
-        DescriptorList        _add_descs;         // List of descriptors to add
+        bool                  _cleanup_priv_desc = false; // Remove private desc without preceding PDS desc
+        std::vector<uint16_t> _remove_casid {};           // Set of CAS id to remove
+        std::vector<uint16_t> _remove_pid {};             // Set of EMM PID to remove
+        DescriptorList        _add_descs {nullptr};       // List of descriptors to add
     };
 }
 
@@ -72,11 +50,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"cat", ts::CATPlugin);
 //----------------------------------------------------------------------------
 
 ts::CATPlugin::CATPlugin (TSP* tsp_) :
-    AbstractTablePlugin(tsp_, u"Perform various transformations on the CAT", u"[options]", u"CAT", PID_CAT),
-    _cleanup_priv_desc(false),
-    _remove_casid(),
-    _remove_pid(),
-    _add_descs(nullptr)
+    AbstractTablePlugin(tsp_, u"Perform various transformations on the CAT", u"[options]", u"CAT", PID_CAT)
 {
     option(u"add-ca-descriptor", 'a', STRING, 0, UNLIMITED_COUNT);
     help(u"add-ca-descriptor", u"casid/pid[/private-data]",
@@ -144,7 +118,7 @@ void ts::CATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
 {
     // Warn about non-CAT tables in the CAT PID but keep them.
     if (table.tableId() != TID_CAT) {
-        tsp->warning(u"found table id 0x%X (%d) in the CAT PID", {table.tableId(), table.tableId()});
+        warning(u"found table id %n in the CAT PID", table.tableId());
         is_target = false;
         return;
     }
@@ -152,7 +126,7 @@ void ts::CATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     // Process the CAT.
     CAT cat(duck, table);
     if (!cat.isValid()) {
-        tsp->warning(u"found invalid CAT");
+        warning(u"found invalid CAT");
         reinsert = false;
         return;
     }

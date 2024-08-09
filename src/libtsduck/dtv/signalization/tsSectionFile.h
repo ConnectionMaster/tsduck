@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -34,15 +13,16 @@
 
 #pragma once
 #include "tsxmlJSONConverter.h"
-#include "tsxmlElement.h"
 #include "tsjson.h"
+#include "tsTime.h"
 #include "tsSection.h"
 #include "tsBinaryTable.h"
+#include "tsCRC32.h"
+#include "tsBinaryTable.h"
 #include "tsUString.h"
-#include "tsDVBCharTable.h"
+#include "tsEITOptions.h"
 #include "tsxmlTweaks.h"
 #include "tsTablesPtr.h"
-#include "tsCerrReport.h"
 
 namespace ts {
     //!
@@ -145,7 +125,7 @@ namespace ts {
 
         //!
         //! Get a file type, based on a file name.
-        //! @param [in] file_name File name.
+        //! @param [in] file_name File name or inline XML or inline JSON.
         //! @param [in] type File type.
         //! @return If @a type is not FileType::UNSPECIFIED, return @a type.
         //! Otherwise, return the file type based on the file name. If the file
@@ -160,7 +140,7 @@ namespace ts {
         //! @return If @a type is not FileType::UNSPECIFIED, remove the
         //! extension from @a file_name and add the extension corresponding to @a type.
         //!
-        static UString BuildFileName(const UString& file_name, FileType type);
+        static fs::path BuildFileName(const fs::path& file_name, FileType type);
 
         //!
         //! Set new parsing and formatting tweaks for XML files.
@@ -295,7 +275,7 @@ namespace ts {
         //! If the file name is empty or "-", the standard input is used.
         //! @return True on success, false on error.
         //!
-        bool loadBinary(const UString& file_name);
+        bool loadBinary(const fs::path& file_name);
 
         //!
         //! Save a binary section file.
@@ -313,7 +293,7 @@ namespace ts {
         //! If the file name is empty or "-", the standard output is used.
         //! @return True on success, false on error.
         //!
-        bool saveBinary(const UString& file_name) const;
+        bool saveBinary(const fs::path& file_name) const;
 
         //!
         //! Load a binary section file from a memory buffer.
@@ -460,10 +440,11 @@ namespace ts {
         //! @param [in] reftime Reference time for EIT schedule. Only the date part is used.
         //! This is the "last midnight" according to which EIT segments are assigned. By
         //! default, the oldest event start time is used.
+        //! @param [in] options Generation options for EIT (p/f and/or schedule, actual and/or other).
         //! @see ts::EIT::ReorganizeSections()
         //! @see ETSI TS 101 211, section 4.1.4
         //!
-        void reorganizeEITs(const Time& reftime = Time());
+        void reorganizeEITs(const Time& reftime = Time(), EITOptions options = EITOptions::GEN_ALL);
 
         //!
         //! This static method loads the XML model for tables and descriptors.
@@ -477,32 +458,32 @@ namespace ts {
         //!
         //! Default file name suffix for binary section files.
         //!
-        static const UChar* const DEFAULT_BINARY_SECTION_FILE_SUFFIX;
+        static constexpr const UChar* const DEFAULT_BINARY_SECTION_FILE_SUFFIX = u".bin";
 
         //!
         //! Default file name suffix for XML section files.
         //!
-        static const UChar* const DEFAULT_XML_SECTION_FILE_SUFFIX;
+        static constexpr const UChar* const DEFAULT_XML_SECTION_FILE_SUFFIX = u".xml";
 
         //!
         //! Default file name suffix for JSON section files.
         //!
-        static const UChar* const DEFAULT_JSON_SECTION_FILE_SUFFIX;
+        static constexpr const UChar* const DEFAULT_JSON_SECTION_FILE_SUFFIX = u".json";
 
         //!
         //! File name of the XML model file for tables.
         //!
-        static const UChar* const XML_TABLES_MODEL;
+        static constexpr const UChar* const XML_TABLES_MODEL = u"tsduck.tables.model.xml";
 
     private:
-        DuckContext&         _duck;            // Reference to TSDuck execution context.
-        Report&              _report;          // Where to report errors.
-        BinaryTablePtrVector _tables;          // Loaded tables.
-        SectionPtrVector     _sections;        // All sections from the file.
-        SectionPtrVector     _orphanSections;  // Sections which do not belong to any table.
-        xml::JSONConverter   _model;           // XML model for tables.
-        xml::Tweaks          _xmlTweaks;       // XML formatting and parsing tweaks.
-        CRC32::Validation    _crc_op;          // Processing of CRC32 when loading sections.
+        DuckContext&         _duck;                   // Reference to TSDuck execution context.
+        Report&              _report;                 // Where to report errors.
+        BinaryTablePtrVector _tables {};              // Loaded tables.
+        SectionPtrVector     _sections {};            // All sections from the file.
+        SectionPtrVector     _orphanSections {};      // Sections which do not belong to any table.
+        xml::JSONConverter   _model {_report};        // XML model for tables.
+        xml::Tweaks          _xmlTweaks {};           // XML formatting and parsing tweaks.
+        CRC32::Validation    _crc_op = CRC32::IGNORE; // Processing of CRC32 when loading sections.
 
         // Load the XML model in this instance, if not already done.
         bool loadThisModel();

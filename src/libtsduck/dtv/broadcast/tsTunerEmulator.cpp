@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
@@ -40,17 +19,7 @@
 //-----------------------------------------------------------------------------
 
 ts::TunerEmulator::TunerEmulator(DuckContext& duck) :
-    TunerBase(duck),
-    _delivery_systems(),
-    _xml_file_path(),
-    _info_only(false),
-    _state(State::CLOSED),
-    _file(),
-    _pipe(),
-    _channels(),
-    _tune_index(0),
-    _tune_frequency(0),
-    _strength(-1)
+    TunerBase(duck)
 {
 }
 
@@ -62,15 +31,6 @@ ts::TunerEmulator::~TunerEmulator()
 //-----------------------------------------------------------------------------
 // Description of a channel.
 //-----------------------------------------------------------------------------
-
-ts::TunerEmulator::Channel::Channel() :
-    frequency(0),
-    bandwidth(0),
-    delivery(DS_UNDEFINED),
-    file(),
-    pipe()
-{
-}
 
 // Compute the distance of a frequency from the center one.
 uint64_t ts::TunerEmulator::Channel::distance(uint64_t freq) const
@@ -116,7 +76,7 @@ bool ts::TunerEmulator::open(const UString& device_name, bool info_only)
     // Open and validate the XML file describing the tuner emulator.
     xml::Document doc(_duck.report());
     xml::ModelDocument model(_duck.report());
-    _duck.report().debug(u"load tuner emulator from %s", {device_name});
+    _duck.report().debug(u"load tuner emulator from %s", device_name);
     if (!doc.load(device_name, false) || !model.load(u"tsduck.etuner.model.xml", true) || !model.validate(doc)) {
         return false;
     }
@@ -141,7 +101,7 @@ bool ts::TunerEmulator::open(const UString& device_name, bool info_only)
         else {
             def_directory = AbsoluteFilePath(def_directory, base_directory);
         }
-        _duck.report().debug(u"defaults: delivery: %s, bandwidth: %'d Hz, directory: %s", {DeliverySystemEnum.name(def_delivery), def_bandwidth, def_directory});
+        _duck.report().debug(u"defaults: delivery: %s, bandwidth: %'d Hz, directory: %s", DeliverySystemEnum.name(def_delivery), def_bandwidth, def_directory);
     }
 
     // Get all channel descriptions.
@@ -158,7 +118,7 @@ bool ts::TunerEmulator::open(const UString& device_name, bool info_only)
         chan.file.trim();
         chan.pipe.trim();
         if (success && (chan.file.empty() + chan.pipe.empty()) != 1) {
-            _duck.report().error(u"%s, line %d: exactly one of file or pipe must be set in <channel>", {device_name, (*it)->lineNumber()});
+            _duck.report().error(u"%s, line %d: exactly one of file or pipe must be set in <channel>", device_name, (*it)->lineNumber());
             success = false;
         }
         if (success && !chan.file.empty()) {
@@ -167,7 +127,7 @@ bool ts::TunerEmulator::open(const UString& device_name, bool info_only)
         _delivery_systems.insert(chan.delivery);
         _channels.push_back(chan);
     }
-    _duck.report().debug(u"loaded %d emulated channels", {_channels.size()});
+    _duck.report().debug(u"loaded %d emulated channels", _channels.size());
 
     if (success) {
         _xml_file_path = device_name;
@@ -176,7 +136,7 @@ bool ts::TunerEmulator::open(const UString& device_name, bool info_only)
         return true;
     }
     else {
-        _duck.report().error(u"error opening tuner emulator at %s", {device_name});
+        _duck.report().error(u"error opening tuner emulator at %s", device_name);
         _delivery_systems.clear();
         _channels.clear();
         return false;
@@ -272,8 +232,8 @@ bool ts::TunerEmulator::tune(ModulationArgs& params)
     }
 
     // We only look as those parameters:
-    const uint64_t freq = params.frequency.value(0);
-    const DeliverySystem delsys = params.delivery_system.value(DS_UNDEFINED);
+    const uint64_t freq = params.frequency.value_or(0);
+    const DeliverySystem delsys = params.delivery_system.value_or(DS_UNDEFINED);
     if (freq == 0) {
         _duck.report().error(u"frequency unspecified");
         return false;
@@ -285,11 +245,11 @@ bool ts::TunerEmulator::tune(ModulationArgs& params)
         index++;
     }
     if (index >= _channels.size()) {
-        _duck.report().error(u"no signal at %'d Hz", {freq});
+        _duck.report().error(u"no signal at %'d Hz", freq);
         return false;
     }
     else if (delsys != DS_UNDEFINED && _channels[index].delivery != DS_UNDEFINED && delsys != _channels[index].delivery) {
-        _duck.report().error(u"delivery system at %'d Hz is %s, %s requested ", {freq, DeliverySystemEnum.name(_channels[index].delivery), DeliverySystemEnum.name(delsys)});
+        _duck.report().error(u"delivery system at %'d Hz is %s, %s requested ", freq, DeliverySystemEnum.name(_channels[index].delivery), DeliverySystemEnum.name(delsys));
         return false;
     }
 
@@ -297,11 +257,11 @@ bool ts::TunerEmulator::tune(ModulationArgs& params)
     params.delivery_system = _channels[index].delivery;
 
     if (IsSatelliteDelivery(params.delivery_system.value())) {
-        if (!params.lnb.set()) {
-            _duck.report().warning(u"no LNB set for satellite delivery %s", {DeliverySystemEnum.name(params.delivery_system.value())});
+        if (!params.lnb.has_value()) {
+            _duck.report().warning(u"no LNB set for satellite delivery %s", DeliverySystemEnum.name(params.delivery_system.value()));
         }
         else {
-            _duck.report().debug(u"using LNB %s", {params.lnb.value()});
+            _duck.report().debug(u"using LNB %s", params.lnb.value());
         }
     }
 
@@ -341,7 +301,7 @@ bool ts::TunerEmulator::start()
         }
     }
     else {
-        _duck.report().error(u"empty file and pipe names for channel at %'d Hz", {chan.frequency});
+        _duck.report().error(u"empty file and pipe names for channel at %'d Hz", chan.frequency);
         return false;
     }
 

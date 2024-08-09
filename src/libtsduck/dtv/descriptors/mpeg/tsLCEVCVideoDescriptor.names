@@ -1,0 +1,11 @@
+[LCEVC_video_descriptor.profile_idc]
+Bits = 4
+# ISO/IEC 23094-2, Annex A.3
+0 = Main
+1 = Main 4:4:4
+
+[LCEVC_video_descriptor.hdr_wcg_idc]
+Inherit = VVC_video_descriptor.hdr_wcg_idc
+
+[LCEVC_video_descriptor.video_properties]
+Inherit = VVC_video_descriptor.video_properties

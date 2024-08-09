@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -152,7 +131,7 @@ void ts::tlv::Serializer::putBool(TAG tag, const std::vector<bool>& val)
 
 void ts::tlv::Serializer::put(TAG tag, const std::vector<std::string>& val)
 {
-    for (auto i : val) {
+    for (const auto& i : val) {
         put(tag, i);
     }
 }
@@ -165,12 +144,12 @@ void ts::tlv::Serializer::put(TAG tag, const std::vector<std::string>& val)
 ts::UString ts::tlv::Serializer::toString() const
 {
     UString prefix;
-    if (_bb.isNull()) {
+    if (_bb == nullptr) {
         return u"(null)";
     }
-    prefix = UString::Format(u"{%d bytes, ", {_bb->size()});
+    prefix = UString::Format(u"{%d bytes, ", _bb->size());
     if (_length_offset >= 0) {
-        prefix += UString::Format(u"length at offset %d, ", {_length_offset});
+        prefix += UString::Format(u"length at offset %d, ", _length_offset);
     }
     return prefix + u"data: " + UString::Dump(*_bb, UString::SINGLE_LINE) + u"}";
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -48,36 +27,35 @@
 namespace ts {
     class NITScanPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
-        TS_NOBUILD_NOCOPY(NITScanPlugin);
+        TS_PLUGIN_CONSTRUCTORS(NITScanPlugin);
     public:
         // Implementation of plugin API
-        NITScanPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
         virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        UString       _output_name;     // Output file name
-        std::ofstream _output_stream;   // Output file stream
-        std::ostream* _output;          // Actual output stream
-        UString       _comment_prefix;  // Prefix for comment lines
-        UString       _variable_prefix; // Prefix for environment variable names
-        bool          _use_comment;     // Add comment line
-        bool          _use_variable;    // Environment variable format
-        bool          _terminate;       // Terminate after one NIT
-        bool          _dvb_options;     // Output format: dvb plugin options
-        bool          _all_nits;        // Also include all "NIT other"
-        bool          _nit_other;       // Analyze one "NIT other"
-        uint16_t      _network_id;      // Network id of "NIT other" to analyze
-        PID           _nit_pid;         // PID for the NIT (default: read PAT)
-        size_t        _nit_count;       // Number of analyzed NIT's
-        SectionDemux  _demux;           // Section demux
-        ChannelFile   _channels;        // Channel database
-        UString       _channel_file;    // Name of channel configuration file.
-        bool          _save_channel_file;     // Save a fresh new version of channel configuration file.
-        bool          _update_channel_file;   // Update previous content of channel configuration file.
-        bool          _default_channel_file;  // Use default channel configuration file.
+        UString       _output_name {};                // Output file name
+        std::ofstream _output_stream {};              // Output file stream
+        std::ostream* _output = nullptr;              // Actual output stream
+        UString       _comment_prefix {};             // Prefix for comment lines
+        UString       _variable_prefix {};            // Prefix for environment variable names
+        bool          _use_comment = false;           // Add comment line
+        bool          _use_variable = false;          // Environment variable format
+        bool          _terminate = false;             // Terminate after one NIT
+        bool          _dvb_options = false;           // Output format: dvb plugin options
+        bool          _all_nits = false;              // Also include all "NIT other"
+        bool          _nit_other = false;             // Analyze one "NIT other"
+        uint16_t      _network_id = 0;                // Network id of "NIT other" to analyze
+        PID           _nit_pid = PID_NULL;            // PID for the NIT (default: read PAT)
+        size_t        _nit_count = 0;                 // Number of analyzed NIT's
+        SectionDemux  _demux {duck, this};            // Section demux
+        ChannelFile   _channels {};                   // Channel database
+        UString       _channel_file {};               // Name of channel configuration file.
+        bool          _save_channel_file = false;     // Save a fresh new version of channel configuration file.
+        bool          _update_channel_file = false;   // Update previous content of channel configuration file.
+        bool          _default_channel_file = false;  // Use default channel configuration file.
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -96,27 +74,7 @@ TS_REGISTER_PROCESSOR_PLUGIN(u"nitscan", ts::NITScanPlugin);
 //----------------------------------------------------------------------------
 
 ts::NITScanPlugin::NITScanPlugin(TSP* tsp_) :
-    ProcessorPlugin(tsp_, u"Analyze the NIT and output a list of tuning information", u"[options]"),
-    _output_name(),
-    _output_stream(),
-    _output(nullptr),
-    _comment_prefix(),
-    _variable_prefix(),
-    _use_comment(false),
-    _use_variable(false),
-    _terminate(false),
-    _dvb_options(false),
-    _all_nits(false),
-    _nit_other(false),
-    _network_id(0),
-    _nit_pid(PID_NULL),
-    _nit_count(0),
-    _demux(duck, this),
-    _channels(),
-    _channel_file(),
-    _save_channel_file(false),
-    _update_channel_file(false),
-    _default_channel_file(false)
+    ProcessorPlugin(tsp_, u"Analyze the NIT and output a list of tuning information", u"[options]")
 {
     // We need to define character sets to specify service names.
     duck.defineArgsForCharset(*this);
@@ -209,7 +167,7 @@ bool ts::NITScanPlugin::getOptions()
     _default_channel_file = (_save_channel_file || _update_channel_file) && (_channel_file.empty() || _channel_file == u"-");
 
     if (_save_channel_file && _update_channel_file) {
-        tsp->error(u"--save-channels and --update-channels are mutually exclusive");
+        error(u"--save-channels and --update-channels are mutually exclusive");
         return false;
     }
     else if (_default_channel_file) {
@@ -232,7 +190,7 @@ bool ts::NITScanPlugin::start()
 {
     // Pre-load the existing channel file.
     _channels.clear();
-    if (_update_channel_file && !_channel_file.empty() && FileExists(_channel_file) && !_channels.load(_channel_file, *tsp)) {
+    if (_update_channel_file && !_channel_file.empty() && fs::exists(_channel_file) && !_channels.load(_channel_file, *this)) {
         return false;
     }
 
@@ -252,7 +210,7 @@ bool ts::NITScanPlugin::start()
         _output = &_output_stream;
         _output_stream.open(_output_name.toUTF8().c_str());
         if (!_output_stream) {
-            tsp->error(u"cannot create file %s", {_output_name});
+            error(u"cannot create file %s", _output_name);
             return false;
         }
     }
@@ -274,8 +232,8 @@ bool ts::NITScanPlugin::stop()
 
     // Save channels file. Create intermediate directories when it is the default file.
     if (!_channel_file.empty()) {
-        tsp->verbose(u"saving %s", {_channel_file});
-        _channels.save(_channel_file, _default_channel_file, *tsp);
+        verbose(u"saving %s", _channel_file);
+        _channels.save(_channel_file, _default_channel_file, *this);
     }
 
     return true;
@@ -335,11 +293,11 @@ void ts::NITScanPlugin::processPAT(const PAT& pat)
 {
     if (pat.nit_pid != PID_NULL) {
         _nit_pid = pat.nit_pid;
-        tsp->verbose(u"NIT PID is %d (0x%X) in PAT", {_nit_pid, _nit_pid});
+        verbose(u"NIT PID is %n in PAT", _nit_pid);
     }
     else {
         _nit_pid = PID_NIT;
-        tsp->verbose(u"NIT PID not found in PAT, using default %d (0x%X)", {_nit_pid, _nit_pid});
+        verbose(u"NIT PID not found in PAT, using default %n", _nit_pid);
     }
 
     // Filter sections on the PID for NIT.
@@ -353,16 +311,15 @@ void ts::NITScanPlugin::processPAT(const PAT& pat)
 
 void ts::NITScanPlugin::processNIT(const NIT& nit)
 {
-    tsp->debug(u"got a NIT, version %d, network Id: %d (0x%X)", {nit.version, nit.network_id, nit.network_id});
+    debug(u"got a NIT, version %d, network Id: %n", nit.version, nit.network_id);
 
     // Count the number of NIT's
     _nit_count++;
 
     // Process each TS descriptor list
-    for (auto it = nit.transports.begin(); it != nit.transports.end(); ++it) {
-
-        const TransportStreamId& tsid(it->first);
-        const DescriptorList& dlist(it->second.descs);
+    for (const auto& it : nit.transports) {
+        const TransportStreamId& tsid(it.first);
+        const DescriptorList& dlist(it.second.descs);
 
         // Loop on all descriptors for the current TS
         for (size_t i = 0; i < dlist.count(); ++i) {
@@ -375,11 +332,8 @@ void ts::NITScanPlugin::processNIT(const NIT& nit)
                     // Optional comment
                     if (_use_comment) {
                         *_output << _comment_prefix
-                                 << UString::Format(u"TS id: %d (0x%X), original network id: %d (0x%X), from NIT v%d on network id: %d (0x%X)",
-                                                    {tsid.transport_stream_id, tsid.transport_stream_id,
-                                                     tsid.original_network_id, tsid.original_network_id,
-                                                     nit.version,
-                                                     nit.network_id, nit.network_id})
+                                 << UString::Format(u"TS id: %n, original network id: %n, from NIT v%d on network id: %n",
+                                                    tsid.transport_stream_id, tsid.original_network_id, nit.version, nit.network_id)
                                  << std::endl;
                     }
                     // Output the tuning information, optionally in a variable definition.
@@ -397,12 +351,12 @@ void ts::NITScanPlugin::processNIT(const NIT& nit)
                 if (_save_channel_file || _update_channel_file) {
                     // Get or create network description in channel database.
                     // Use tuner type from delivery descriptor.
-                    ChannelFile::NetworkPtr net(_channels.networkGetOrCreate(nit.network_id, TunerTypeOf(tp.delivery_system.value(DS_UNDEFINED))));
+                    ChannelFile::NetworkPtr net(_channels.networkGetOrCreate(nit.network_id, TunerTypeOf(tp.delivery_system.value_or(DS_UNDEFINED))));
                     // Get or create TS description in channel database.
                     ChannelFile::TransportStreamPtr ts(net->tsGetOrCreate(tsid.transport_stream_id));
                     // Do not reset services in TS, keep existing if any, just update tuning info.
                     ts->onid = tsid.original_network_id;
-                    ts->tune = tp;
+                    ts->tune = std::move(tp);
                 }
             }
         }

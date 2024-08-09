@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Maciej Czyzkowski
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Maciej Czyzkowski
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -37,27 +16,27 @@ bool tsDVBT2ParamsEvaluatorIsEmpty = true; // Avoid warning about empty module.
 
 namespace {
     template <typename V, typename... T>
-    constexpr auto array_of(T&&... t) -> std::array < V, sizeof...(T) > 
+    constexpr auto array_of(T&&... t) -> std::array < V, sizeof...(T) >
     {
         return {{ std::forward<T>(t)... }};
     }
 
     // m_FftMode
-    const auto pref_fft_mode = array_of<int>(DTAPI_DVBT2_FFT_1K, DTAPI_DVBT2_FFT_2K, DTAPI_DVBT2_FFT_4K, 
+    const auto pref_fft_mode = array_of<int>(DTAPI_DVBT2_FFT_1K, DTAPI_DVBT2_FFT_2K, DTAPI_DVBT2_FFT_4K,
                                              DTAPI_DVBT2_FFT_8K, DTAPI_DVBT2_FFT_16K, DTAPI_DVBT2_FFT_32K);
     // m_GuardInterval
-    const auto pref_guard_interval = array_of<int>(DTAPI_DVBT2_GI_1_128, DTAPI_DVBT2_GI_1_32, 
+    const auto pref_guard_interval = array_of<int>(DTAPI_DVBT2_GI_1_128, DTAPI_DVBT2_GI_1_32,
                                                    DTAPI_DVBT2_GI_1_16, DTAPI_DVBT2_GI_19_256,
-                                                   DTAPI_DVBT2_GI_1_8, DTAPI_DVBT2_GI_19_128, 
+                                                   DTAPI_DVBT2_GI_1_8, DTAPI_DVBT2_GI_19_128,
                                                    DTAPI_DVBT2_GI_1_4);
     // m_L1Modulation
-    const auto pref_l1_modulation = array_of<int>(DTAPI_DVBT2_BPSK, DTAPI_DVBT2_QPSK, DTAPI_DVBT2_QAM16, 
+    const auto pref_l1_modulation = array_of<int>(DTAPI_DVBT2_BPSK, DTAPI_DVBT2_QPSK, DTAPI_DVBT2_QAM16,
                                                   DTAPI_DVBT2_QAM64, DTAPI_DVBT2_QAM256);
     // m_Plps[0].m_CodeRate
-    const auto pref_code_rate = array_of<int>(DTAPI_DVBT2_COD_1_2, DTAPI_DVBT2_COD_3_5, DTAPI_DVBT2_COD_2_3, 
+    const auto pref_code_rate = array_of<int>(DTAPI_DVBT2_COD_1_2, DTAPI_DVBT2_COD_3_5, DTAPI_DVBT2_COD_2_3,
                                               DTAPI_DVBT2_COD_3_4, DTAPI_DVBT2_COD_4_5, DTAPI_DVBT2_COD_5_6);
     // m_Plps[0].m_Modulation
-    const auto pref_plp0_modulation = array_of<int>(DTAPI_DVBT2_BPSK, DTAPI_DVBT2_QPSK, DTAPI_DVBT2_QAM16, 
+    const auto pref_plp0_modulation = array_of<int>(DTAPI_DVBT2_BPSK, DTAPI_DVBT2_QPSK, DTAPI_DVBT2_QAM16,
                                                     DTAPI_DVBT2_QAM64, DTAPI_DVBT2_QAM256);
 }
 
@@ -68,11 +47,11 @@ namespace {
 
 void ts::EvaluateDvbT2ParsForBitrate(Dtapi::DtDvbT2Pars& pars, const ts::BitRate& bitrate)
 {
-    Dtapi::DtDvbT2Pars best_params = pars;
+    Dtapi::DtDvbT2Pars best_params(pars);
     ts::BitRate best_bitrate = 0;
-    //initialize to some high value
-    auto best_bitrate_diff = bitrate;
-    
+    // Initialize to some high value
+    ts::BitRate best_bitrate_diff = bitrate;
+
     // Build a list of all possible modulation parameters for this bitrate.
     for (auto fft_mode : pref_fft_mode) {
         Dtapi::DtDvbT2Pars params = pars;
@@ -115,7 +94,7 @@ void ts::EvaluateDvbT2ParsForBitrate(Dtapi::DtDvbT2Pars& pars, const ts::BitRate
             }
         }
     }
-    pars = best_params;
+    pars = std::move(best_params);
 }
 
 #endif // TS_NO_DTAPI

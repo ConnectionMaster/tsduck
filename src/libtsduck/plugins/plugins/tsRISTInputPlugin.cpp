@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2020-2022, Anthony Delannoy
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2020-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -44,18 +23,18 @@ bool ts::RISTInputPlugin::isRealTime()
 
 
 //----------------------------------------------------------------------------
-// Stubs in the absence of libsrt.
+// Stubs in the absence of librist.
 //----------------------------------------------------------------------------
 
 #if defined(TS_NO_RIST)
 
 #define NORIST_ERROR_MSG u"This version of TSDuck was compiled without RIST support"
-#define NORIST_ERROR(ret) { tsp->error(NORIST_ERROR_MSG); return (ret); }
+#define NORIST_ERROR(ret) { error(NORIST_ERROR_MSG); return (ret); }
 
-ts::RISTInputPlugin::RISTInputPlugin(TSP* t) : InputPlugin(t), _guts(nullptr) {}
+ts::RISTInputPlugin::RISTInputPlugin(TSP* t) : InputPlugin(t) {}
 ts::RISTInputPlugin::~RISTInputPlugin() {}
 bool ts::RISTInputPlugin::getOptions() NORIST_ERROR(false)
-bool ts::RISTInputPlugin::setReceiveTimeout(MilliSecond) NORIST_ERROR(false)
+bool ts::RISTInputPlugin::setReceiveTimeout(cn::milliseconds) NORIST_ERROR(false)
 bool ts::RISTInputPlugin::start() NORIST_ERROR(false)
 bool ts::RISTInputPlugin::stop() NORIST_ERROR(false)
 size_t ts::RISTInputPlugin::receive(TSPacket*, TSPacketMetadata*, size_t) NORIST_ERROR(0)
@@ -71,23 +50,18 @@ TS_REGISTER_INPUT_PLUGIN(u"rist", ts::RISTInputPlugin);
 
 class ts::RISTInputPlugin::Guts
 {
-     TS_NOBUILD_NOCOPY(Guts);
+    TS_NOBUILD_NOCOPY(Guts);
 public:
-     RISTPluginData data;
-     MilliSecond    timeout;       // receive timeout.
-     ByteBlock      buffer;        // data in excess from last input.
-     int            last_qsize;    // last queue size in data blocks.
-     bool           qsize_warned;  // a warning was reporting on heavy queue size.
+    RISTPluginData   rist;
+    bool             ignore_ntp = false;   // ignore NTP time stamps from RIST library.
+    cn::milliseconds timeout {};           // receive timeout.
+    ByteBlock        buffer {};            // data in excess from last input.
+    cn::nanoseconds  buffer_ntp = cn::nanoseconds(0); // time stamp of all packets in buffer.
+    int              last_qsize = 0;       // last queue size in data blocks.
+    bool             qsize_warned = false; // a warning was reporting on heavy queue size.
 
-     // Constructor.
-     Guts(Args* args, TSP* tsp) :
-         data(args, tsp),
-         timeout(0),
-         buffer(),
-         last_qsize(0),
-         qsize_warned(false)
-     {
-     }
+    // Constructor.
+    Guts(Report& report) : rist(report) {}
 };
 
 
@@ -97,9 +71,15 @@ public:
 
 ts::RISTInputPlugin::RISTInputPlugin(TSP* tsp_) :
     InputPlugin(tsp_, u"Receive TS packets from Reliable Internet Stream Transport (RIST)", u"[options] url [url...]"),
-    _guts(new Guts(this, tsp))
+    _guts(new Guts(*this))
 {
     CheckNonNull(_guts);
+    _guts->rist.defineArgs(*this);
+
+    option(u"ignore-rist-timestamps");
+    help(u"ignore-rist-timestamps",
+         u"Ignore source timestamps, use reception time as packet timestamps. "
+         u"By default, use the source timestamps from the sender as packet timestamp.");
 }
 
 ts::RISTInputPlugin::~RISTInputPlugin()
@@ -117,7 +97,8 @@ ts::RISTInputPlugin::~RISTInputPlugin()
 
 bool ts::RISTInputPlugin::getOptions()
 {
-    return _guts->data.getOptions(this);
+    _guts->ignore_ntp = present(u"ignore-rist-timestamps");
+    return _guts->rist.loadArgs(duck, *this);
 }
 
 
@@ -125,9 +106,9 @@ bool ts::RISTInputPlugin::getOptions()
 // Set receive timeout from tsp.
 //----------------------------------------------------------------------------
 
-bool ts::RISTInputPlugin::setReceiveTimeout(MilliSecond timeout)
+bool ts::RISTInputPlugin::setReceiveTimeout(cn::milliseconds timeout)
 {
-    if (timeout > 0) {
+    if (timeout > cn::milliseconds::zero()) {
         _guts->timeout = timeout;
     }
     return true;
@@ -140,8 +121,8 @@ bool ts::RISTInputPlugin::setReceiveTimeout(MilliSecond timeout)
 
 bool ts::RISTInputPlugin::start()
 {
-    if (_guts->data.ctx != nullptr) {
-        tsp->error(u"already started");
+    if (_guts->rist.ctx != nullptr) {
+        error(u"already started");
         return false;
     }
 
@@ -151,22 +132,22 @@ bool ts::RISTInputPlugin::start()
     _guts->qsize_warned = false;
 
     // Initialize the RIST context.
-    tsp->debug(u"calling rist_receiver_create, profile: %d", {_guts->data.profile});
-    if (::rist_receiver_create(&_guts->data.ctx, _guts->data.profile, &_guts->data.log) != 0) {
-        tsp->error(u"error in rist_receiver_create");
+    debug(u"calling rist_receiver_create, profile: %d", _guts->rist.profile);
+    if (::rist_receiver_create(&_guts->rist.ctx, _guts->rist.profile, &_guts->rist.log) != 0) {
+        error(u"error in rist_receiver_create");
         return false;
     }
 
     // Add all peers to the RIST context.
-    if (!_guts->data.addPeers()) {
+    if (!_guts->rist.addPeers()) {
         return false;
     }
 
     // Start reception.
-    tsp->debug(u"calling rist_start");
-    if (::rist_start(_guts->data.ctx) != 0) {
-        tsp->error(u"error starting RIST reception");
-        _guts->data.cleanup();
+    debug(u"calling rist_start");
+    if (::rist_start(_guts->rist.ctx) != 0) {
+        error(u"error starting RIST reception");
+        _guts->rist.cleanup();
         return false;
     }
 
@@ -180,7 +161,7 @@ bool ts::RISTInputPlugin::start()
 
 bool ts::RISTInputPlugin::stop()
 {
-    _guts->data.cleanup();
+    _guts->rist.cleanup();
     return true;
 }
 
@@ -195,11 +176,18 @@ size_t ts::RISTInputPlugin::receive(TSPacket* pkt_buffer, TSPacketMetadata* pkt_
 
     if (!_guts->buffer.empty()) {
         // There are remaining data from a previous receive in the buffer.
-        tsp->debug(u"read data from remaining %d bytes in the buffer", {_guts->buffer.size()});
+        debug(u"read data from remaining %d bytes in the buffer", _guts->buffer.size());
         assert(_guts->buffer.size() % PKT_SIZE == 0);
         pkt_count = std::min(_guts->buffer.size() / PKT_SIZE, max_packets);
-        ::memcpy(pkt_buffer->b, _guts->buffer.data(), pkt_count * PKT_SIZE);
+        MemCopy(pkt_buffer->b, _guts->buffer.data(), pkt_count * PKT_SIZE);
         _guts->buffer.erase(0, pkt_count * PKT_SIZE);
+        if (!_guts->ignore_ntp && _guts->buffer_ntp > cn::nanoseconds::zero()) {
+            // Set the time stamp of all packets.
+            for (size_t i = 0; i < pkt_count; ++i) {
+                pkt_data[i].setInputTimeStamp(_guts->buffer_ntp, TimeSource::RIST);
+            }
+            _guts->buffer_ntp = cn::nanoseconds::zero();
+        }
     }
     else {
         // Read one data block. Allocated in the library, must be freed later.
@@ -209,32 +197,32 @@ size_t ts::RISTInputPlugin::receive(TSPacket* pkt_buffer, TSPacketMetadata* pkt_
         // Here, we poll every few seconds when no timeout is specified and check for abort.
         for (;;) {
             // The returned value is: number of buffers remaining on queue +1 (0 if no buffer returned), -1 on error.
-            const int queue_size = ::rist_receiver_data_read2(_guts->data.ctx, &dblock, _guts->timeout == 0 ? 5000 : int(_guts->timeout));
+            const int queue_size = ::rist_receiver_data_read2(_guts->rist.ctx, &dblock, _guts->timeout == cn::milliseconds::zero() ? 5000 : int(_guts->timeout.count()));
             if (queue_size < 0) {
-                tsp->error(u"reception error");
+                error(u"reception error");
                 return 0;
             }
             else if (queue_size == 0 || dblock == nullptr) {
                 // No data block returned but not an error, must be a timeout.
-                if (_guts->timeout > 0) {
+                if (_guts->timeout > cn::milliseconds::zero()) {
                     // This is a user-specified timeout.
-                    tsp->error(u"reception timeout");
+                    error(u"reception timeout");
                     return 0;
                 }
                 else if (tsp->aborting()) {
                     // User abort was requested.
                     return 0;
                 }
-                tsp->debug(u"no packet, queue size: %d, data block: 0x%X, polling librist again", {queue_size, size_t(dblock)});
+                debug(u"no packet, queue size: %d, data block: 0x%X, polling librist again", queue_size, size_t(dblock));
             }
             else {
                 // Report excessive queue size to diagnose reception issues.
                 if (queue_size > _guts->last_qsize + 10) {
-                    tsp->warning(u"RIST receive queue heavy load: %d data blocks, flow id %d", {queue_size, dblock->flow_id});
+                    warning(u"RIST receive queue heavy load: %d data blocks, flow id %d", queue_size, dblock->flow_id);
                     _guts->qsize_warned = true;
                 }
                 else if (_guts->qsize_warned && queue_size == 1) {
-                    tsp->info(u"RIST receive queue back to normal");
+                    info(u"RIST receive queue back to normal");
                     _guts->qsize_warned = false;
                 }
                 _guts->last_qsize = queue_size;
@@ -244,17 +232,36 @@ size_t ts::RISTInputPlugin::receive(TSPacket* pkt_buffer, TSPacketMetadata* pkt_
                 const uint8_t* const data_addr = reinterpret_cast<const uint8_t*>(dblock->payload);
                 const size_t data_size = total_pkt_count * PKT_SIZE;
                 if (data_size < dblock->payload_len) {
-                    tsp->warning(u"received %'d bytes, not a integral number of TS packets, %d trailing bytes, first received byte: 0x%X, first trailing byte: 0x%X",
-                                 {dblock->payload_len, dblock->payload_len % PKT_SIZE, data_addr[0], data_addr[data_size]});
+                    warning(u"received %'d bytes, not a integral number of TS packets, %d trailing bytes, first received byte: 0x%X, first trailing byte: 0x%X",
+                                 dblock->payload_len, dblock->payload_len % PKT_SIZE, data_addr[0], data_addr[data_size]);
                 }
+
+                // Get the input RIST timestamp. This value is in NTP units (Network Time Protocol).
+                // NTP represents 64-bit times as a uniform 64-bit integer value, a number of "units",
+                // where the seconds are in the upper 32 bits. Therefore, the "unit" is such that
+                // 2^32 units = 1 second, meaning 1 unit = 232 picoseconds.
+                // See https://datatracker.ietf.org/doc/html/rfc5905#section-6
+                // The NTP Epoch is Jan 1 1900. This means that all NTP dates after Jan 1 1968 are
+                // "negative" when the 64-bit value is interpreted as signed. It is therefore
+                // impossible to represent NTP units with cn::duration types.
+                // We immediately convert the time stamp into nanoseconds.
+                const cn::nanoseconds timestamp = cn::nanoseconds(dblock->ts_ntp == 0 ? 0 : 232 * (dblock->ts_ntp / 1000));
 
                 // Return the packets which fit in the caller's buffer.
                 pkt_count = std::min(total_pkt_count, max_packets);
-                ::memcpy(pkt_buffer->b, data_addr, pkt_count * PKT_SIZE);
+                MemCopy(pkt_buffer->b, data_addr, pkt_count * PKT_SIZE);
+
+                // Set the time stamp of all packets.
+                if (!_guts->ignore_ntp && timestamp > cn::nanoseconds::zero()) {
+                    for (size_t i = 0; i < pkt_count; ++i) {
+                        pkt_data[i].setInputTimeStamp(timestamp, TimeSource::RIST);
+                    }
+                }
 
                 // Copy the rest, if any, in the local buffer.
                 if (pkt_count < total_pkt_count) {
                     _guts->buffer.copy(data_addr + (pkt_count * PKT_SIZE), (total_pkt_count - pkt_count) * PKT_SIZE);
+                    _guts->buffer_ntp = timestamp;
                 }
 
                 // Free returned data block.

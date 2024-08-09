@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2020-2022, Anthony Delannoy
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2020-2024, Anthony Delannoy
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -40,20 +19,16 @@ TS_REGISTER_OUTPUT_PLUGIN(u"srt", ts::SRTOutputPlugin);
 //----------------------------------------------------------------------------
 
 ts::SRTOutputPlugin::SRTOutputPlugin(TSP* tsp_) :
-    AbstractDatagramOutputPlugin(tsp_, u"Send TS packets using Secure Reliable Transport (SRT)", u"[options] [address:port]", NONE),
-    _multiple(false),
-    _restart_delay(0),
-    _sock()
+    OutputPlugin(tsp_, u"Send TS packets using Secure Reliable Transport (SRT)", u"[options] [address:port]")
 {
+    _datagram.defineArgs(*this);
     _sock.defineArgs(*this);
 
     option(u"multiple", 'm');
-    help(u"multiple",
-         u"When the receiver peer disconnects, wait for another one and continue.");
+    help(u"multiple", u"When the receiver peer disconnects, wait for another one and continue.");
 
-    option(u"restart-delay", 0, UNSIGNED);
-    help(u"restart-delay", u"milliseconds",
-         u"With --multiple, wait the specified number of milliseconds before restarting.");
+    option<cn::milliseconds>(u"restart-delay");
+    help(u"restart-delay", u"With --multiple, wait the specified delay before restarting.");
 
     // These options are legacy, now use --listener and/or --caller.
     option(u"", 0, STRING, 0, 1);
@@ -81,10 +56,10 @@ bool ts::SRTOutputPlugin::isRealTime()
 bool ts::SRTOutputPlugin::getOptions()
 {
     _multiple = present(u"multiple");
-    getIntValue(_restart_delay, u"restart-delay", 0);
-    return _sock.setAddresses(value(u""), value(u"rendezvous"), UString(), *tsp) &&
+    getChronoValue(_restart_delay, u"restart-delay");
+    return _sock.setAddresses(value(u""), value(u"rendezvous"), UString(), *this) &&
            _sock.loadArgs(duck, *this) &&
-           AbstractDatagramOutputPlugin::getOptions();
+           _datagram.loadArgs(duck, *this);
 }
 
 
@@ -94,8 +69,14 @@ bool ts::SRTOutputPlugin::getOptions()
 
 bool ts::SRTOutputPlugin::start()
 {
-    // Call superclass first, then initialize SRT socket.
-    return AbstractDatagramOutputPlugin::start() && _sock.open(*tsp);
+    bool success = _datagram.open(*this);
+    if (success) {
+        success = _sock.open(*this);
+        if (!success) {
+            _datagram.close(0, *this);
+        }
+    }
+    return success;
 }
 
 
@@ -105,23 +86,32 @@ bool ts::SRTOutputPlugin::start()
 
 bool ts::SRTOutputPlugin::stop()
 {
-    // Call superclass first, then close SRT socket.
-    AbstractDatagramOutputPlugin::stop();
-    _sock.close(*tsp);
+    _datagram.close(tsp->bitrate(), *this);
+    _sock.close(*this);
     return true;
 }
 
 
 //----------------------------------------------------------------------------
-// Implementation of AbstractDatagramOutputPlugin: send one datagram.
+// Send packets method.
 //----------------------------------------------------------------------------
 
-bool ts::SRTOutputPlugin::sendDatagram(const void* address, size_t size)
+bool ts::SRTOutputPlugin::send(const TSPacket* packets, const TSPacketMetadata* metadata, size_t packet_count)
+{
+    return _datagram.send(packets, packet_count, tsp->bitrate(), *this);
+}
+
+
+//----------------------------------------------------------------------------
+// Implementation of TSDatagramOutputHandlerInterface: send one datagram.
+//----------------------------------------------------------------------------
+
+bool ts::SRTOutputPlugin::sendDatagram(const void* address, size_t size, Report& report)
 {
     // Loop on restart with multiple sessions.
     for (;;) {
         // Send the datagram.
-        if (_sock.send(address, size, *tsp)) {
+        if (_sock.send(address, size, report)) {
             return true;
         }
         // Send error.
@@ -129,15 +119,15 @@ bool ts::SRTOutputPlugin::sendDatagram(const void* address, size_t size)
             // Actual error, not a clean disconnection from the receiver, do not retry, even with --multiple.
             return false;
         }
-        tsp->verbose(u"receiver disconnected%s", {_multiple ? u", waiting for another one" : u""});
+        report.verbose(u"receiver disconnected%s", _multiple ? u", waiting for another one" : u"");
         if (!_multiple) {
             // No multiple sessions, terminate here.
             return false;
         }
         // Multiple sessions, close socket and re-open to acquire another receiver.
         stop();
-        if (_restart_delay > 0) {
-            SleepThread(_restart_delay);
+        if (_restart_delay > cn::milliseconds::zero()) {
+            std::this_thread::sleep_for(_restart_delay);
         }
         if (!start()) {
             return false;

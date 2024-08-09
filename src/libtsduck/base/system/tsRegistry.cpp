@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
@@ -39,62 +18,23 @@
 
 #if !defined(TS_WINDOWS)
 
-#define ERROR_MESSAGE    u"not Windows, no registry"
-#define BOOL_ERROR()     report.error(ERROR_MESSAGE); return false
-#define USTRING_ERROR()  report.error(ERROR_MESSAGE); return UString()
+#define ERROR_MESSAGE  u"not Windows, no registry"
+#define BOOL_ERROR     { report.error(ERROR_MESSAGE); return false; }
+#define USTRING_ERROR  { report.error(ERROR_MESSAGE); return UString(); }
 
 const ts::UString ts::Registry::SystemEnvironmentKey;
 const ts::UString ts::Registry::UserEnvironmentKey;
 
-bool ts::Registry::SplitKey(const UString& key, Handle& root_key, UString& subkey, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::SplitKey(const UString& key, Handle& root_key, UString& midkey, UString& final_key, Report& report)
-{
-    BOOL_ERROR();
-}
-
-ts::UString ts::Registry::GetValue(const UString& key, const UString& value_name, Report& report)
-{
-    USTRING_ERROR();
-}
-
-bool ts::Registry::SetValue(const UString& key, const UString& value_name, const UString& value, bool expandable, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::SetValue(const UString& key, const UString& value_name, uint32_t value, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::DeleteValue(const UString& key, const UString& value_name, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::CreateKey(const UString& key, bool is_volatile, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::DeleteKey(const UString& key, Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::NotifySettingChange(Report& report)
-{
-    BOOL_ERROR();
-}
-
-bool ts::Registry::NotifyEnvironmentChange(Report& report)
-{
-    BOOL_ERROR();
-}
+bool ts::Registry::SplitKey(const UString&, Handle&, UString&, Report& report) BOOL_ERROR
+bool ts::Registry::SplitKey(const UString&, Handle&, UString&, UString&, Report& report) BOOL_ERROR
+ts::UString ts::Registry::GetValue(const UString&, const UString&, Report& report) USTRING_ERROR
+bool ts::Registry::SetValue(const UString&, const UString&, const UString&, bool, Report& report) BOOL_ERROR
+bool ts::Registry::SetValue(const UString&, const UString&, uint32_t, Report& report) BOOL_ERROR
+bool ts::Registry::DeleteValue(const UString&, const UString&, Report& report) BOOL_ERROR
+bool ts::Registry::CreateKey(const UString&, bool, Report& report) BOOL_ERROR
+bool ts::Registry::DeleteKey(const UString&, Report& report) BOOL_ERROR
+bool ts::Registry::NotifySettingChange(Report& report) BOOL_ERROR
+bool ts::Registry::NotifyEnvironmentChange(Report& report) BOOL_ERROR
 
 #else
 
@@ -147,8 +87,8 @@ bool ts::Registry::SplitKey(const UString& key, Handle& root_key, UString& subke
         root_key = HKEY_PERFORMANCE_DATA;
     }
     else {
-        report.error(u"invalid root key \"%s\"", {root});
-        root_key = NULL;
+        report.error(u"invalid root key \"%s\"", root);
+        root_key = nullptr;
         return false;
     }
     return true;
@@ -180,7 +120,7 @@ bool ts::Registry::OpenKey(Handle root, const UString& key, ::REGSAM sam, Handle
         return true;
     }
     else {
-        report.error(u"error opening key %s: %s", {key, SysErrorCodeMessage(hr)});
+        report.error(u"error opening key %s: %s", key, SysErrorCodeMessage(hr));
         return false;
     }
 }
@@ -203,9 +143,9 @@ ts::UString ts::Registry::GetValue(const UString& key, const UString& value_name
     // to lpData, RegQueryValueEx simply returns the size of the value.
     ::DWORD type;
     ::DWORD size = 0;
-    ::LONG hr = ::RegQueryValueExW(hkey, value_name.wc_str(), NULL, &type, NULL, &size);
+    ::LONG hr = ::RegQueryValueExW(hkey, value_name.wc_str(), nullptr, &type, nullptr, &size);
     if ((hr != ERROR_SUCCESS && hr != ERROR_MORE_DATA) || size <= 0) {
-        report.error(u"error querying %s\\%s: %s", {key, value_name, SysErrorCodeMessage(hr)});
+        report.error(u"error querying %s\\%s: %s", key, value_name, SysErrorCodeMessage(hr));
         ::RegCloseKey(hkey);
         return UString();
     }
@@ -214,7 +154,7 @@ ts::UString ts::Registry::GetValue(const UString& key, const UString& value_name
     ::DWORD bufsize = size + 10;
     ::BYTE* buf = new ::BYTE[size = bufsize];
     CheckNonNull(buf);
-    hr = ::RegQueryValueExW(hkey, value_name.wc_str(), NULL, &type, buf, &size);
+    hr = ::RegQueryValueExW(hkey, value_name.wc_str(), nullptr, &type, buf, &size);
     ::RegCloseKey(hkey);
     if (hr != ERROR_SUCCESS) {
         size = 0;
@@ -234,10 +174,10 @@ ts::UString ts::Registry::GetValue(const UString& key, const UString& value_name
             value = reinterpret_cast<UChar*>(buf);
             break;
         case REG_DWORD:
-            value = UString::Format(u"%d", {*reinterpret_cast<const ::DWORD*>(buf)});
+            value = UString::Format(u"%d", *reinterpret_cast<const ::DWORD*>(buf));
             break;
         case REG_DWORD_BIG_ENDIAN:
-            value = UString::Format(u"%d", {GetUInt32(buf)});
+            value = UString::Format(u"%d", GetUInt32(buf));
             break;
     }
 
@@ -270,7 +210,7 @@ bool ts::Registry::SetValue(const UString& key, const UString& value_name, const
 
     const bool success = hr == ERROR_SUCCESS;
     if (!success) {
-        report.error(u"error setting %s\\%s: %s", {key, value_name, SysErrorCodeMessage(hr)});
+        report.error(u"error setting %s\\%s: %s", key, value_name, SysErrorCodeMessage(hr));
     }
     ::RegCloseKey(hkey);
     return success;
@@ -295,12 +235,12 @@ bool ts::Registry::SetValue(const UString& key, const UString& value_name, uint3
                                  value_name.wc_str(),
                                  0, // reserved
                                  REG_DWORD,
-                                 reinterpret_cast<const ::BYTE*> (&value),
+                                 reinterpret_cast<const ::BYTE*>(&value),
                                  sizeof(value));
 
     const bool success = hr == ERROR_SUCCESS;
     if (!success) {
-        report.error(u"error setting %s\\%s: %s", {key, value_name, SysErrorCodeMessage(hr)});
+        report.error(u"error setting %s\\%s: %s", key, value_name, SysErrorCodeMessage(hr));
     }
     ::RegCloseKey(hkey);
     return success;
@@ -324,7 +264,7 @@ bool ts::Registry::DeleteValue(const UString& key, const UString& value_name, Re
     const ::LONG hr = ::RegDeleteValueW(hkey, value_name.wc_str());
     const bool success = hr == ERROR_SUCCESS;
     if (!success) {
-        report.error(u"error deleting %s\\%s: %s", {key, value_name, SysErrorCodeMessage(hr)});
+        report.error(u"error deleting %s\\%s: %s", key, value_name, SysErrorCodeMessage(hr));
     }
     ::RegCloseKey(hkey);
     return success;
@@ -349,19 +289,19 @@ bool ts::Registry::CreateKey(const UString& key, bool is_volatile, Report& repor
     const ::LONG hr = ::RegCreateKeyExW(hkey,
                                         newkey.wc_str(),
                                         0,  // reserved
-                                        NULL, // class
+                                        nullptr, // class
                                         is_volatile ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE,
                                         0, // security: no further access
-                                        NULL, // security attributes
+                                        nullptr, // security attributes
                                         &hnewkey,
-                                        NULL); // disposition
+                                        nullptr); // disposition
 
     const bool success = hr == ERROR_SUCCESS;
     if (success) {
         ::RegCloseKey(hnewkey);
     }
     else {
-        report.error(u"error creating %s: %s", {key, SysErrorCodeMessage(hr)});
+        report.error(u"error creating %s: %s", key, SysErrorCodeMessage(hr));
     }
     ::RegCloseKey(hkey);
     return success;
@@ -385,7 +325,7 @@ bool ts::Registry::DeleteKey(const UString& key, Report& report)
     const ::LONG hr = ::RegDeleteKeyW(hkey, newkey.wc_str());
     const bool success = hr == ERROR_SUCCESS;
     if (!success) {
-        report.error(u"error deleting %s: %s", {key, SysErrorCodeMessage(hr)});
+        report.error(u"error deleting %s: %s", key, SysErrorCodeMessage(hr));
     }
     ::RegCloseKey(hkey);
     return success;
@@ -400,7 +340,7 @@ bool ts::Registry::NotifySettingChangeParam(const void* param, uint32_t timeout_
 {
     const bool ok = 0 != ::SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(param), SMTO_ABORTIFHUNG, ::UINT(timeout_ms), 0);
     if (!ok) {
-        report.error(u"notification error: %s", {SysErrorCodeMessage()});
+        report.error(u"notification error: %s", SysErrorCodeMessage());
     }
     return ok;
 }

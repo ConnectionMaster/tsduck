@@ -1,29 +1,8 @@
 //-----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //-----------------------------------------------------------------------------
 
@@ -37,6 +16,7 @@
 #include "tsBeforeStandardHeaders.h"
 #include <errors.h>
 #include <shellapi.h>
+#include <setupapi.h>
 #include <WinInet.h>
 #include <dshowasf.h>
 #include <ks.h>
@@ -91,7 +71,7 @@ ts::UString ts::WinErrorMessage(::DWORD code, const UString& moduleName, ::DWORD
         const ::HMODULE hmod = ::GetModuleHandleW(moduleName.wc_str());
         if (hmod != 0) {
             message.resize(1024);
-            ::DWORD length = ::FormatMessageW(FORMAT_MESSAGE_FROM_HMODULE, hmod, code, 0, message.wc_str(), ::DWORD(message.size()), NULL);
+            ::DWORD length = ::FormatMessageW(FORMAT_MESSAGE_FROM_HMODULE, hmod, code, 0, message.wc_str(), ::DWORD(message.size()), nullptr);
             message.trimLength(length, true);
         }
     }
@@ -99,7 +79,7 @@ ts::UString ts::WinErrorMessage(::DWORD code, const UString& moduleName, ::DWORD
     // If no message was found from a specific module, search in the system base.
     if (message.empty()) {
         message.resize(1024);
-        ::DWORD length = ::FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, NULL, code, 0, message.wc_str(), ::DWORD(message.size()), NULL);
+        ::DWORD length = ::FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM, nullptr, code, 0, message.wc_str(), ::DWORD(message.size()), nullptr);
         message.trimLength(length, true);
     }
 
@@ -124,7 +104,7 @@ ts::UString ts::WinErrorMessage(::DWORD code, const UString& moduleName, ::DWORD
     }
 
     // If no message is found, return a generic message.
-    return message.empty() ? UString::Format(u"System error %d (0x%X)", {code, code}) : message;
+    return message.empty() ? UString::Format(u"System error %n", code) : message;
 }
 
 
@@ -154,7 +134,7 @@ ts::UString ts::WinDeviceName(::HANDLE handle)
     // Could not find a useful name with GetFinalPathNameByHandle.
     // Try GetFileInformationByHandleEx (which uses an untyped buffer).
     uint8_t buf[2048];
-    ::memset(buf, 0, sizeof(buf));
+    TS_ZERO(buf);
 
     // With FileNameInfo, the buffer is a FILE_NAME_INFO structure.
     PFILE_NAME_INFO info = PFILE_NAME_INFO(&buf);
@@ -189,7 +169,7 @@ bool ts::WinCreateElevatedProcess(const UString& exeName, bool synchronous, Repo
     info.nShow = SW_SHOW;
 
     if (!::ShellExecuteExW(&info)) {
-        report.error(u"error starting %s: %s", {exeName, WinErrorMessage(::GetLastError())});
+        report.error(u"error starting %s: %s", exeName, WinErrorMessage(::GetLastError()));
         return false;
     }
 
@@ -224,7 +204,7 @@ ts::UString ts::ComMessage(::HRESULT hr)
         return UString(buf, size);
     }
     else {
-        return SysErrorCodeMessage(hr);
+        return UString::FromUTF8(SysErrorCodeMessage(hr));
     }
 }
 
@@ -244,12 +224,12 @@ bool ts::ComSuccess(::HRESULT hr, const UChar* message, Report& report)
 {
     if (SUCCEEDED(hr)) {
         if (message != nullptr && report.maxSeverity() >= 10) {
-            report.log(10, u"%s: success", {message});
+            report.log(10, u"%s: success", message);
         }
         return true;
     }
     else {
-        report.error(u"%s: %s", {message != nullptr ? message : u"COM error", ComMessage(hr)});
+        report.error(u"%s: %s", message != nullptr ? message : u"COM error", ComMessage(hr));
         return false;
     }
 }
@@ -303,7 +283,7 @@ public:
     // Return the handle. Note that KsGetObjectHandle returns zero on error, not INVALID_HANDLE_VALUE.
     report.log(2, u"WinUtils.GetHandleFromObject: IKsObject found, calling KsGetObjectHandle");
     const ::HANDLE h = ks->KsGetObjectHandle();
-    report.log(2, u"WinUtils.GetHandleFromObject: handle: 0x%X", {uintptr_t(h)});
+    report.log(2, u"WinUtils.GetHandleFromObject: handle: 0x%X", uintptr_t(h));
     return h == 0 ? INVALID_HANDLE_VALUE : h;
 }
 
@@ -325,13 +305,12 @@ ts::UString ts::GetStringPropertyBag(::IMoniker* object_moniker, const ::OLECHAR
         return UString();
     }
 
-    // Get property from property bag
-
+    // Get property from property bag. Return empty string if property name not found.
     UString value;
     ::VARIANT var;
     ::VariantInit(&var);
     hr = pbag->Read(property_name, &var, 0);
-    if (ComSuccess(hr, u"IPropertyBag::Read", report)) {
+    if (hr != ERROR_KEY_DOES_NOT_EXIST && ComSuccess(hr, u"IPropertyBag::Read", report)) {
         value = ToString(var);
     }
     ::VariantClear(&var);
@@ -347,9 +326,9 @@ ts::UString ts::GetStringPropertyBag(::IMoniker* object_moniker, const ::OLECHAR
 ts::UString ts::FormatGUID(const ::GUID& guid, bool with_braces)
 {
     const UString s(UString::Format(u"%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
-                                    {guid.Data1, guid.Data2, guid.Data3,
-                                     guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-                                     guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]}));
+                                    guid.Data1, guid.Data2, guid.Data3,
+                                    guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+                                    guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]));
     return with_braces ? u"{" + s + u"}" : s;
 }
 
@@ -361,9 +340,9 @@ ts::UString ts::FormatGUID(const ::GUID& guid, bool with_braces)
 ts::UString ts::CanonicalGUID(const ::GUID& guid)
 {
     return UString::Format(u"%08x%04x%04x%02x%02x%02x%02x%02x%02x%02x%02x",
-                           {guid.Data1, guid.Data2, guid.Data3,
-                            guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-                            guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]});
+                           guid.Data1, guid.Data2, guid.Data3,
+                           guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+                           guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 }
 
 ts::UString ts::CanonicalGUID(const UString& guid)

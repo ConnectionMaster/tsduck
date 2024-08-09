@@ -1,33 +1,10 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
-//
-//----------------------------------------------------------------------------
-//
-//  TS multiplexer.
+// TS multiplexer (experimental program, not part of TSDuck).
 //
 //----------------------------------------------------------------------------
 
@@ -53,21 +30,16 @@ namespace {
     public:
         TSMuxOptions(int argc, char *argv[]);
 
-        bool                monitor;         // Run a resource monitoring thread in the background.
-        ts::UString         monitor_config;  // System monitoring configuration file.
-        ts::DuckContext     duck;            // TSDuck context
-        ts::AsyncReportArgs log_args;        // Asynchronous logger arguments.
-        ts::MuxerArgs       mux_args;        // TS multiplexer arguments.
+        bool                monitor = false;    // Run a resource monitoring thread in the background.
+        ts::UString         monitor_config {};  // System monitoring configuration file.
+        ts::DuckContext     duck {this};        // TSDuck context
+        ts::AsyncReportArgs log_args {};        // Asynchronous logger arguments.
+        ts::MuxerArgs       mux_args {};        // TS multiplexer arguments.
     };
 }
 
 TSMuxOptions::TSMuxOptions(int argc, char *argv[]) :
-    ts::ArgsWithPlugins(0, UNLIMITED_COUNT, 0, 0, 0, 1, u"TS multiplexer", u"[tsmux-options]"),
-    monitor(false),
-    monitor_config(),
-    duck(this),
-    log_args(),
-    mux_args()
+    ts::ArgsWithPlugins(0, UNLIMITED_COUNT, 0, 0, 0, 1, u"TS multiplexer", u"[tsmux-options]")
 {
     log_args.defineArgs(*this);
     mux_args.defineArgs(*this);
@@ -105,7 +77,7 @@ int MainCode(int argc, char *argv[])
 
     // If plugins were statically linked, disallow the dynamic loading of plugins.
 #if defined(TSDUCK_STATIC_PLUGINS)
-    ts::PluginRepository::Instance()->setSharedLibraryAllowed(false);
+    ts::PluginRepository::Instance().setSharedLibraryAllowed(false);
 #endif
 
     // Prevent from being killed when writing on broken pipes.

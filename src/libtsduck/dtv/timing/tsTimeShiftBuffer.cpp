@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,34 +10,13 @@
 #include "tsNullReport.h"
 #include "tsFileUtils.h"
 
-#if defined(TS_NEED_STATIC_CONST_DEFINITIONS)
-constexpr size_t ts::TimeShiftBuffer::MIN_TOTAL_PACKETS;
-constexpr size_t ts::TimeShiftBuffer::DEFAULT_TOTAL_PACKETS;
-constexpr size_t ts::TimeShiftBuffer::MIN_MEMORY_PACKETS;
-constexpr size_t ts::TimeShiftBuffer::DEFAULT_MEMORY_PACKETS;
-#endif
-
 
 //----------------------------------------------------------------------------
-// Constructors and destructors
+// Constructors and destructor
 //----------------------------------------------------------------------------
 
 ts::TimeShiftBuffer::TimeShiftBuffer(size_t count) :
-    _is_open(false),
-    _cur_packets(0),
-    _total_packets(std::max(count, MIN_TOTAL_PACKETS)),
-    _mem_packets(DEFAULT_MEMORY_PACKETS),
-    _directory(),
-    _file(),
-    _next_read(0),
-    _next_write(0),
-    _wcache_next(0),
-    _rcache_end(0),
-    _rcache_next(0),
-    _wcache(),
-    _rcache(),
-    _wmdata(),
-    _rmdata()
+    _total_packets(std::max(count, MIN_TOTAL_PACKETS))
 {
 }
 
@@ -94,7 +52,7 @@ bool ts::TimeShiftBuffer::setMemoryPackets(size_t count)
     }
 }
 
-bool ts::TimeShiftBuffer::setBackupDirectory(const UString& directory)
+bool ts::TimeShiftBuffer::setBackupDirectory(const fs::path& directory)
 {
     if (_is_open) {
         return false;
@@ -127,13 +85,13 @@ bool ts::TimeShiftBuffer::open(Report& report)
     else {
         // The buffer is backed up on disk.
         // Get the name of a temporary file. If a directory is specified, we will use the base name only.
-        UString filename(TempFile());
+        fs::path filename(TempFile());
         if (!_directory.empty()) {
-            if (IsDirectory(_directory)) {
-                filename = _directory + PathSeparator + BaseName(filename);
+            if (fs::is_directory(_directory)) {
+                filename = _directory + fs::path::preferred_separator + filename.filename();
             }
             else {
-                report.error(u"directory %s does not exist", {_directory});
+                report.error(u"directory %s does not exist", _directory);
                 return false;
             }
         }
@@ -292,7 +250,7 @@ bool ts::TimeShiftBuffer::seekFile(size_t index, Report& report)
         return true;
     }
     else {
-        report.error(u"error seeking time-shift file at packet index %d", {index});
+        report.error(u"error seeking time-shift file at packet index %d", index);
         return false;
     }
 }
@@ -308,11 +266,11 @@ bool ts::TimeShiftBuffer::writeFile(size_t index, const TSPacket* buffer, const 
         return false;
     }
     else if (_file.writePackets(buffer, mdata, count, report)) {
-        report.debug(u"written %d packets in time-shift file at packet index %d", {count, index});
+        report.debug(u"written %d packets in time-shift file at packet index %d", count, index);
         return true;
     }
     else {
-        report.error(u"error writing %d packets in time-shift file at packet index %d", {count, index});
+        report.error(u"error writing %d packets in time-shift file at packet index %d", count, index);
         return false;
     }
 }
@@ -329,10 +287,10 @@ size_t ts::TimeShiftBuffer::readFile(size_t index, TSPacket* buffer, TSPacketMet
     }
     const size_t retcount = _file.readPackets(buffer, mdata, count, report);
     if (retcount == 0) {
-        report.error(u"error reading %d packets in time-shift file at packet index %d", {count, index});
+        report.error(u"error reading %d packets in time-shift file at packet index %d", count, index);
     }
     else {
-        report.debug(u"read %d packets in time-shift file at packet index %d", {retcount, index});
+        report.debug(u"read %d packets in time-shift file at packet index %d", retcount, index);
     }
     return retcount;
 }

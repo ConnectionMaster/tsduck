@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -34,15 +13,14 @@
 #include "tsMain.h"
 #include "tsDuckContext.h"
 #include "tsAsyncReport.h"
+#include "tsNullReport.h"
 #include "tsFatal.h"
-#include "tsMutex.h"
 #include "tsThread.h"
 #include "tsSysUtils.h"
 #include "tsECMGSCS.h"
 #include "tsTCPServer.h"
 #include "tstlvConnection.h"
 #include "tsDuckProtocol.h"
-#include "tsVariable.h"
 #include "tsOneShotPacketizer.h"
 TS_MAIN(MainCode);
 
@@ -56,16 +34,16 @@ namespace {
     static const int16_t  DEFAULT_TRANS_DELAY_STOP  = 0;
 
     // Stack size for execution of the client connection thread
-    static const size_t CLIENT_STACK_SIZE = 128 * 1024;
+    static constexpr size_t CLIENT_STACK_SIZE = 128 * 1024;
 
     // Instantiation of a TCP connection in a multi-thread context for TLV messages.
-    typedef ts::tlv::Connection<ts::Mutex> ECMGConnection;
-    typedef ts::SafePtr<ECMGConnection, ts::Mutex> ECMGConnectionPtr;
+    using ECMGConnection = ts::tlv::Connection<ts::ThreadSafety::Full>;
+    using ECMGConnectionPtr = std::shared_ptr<ECMGConnection>;
 }
 
 
 //----------------------------------------------------------------------------
-//  Command line options
+// Command line options
 //----------------------------------------------------------------------------
 
 namespace {
@@ -75,30 +53,25 @@ namespace {
     public:
         ECMGOptions(int argc, char *argv[]);
 
-        ts::DuckContext            duck;           // TSDuck execution context.
-        int                        log_protocol;   // Log level for ECMG <=> SCS protocol.
-        int                        log_data;       // Log level for CW/ECM data messages.
-        bool                       once;           // Accept only one client.
-        bool                       reusePort;      // Socket option.
-        ts::MilliSecond            ecmCompTime;    // ECM computation time.
-        ts::IPv4SocketAddress          serverAddress;  // TCP server local address.
-        ts::ecmgscs::ChannelStatus channelStatus;  // Standard parameters required by this ECMG.
-        ts::ecmgscs::StreamStatus  streamStatus;   // Standard parameters required by this ECMG.
+        ts::DuckContext            duck {this};             // TSDuck execution context.
+        ts::AsyncReportArgs        logArgs {};              // Options for asynchronous log.
+        ts::ecmgscs::Protocol      ecmgscs {};              // ECMG <=> SCS protocol instance.
+        int                        logProtocol = ts::Severity::Debug;  // Log level for ECMG <=> SCS protocol.
+        int                        logData = ts::Severity::Debug;      // Log level for CW/ECM data messages.
+        bool                       once = false;            // Accept only one client.
+        bool                       reusePort = false;       // Socket option.
+        cn::milliseconds           ecmCompTime {};          // ECM computation time.
+        ts::IPv4SocketAddress      serverAddress {};        // TCP server local address.
+        ts::ecmgscs::ChannelStatus channelStatus {ecmgscs}; // Standard parameters required by this ECMG.
+        ts::ecmgscs::StreamStatus  streamStatus {ecmgscs};  // Standard parameters required by this ECMG.
     };
 }
 
 ECMGOptions::ECMGOptions(int argc, char *argv[]) :
-    ts::Args(u"Minimal generic DVB SimulCrypt-compliant ECMG", u"[options]"),
-    duck(this),
-    log_protocol(ts::Severity::Debug),
-    log_data(ts::Severity::Debug),
-    once(false),
-    reusePort(false),
-    ecmCompTime(0),
-    serverAddress(),
-    channelStatus(),
-    streamStatus()
+    ts::Args(u"Minimal generic DVB SimulCrypt-compliant ECMG", u"[options]")
 {
+    logArgs.defineArgs(*this);
+
     option(u"ac-delay-start", 0, INT16);
     help(u"ac-delay-start",
          u"This option sets the DVB SimulCrypt option 'AC_delay_start', in "
@@ -109,7 +82,7 @@ ECMGOptions::ECMGOptions(int argc, char *argv[]) :
          u"This option sets the DVB SimulCrypt option 'AC_delay_stop', in "
          u"milliseconds. By default, use the same value as --delay-stop.");
 
-    option(u"comp-time", 0, UNSIGNED);
+    option<cn::milliseconds>(u"comp-time");
     help(u"comp-time",
          u"This option specifies the computation time of an ECM. The clear ECM's "
          u"which are generated by this ECMG take no time to generate. But, in "
@@ -188,32 +161,33 @@ ECMGOptions::ECMGOptions(int argc, char *argv[]) :
 
     analyze(argc, argv);
 
+    logArgs.loadArgs(duck, *this);
     serverAddress.setPort(intValue<uint16_t>(u"port", DEFAULT_SERVER_PORT));
     once = present(u"once");
     reusePort = !present(u"no-reuse-port");
-    ecmCompTime = intValue<ts::MilliSecond>(u"comp-time", 0);
-    log_protocol = present(u"log-protocol") ? intValue<int>(u"log-protocol", ts::Severity::Info) : ts::Severity::Debug;
-    log_data = present(u"log-data") ? intValue<int>(u"log-data", ts::Severity::Info) : log_protocol;
+    getChronoValue(ecmCompTime, u"comp-time");
+    logProtocol = present(u"log-protocol") ? intValue<int>(u"log-protocol", ts::Severity::Info) : ts::Severity::Debug;
+    logData = present(u"log-data") ? intValue<int>(u"log-data", ts::Severity::Info) : logProtocol;
     const ts::tlv::VERSION protocolVersion = intValue<ts::tlv::VERSION>(u"ecmg-scs-version", 2);
 
     channelStatus.section_TSpkt_flag = !present(u"section-mode");
-    channelStatus.CW_per_msg = intValue<uint8_t>(u"cw-per-ecm", 2);
+    getIntValue(channelStatus.CW_per_msg, u"cw-per-ecm", 2);
     channelStatus.lead_CW = channelStatus.CW_per_msg - 1;
-    channelStatus.ECM_rep_period = intValue<uint16_t>(u"repetition", DEFAULT_REPETITION);
-    channelStatus.delay_start = intValue<int16_t>(u"delay-start", DEFAULT_DELAY_START);
-    channelStatus.delay_stop = intValue<int16_t>(u"delay-stop", DEFAULT_DELAY_STOP);
+    getIntValue(channelStatus.ECM_rep_period, u"repetition", DEFAULT_REPETITION);
+    getIntValue(channelStatus.delay_start, u"delay-start", DEFAULT_DELAY_START);
+    getIntValue(channelStatus.delay_stop, u"delay-stop", DEFAULT_DELAY_STOP);
     channelStatus.has_AC_delay_start = true;
-    channelStatus.AC_delay_start = intValue<int16_t>(u"ac-delay-start", channelStatus.delay_start);
+    getIntValue(channelStatus.AC_delay_start, u"ac-delay-start", channelStatus.delay_start);
     channelStatus.has_AC_delay_stop = true;
-    channelStatus.AC_delay_stop = intValue<int16_t>(u"ac-delay-stop", channelStatus.delay_stop);
+    getIntValue(channelStatus.AC_delay_stop, u"ac-delay-stop", channelStatus.delay_stop);
     channelStatus.has_transition_delay_start = true;
-    channelStatus.transition_delay_start = intValue<int16_t>(u"transition-delay-start", DEFAULT_TRANS_DELAY_START);
+    getIntValue(channelStatus.transition_delay_start, u"transition-delay-start", DEFAULT_TRANS_DELAY_START);
     channelStatus.has_transition_delay_stop = true;
-    channelStatus.transition_delay_stop = intValue<int16_t>(u"transition-delay-stop", DEFAULT_TRANS_DELAY_STOP);
-    channelStatus.max_comp_time = intValue<uint16_t>(u"max-comp-time", uint16_t(ecmCompTime + 100));
+    getIntValue(channelStatus.transition_delay_stop, u"transition-delay-stop", DEFAULT_TRANS_DELAY_STOP);
+    getIntValue(channelStatus.max_comp_time, u"max-comp-time", uint16_t(cn::milliseconds(ecmCompTime).count() + 100));
 
     // Specify which ECMG <=> SCS version to use.
-    ts::ecmgscs::Protocol::Instance()->setVersion(protocolVersion);
+    ecmgscs.setVersion(protocolVersion);
     channelStatus.forceProtocolVersion(protocolVersion);
     streamStatus.forceProtocolVersion(protocolVersion);
 
@@ -250,10 +224,10 @@ public:
     ts::tlv::Logger& logger() { return _logger; }
 
 private:
-    ts::AsyncReport    _report;    // Asynchronous message report.
-    ts::tlv::Logger    _logger;    // Protocol message logger.
-    ts::Mutex          _mutex;     // Protect shared data.
-    std::set<uint16_t> _channels;  // Active channels.
+    ts::AsyncReport    _report;       // Asynchronous message report.
+    ts::tlv::Logger    _logger;       // Protocol message logger.
+    std::mutex         _mutex {};     // Protect shared data.
+    std::set<uint16_t> _channels {};  // Active channels.
 };
 
 
@@ -263,20 +237,18 @@ private:
 
 // Constructor.
 ECMGSharedData::ECMGSharedData(const ECMGOptions& opt) :
-    _report(opt.maxSeverity()),
-    _logger(opt.log_protocol, &_report),
-    _mutex(),
-    _channels()
+    _report(opt.maxSeverity(), opt.logArgs),
+    _logger(opt.logProtocol, &_report)
 {
     // The CW/ECM data messages have a distinct log level.
-    _logger.setSeverity(ts::ecmgscs::Tags::CW_provision, opt.log_data);
-    _logger.setSeverity(ts::ecmgscs::Tags::ECM_response, opt.log_data);
+    _logger.setSeverity(ts::ecmgscs::Tags::CW_provision, opt.logData);
+    _logger.setSeverity(ts::ecmgscs::Tags::ECM_response, opt.logData);
 }
 
 // Declare a new ECM_channel_id. Return false if already active.
 bool ECMGSharedData::openChannel(uint16_t id)
 {
-    ts::GuardMutex lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutex);
     const bool ok = _channels.count(id) == 0;
     _channels.insert(id);
     return ok;
@@ -285,7 +257,7 @@ bool ECMGSharedData::openChannel(uint16_t id)
 // Release a ECM_channel_id. Return false if not active.
 bool ECMGSharedData::closeChannel(uint16_t id)
 {
-    ts::GuardMutex lock(_mutex);
+    std::lock_guard<std::mutex> lock(_mutex);
     const bool ok = _channels.count(id) != 0;
     _channels.erase(id);
     return ok;
@@ -308,15 +280,17 @@ public:
     virtual ~ECMGClientHandler() override;
 
     // Main code of the thread.
+    // Make it a public methof to invoke it synchronously with --once.
     virtual void main() override;
 
 private:
     const ECMGOptions&          _opt;
-    ECMGSharedData*             _shared;
-    ECMGConnectionPtr           _conn;
-    ts::UString                 _peer;
-    ts::Variable<uint16_t>      _channel;  // Current channel id.
-    std::map<uint16_t,uint16_t> _streams;  // Map of current stream id => ECM id.
+    ts::duck::Protocol          _protocol {};   // To encode ECM structure.
+    ECMGSharedData*             _shared = nullptr;
+    ECMGConnectionPtr           _conn {};
+    ts::UString                 _peer {};
+    std::optional<uint16_t>     _channel {};    // Current channel id.
+    std::map<uint16_t,uint16_t> _streams {};    // Map of current stream id => ECM id.
 
     // Handle the various ECMG client messages.
     bool handleChannelSetup(ts::ecmgscs::ChannelSetup* msg);
@@ -335,12 +309,6 @@ private:
 
     // Send an error related to the msg.
     bool sendErrorResponse(const ts::tlv::Message* msg, uint16_t errorStatus);
-
-    // Format a timestamp.
-    static ts::UString TimeStamp()
-    {
-        return ts::Time::CurrentLocalTime().format(ts::Time::DATETIME);
-    }
 };
 
 
@@ -349,13 +317,9 @@ private:
 //----------------------------------------------------------------------------
 
 ECMGClientHandler::ECMGClientHandler(const ECMGOptions& opt, const ECMGConnectionPtr& conn, ECMGSharedData* shared, bool deleteWhenTerminated) :
-    ts::Thread(),
     _opt(opt),
     _shared(shared),
-    _conn(conn),
-    _peer(),
-    _channel(),
-    _streams()
+    _conn(conn)
 {
     // Set thread attributes. Beware of deleteWhenTerminated...
     ts::ThreadAttributes attr;
@@ -378,7 +342,7 @@ ECMGClientHandler::~ECMGClientHandler()
 void ECMGClientHandler::main()
 {
     _peer = _conn->peerName();
-    _shared->report().verbose(u"%s: %s: session started", {_peer, TimeStamp()});
+    _shared->report().verbose(u"%s: session started", _peer);
 
     // Normally, an ECMG should handle incoming and outgoing messages independently.
     // However, here we have a minimal implementation. We never send any request to
@@ -391,25 +355,25 @@ void ECMGClientHandler::main()
     while (ok && _conn->receive(msg, nullptr, _shared->logger())) {
         switch (msg->tag()) {
             case ts::ecmgscs::Tags::channel_setup:
-                ok = handleChannelSetup(dynamic_cast<ts::ecmgscs::ChannelSetup*>(msg.pointer()));
+                ok = handleChannelSetup(dynamic_cast<ts::ecmgscs::ChannelSetup*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::channel_test:
-                ok = handleChannelTest(dynamic_cast<ts::ecmgscs::ChannelTest*>(msg.pointer()));
+                ok = handleChannelTest(dynamic_cast<ts::ecmgscs::ChannelTest*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::channel_close:
-                ok = handleChannelClose(dynamic_cast<ts::ecmgscs::ChannelClose*>(msg.pointer()));
+                ok = handleChannelClose(dynamic_cast<ts::ecmgscs::ChannelClose*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::stream_setup:
-                ok = handleStreamSetup(dynamic_cast<ts::ecmgscs::StreamSetup*>(msg.pointer()));
+                ok = handleStreamSetup(dynamic_cast<ts::ecmgscs::StreamSetup*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::stream_test:
-                ok = handleStreamTest(dynamic_cast<ts::ecmgscs::StreamTest*>(msg.pointer()));
+                ok = handleStreamTest(dynamic_cast<ts::ecmgscs::StreamTest*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::stream_close_request:
-                ok = handleStreamCloseRequest(dynamic_cast<ts::ecmgscs::StreamCloseRequest*>(msg.pointer()));
+                ok = handleStreamCloseRequest(dynamic_cast<ts::ecmgscs::StreamCloseRequest*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::CW_provision:
-                ok = handleCWProvision(dynamic_cast<ts::ecmgscs::CWProvision*>(msg.pointer()));
+                ok = handleCWProvision(dynamic_cast<ts::ecmgscs::CWProvision*>(msg.get()));
                 break;
             case ts::ecmgscs::Tags::channel_status:
             case ts::ecmgscs::Tags::stream_status:
@@ -419,7 +383,7 @@ void ECMGClientHandler::main()
                 break;
             default:
                 // Received an invalid message for ECMG.
-                ok = sendErrorResponse(msg.pointer(), ts::ecmgscs::Errors::inv_message);
+                ok = sendErrorResponse(msg.get(), ts::ecmgscs::Errors::inv_message);
                 break;
         }
     }
@@ -429,12 +393,12 @@ void ECMGClientHandler::main()
     _conn->close(_shared->report());
 
     // Make sure to release the channel if not done by the clients.
-    if (_channel.set()) {
+    if (_channel.has_value()) {
         _shared->closeChannel(_channel.value());
-        _channel.clear();
+        _channel.reset();
     }
 
-    _shared->report().verbose(u"%s: %s: session completed", {_peer, TimeStamp()});
+    _shared->report().verbose(u"%s: session completed", _peer);
 }
 
 
@@ -446,8 +410,8 @@ bool ECMGClientHandler::sendErrorResponse(const ts::tlv::Message* msg, uint16_t 
 {
     const ts::tlv::ChannelMessage* channelMsg = nullptr;
     const ts::tlv::StreamMessage* streamMsg = nullptr;
-    ts::ecmgscs::ChannelError channelError;
-    ts::ecmgscs::StreamError streamError;
+    ts::ecmgscs::ChannelError channelError(_opt.ecmgscs);
+    ts::ecmgscs::StreamError streamError(_opt.ecmgscs);
     ts::tlv::Message* resp = nullptr;
 
     // Build the appropriate response.
@@ -483,7 +447,7 @@ bool ECMGClientHandler::sendErrorResponse(const ts::tlv::Message* msg, uint16_t 
 bool ECMGClientHandler::handleChannelSetup(ts::ecmgscs::ChannelSetup* msg)
 {
     assert(msg != nullptr);
-    if (_channel.set()) {
+    if (_channel.has_value()) {
         // Channel already set in this session.
         return sendErrorResponse(msg, ts::ecmgscs::Errors::inv_channel_id);
     }
@@ -528,7 +492,7 @@ bool ECMGClientHandler::handleChannelClose(ts::ecmgscs::ChannelClose* msg)
     else {
         // Channel ok, close everything, no response expected.
         _shared->closeChannel(msg->channel_id);
-        _channel.clear();
+        _channel.reset();
         _streams.clear();
         return true;
     }
@@ -594,7 +558,7 @@ bool ECMGClientHandler::handleStreamCloseRequest(ts::ecmgscs::StreamCloseRequest
     else {
         // Stream ok, close it.
         _streams.erase(msg->stream_id);
-        ts::ecmgscs::StreamCloseResponse resp;
+        ts::ecmgscs::StreamCloseResponse resp(_opt.ecmgscs);
         resp.channel_id = msg->channel_id;
         resp.stream_id = msg->stream_id;
         return send(&resp);
@@ -619,7 +583,7 @@ bool ECMGClientHandler::handleCWProvision(ts::ecmgscs::CWProvision* msg)
     }
     else {
         // Start to build the response.
-        ts::ecmgscs::ECMResponse resp;
+        ts::ecmgscs::ECMResponse resp(_opt.ecmgscs);
         resp.channel_id = msg->channel_id;
         resp.stream_id = msg->stream_id;
         resp.CP_number = msg->CP_number;
@@ -629,7 +593,7 @@ bool ECMGClientHandler::handleCWProvision(ts::ecmgscs::CWProvision* msg)
         const bool cpWrap = cpMax < msg->CP_number;
 
         // Add all CW's in the ECM (in the clear, yeah, but that's a fake/test ECMG).
-        ts::duck::ClearECM ecm;
+        ts::duck::ClearECM ecm(_protocol);
         for (auto it = msg->CP_CW_combination.begin(); it != msg->CP_CW_combination.end(); ++it) {
             if ((!cpWrap && (it->CP < msg->CP_number || it->CP > cpMax)) || (cpWrap && it->CP > cpMax && it->CP < msg->CP_number)) {
                 // Incorrect CP/CW combination.
@@ -641,6 +605,8 @@ bool ECMGClientHandler::handleCWProvision(ts::ecmgscs::CWProvision* msg)
             else {
                 ecm.cw_odd = it->CW;
             }
+            // In debug mode, display if CW has reduced entropy.
+            _shared->report().debug(u"incoming CW entropy: %s", it->CW.size() == ts::DVBCSA2::KEY_SIZE && ts::DVBCSA2::IsReducedCW(it->CW.data()) ? u"reduced" : u"not reduced");
         }
 
         // Add optional access criteria in ECM.
@@ -682,8 +648,8 @@ bool ECMGClientHandler::handleCWProvision(ts::ecmgscs::CWProvision* msg)
         }
 
         // Emulate the computation time of a real ECMG.
-        if (_opt.ecmCompTime > 0) {
-            ts::SleepThread(_opt.ecmCompTime);
+        if (_opt.ecmCompTime > cn::milliseconds::zero()) {
+            std::this_thread::sleep_for(_opt.ecmCompTime);
         }
 
         return send(&resp);
@@ -711,16 +677,21 @@ int MainCode(int argc, char *argv[])
     {
         return EXIT_FAILURE;
     }
-    shared.report().verbose(u"TCP server listening on %s, using ECMG <=> SCS protocol version %d",
-                            {opt.serverAddress, ts::ecmgscs::Protocol::Instance()->version()});
+    shared.report().verbose(u"TCP server listening on %s, using ECMG <=> SCS protocol version %d", opt.serverAddress, opt.ecmgscs.version());
+
+    // On UNIX systems, ignore SIGPIPE. This signal is raised when trying to write to a disconnected
+    // socket. This may happen when a client disconnects after sending stream_close_request without
+    // waiting for stream_close_response. In that case, we (the ECMG) may send the response after
+    // the client disconnects, creating a SIGPIPE signal.
+    ts::IgnorePipeSignal();
 
     // Manage incoming client connections.
     for (;;) {
 
         // Accept one incoming connection.
         ts::IPv4SocketAddress clientAddress;
-        ECMGConnectionPtr conn(new ECMGConnection(ts::ecmgscs::Protocol::Instance(), true, 3));
-        ts::CheckNonNull(conn.pointer());
+        ECMGConnectionPtr conn(new ECMGConnection(opt.ecmgscs, true, 3));
+        ts::CheckNonNull(conn.get());
         if (!server.accept(*conn, clientAddress, shared.report())) {
             break;
         }

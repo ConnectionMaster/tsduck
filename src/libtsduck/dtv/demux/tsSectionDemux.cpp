@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -94,7 +73,7 @@ bool ts::SectionDemux::Status::hasErrors() const
 
 std::ostream& ts::SectionDemux::Status::display(std::ostream& strm, int indent, bool errors_only) const
 {
-    ReportFile<> rep(strm);
+    ReportFile<ThreadSafety::None> rep(strm);
     const UString margin(indent, ' ');
     display(rep, Severity::Info, margin, errors_only);
     return strm;
@@ -103,31 +82,31 @@ std::ostream& ts::SectionDemux::Status::display(std::ostream& strm, int indent, 
 void ts::SectionDemux::Status::display(Report& report, int level, const UString& prefix, bool errors_only) const
 {
     if (!errors_only || invalid_ts != 0) {
-        report.log(level, u"%sInvalid TS packets: %'d", {prefix, invalid_ts});
+        report.log(level, u"%sInvalid TS packets: %'d", prefix, invalid_ts);
     }
     if (!errors_only || discontinuities != 0) {
-        report.log(level, u"%sTS packets discontinuities: %'d", {prefix, discontinuities});
+        report.log(level, u"%sTS packets discontinuities: %'d", prefix, discontinuities);
     }
     if (!errors_only || scrambled != 0) {
-        report.log(level, u"%sScrambled TS packets: %'d", {prefix, scrambled});
+        report.log(level, u"%sScrambled TS packets: %'d", prefix, scrambled);
     }
     if (!errors_only || inv_sect_length != 0) {
-        report.log(level, u"%sInvalid section lengths: %'d", {prefix, inv_sect_length});
+        report.log(level, u"%sInvalid section lengths: %'d", prefix, inv_sect_length);
     }
     if (!errors_only || truncated_sect != 0) {
-        report.log(level, u"%sTruncated sections: %'d", {prefix, truncated_sect});
+        report.log(level, u"%sTruncated sections: %'d", prefix, truncated_sect);
     }
     if (!errors_only || inv_sect_index != 0) {
-        report.log(level, u"%sInvalid section index: %'d", {prefix, inv_sect_index});
+        report.log(level, u"%sInvalid section index: %'d", prefix, inv_sect_index);
     }
     if (!errors_only || inv_sect_version != 0) {
-        report.log(level, u"%sInvalid unchanged section version: %'d", {prefix, inv_sect_version});
+        report.log(level, u"%sInvalid unchanged section version: %'d", prefix, inv_sect_version);
     }
     if (!errors_only || wrong_crc != 0) {
-        report.log(level, u"%sCorrupted sections (bad CRC): %'d", {prefix, wrong_crc});
+        report.log(level, u"%sCorrupted sections (bad CRC): %'d", prefix, wrong_crc);
     }
     if (!errors_only || is_next != 0) {
-        report.log(level, u"%sNext sections (not yet applicable): %'d", {prefix, is_next});
+        report.log(level, u"%sNext sections (not yet applicable): %'d", prefix, is_next);
     }
 }
 
@@ -135,15 +114,6 @@ void ts::SectionDemux::Status::display(Report& report, int level, const UString&
 //----------------------------------------------------------------------------
 // Analysis context for one TID/TIDext into one PID.
 //----------------------------------------------------------------------------
-
-ts::SectionDemux::ETIDContext::ETIDContext() :
-    notified(false),
-    version(0),
-    sect_expected(0),
-    sect_received(0),
-    sects()
-{
-}
 
 // Init for a new table.
 void ts::SectionDemux::ETIDContext::init(uint8_t new_version, uint8_t last_section)
@@ -156,7 +126,7 @@ void ts::SectionDemux::ETIDContext::init(uint8_t new_version, uint8_t last_secti
 
     // Mark all section entries as unused
     for (size_t i = 0; i < sect_expected; i++) {
-        sects[i].clear();
+        sects[i].reset();
     }
 }
 
@@ -192,18 +162,9 @@ void ts::SectionDemux::ETIDContext::notify(SectionDemux& demux, bool pack, bool 
 
 //----------------------------------------------------------------------------
 // Analysis context for one PID.
+// Called when packet synchronization is lost on the pid.
 //----------------------------------------------------------------------------
 
-ts::SectionDemux::PIDContext::PIDContext() :
-    pusi_pkt_index(0),
-    continuity(0),
-    sync(false),
-    ts(),
-    tids()
-{
-}
-
-// Called when packet synchronization is lost on the pid.
 void ts::SectionDemux::PIDContext::syncLost()
 {
     sync = false;
@@ -218,14 +179,7 @@ void ts::SectionDemux::PIDContext::syncLost()
 ts::SectionDemux::SectionDemux(DuckContext& duck, TableHandlerInterface* table_handler, SectionHandlerInterface* section_handler, const PIDSet& pid_filter) :
     SuperClass(duck, pid_filter),
     _table_handler(table_handler),
-    _section_handler(section_handler),
-    _invalid_handler(nullptr),
-    _pids(),
-    _status(),
-    _get_current(true),
-    _get_next(false),
-    _track_invalid_version(false),
-    _ts_error_level(Severity::Debug)
+    _section_handler(section_handler)
 {
 }
 
@@ -289,7 +243,7 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
         }
         // Check if we are still synchronized
         if (pkt.getCC() != ((pc.continuity + 1) & CC_MASK)) {
-            _duck.report().log(_ts_error_level, u"demux sync lost on discontinuity, PID 0x%X (%<d), packet index %'d", {pid, _packet_count});
+            _duck.report().log(_ts_error_level, u"demux sync lost on discontinuity, PID %n, packet index %'d", pid, _packet_count);
             _status.discontinuities++;
             pc.syncLost();
         }
@@ -302,10 +256,11 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
     if (!pkt.hasPayload() || header_size >= PKT_SIZE) {
         return;
     }
+    uint8_t pointer_field = 0xFF;
+    const uint8_t* payload = nullptr;
+    size_t payload_size = 0;
 
-    uint8_t pointer_field;
-    const uint8_t* payload;
-    size_t payload_size;
+    // Packet index of start of next section to analyze.
     PacketCounter pusi_pkt_index = pc.pusi_pkt_index;
 
     if (pkt.getPUSI()) {
@@ -333,7 +288,8 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
             pc.syncLost();
             return;
         }
-        if (pointer_field == 0) {
+        // Adjust packet index of start of next section if there is nothing before it.
+        if (pointer_field == 0 && pc.ts.empty()) {
             pusi_pkt_index = _packet_count;
         }
     }
@@ -369,27 +325,19 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
     const uint8_t* ts_start = pc.ts.data();
     size_t ts_size = pc.ts.size();
 
-    // If current packet has a PUSI, locate start of this new section
-    // inside the TS buffer. This is not useful to locate the section but
-    // it is used to check that the previous section was not truncated
-    // (example: detect incorrect stream as generated with old version
-    // of Thomson Grass Valley NetProcessor).
-
+    // If current packet has a PUSI, locate start of this new section inside the TS buffer.
+    // This is not useful to locate the section but it is used to check that the previous section was not truncated.
     const uint8_t* pusi_section = nullptr;
-
     if (pkt.getPUSI()) {
         pusi_section = ts_start + ts_size - payload_size + pointer_field;
     }
 
     // Loop on all complete sections in the buffer.
-    // If there is less than 3 bytes in the buffer, we cannot even
-    // determine the section length.
-
+    // If there is less than 3 bytes in the buffer, we cannot even determine the section length.
     while (ts_size >= 3) {
 
         // If start of next area is 0xFF (invalid TID value), the rest of
         // the packet is stuffing. Skip it, unless there is a PUSI later.
-
         if (ts_start[0] == 0xFF) {
             if (pusi_section != nullptr && ts_start < pusi_section) {
                 // We can resync at a PUSI later in the TS buffer.
@@ -405,7 +353,6 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
         }
 
         // Get section header.
-
         bool section_ok = true;
         const TID tid = ts_start[0];
         ETID etid(tid);
@@ -413,12 +360,11 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
         uint16_t section_length = (GetUInt16(ts_start + 1) & 0x0FFF) + SHORT_SECTION_HEADER_SIZE;
 
         // Lose synchronization when invalid section length.
-
         if (section_length > MAX_PRIVATE_SECTION_SIZE ||
             section_length < MIN_SHORT_SECTION_SIZE ||
             (long_header && section_length < MIN_LONG_SECTION_SIZE))
         {
-            _duck.report().log(_ts_error_level, u"invalid section length: %'d bytes, PID 0x%X (%<d), TID 0x%X (%<d), packet index %'d", {section_length, pid, tid, _packet_count});
+            _duck.report().log(_ts_error_level, u"invalid section length: %'d bytes, PID %n, TID %n, packet index %'d", section_length, pid, tid, _packet_count);
             _status.inv_sect_length++;
             if (pusi_section != nullptr && ts_start < pusi_section) {
                 // We can resync at a PUSI later in the TS buffer.
@@ -433,25 +379,22 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
             }
         }
 
-        // Exit when end of section is missing. Wait for next TS packets.
-
-        if (ts_size < section_length) {
-            break;
-        }
-
         // If we detect that the section is incorrectly truncated, skip it.
-
         if (pusi_section != nullptr && ts_start < pusi_section && ts_start + section_length > pusi_section) {
             const uint16_t actual_length = uint16_t(pusi_section - ts_start);
-            _duck.report().log(_ts_error_level, u"truncated section: %'d bytes instead of %'d, PID 0x%X (%<d), TID 0x%X (%<d), packet index %'d", {actual_length, section_length, pid, tid, _packet_count});
+            _duck.report().log(_ts_error_level, u"truncated section: %'d bytes instead of %'d, PID %n, TID %n, packet index %'d", actual_length, section_length, pid, tid, _packet_count);
             section_ok = false;
             _status.truncated_sect++;
             // Resynchronize to actual section start
             section_length = actual_length;
         }
 
-        // We have a complete section in the pc.ts buffer. Analyze it.
+        // Exit when end of section is missing. Wait for next TS packets.
+        if (ts_size < section_length) {
+            break;
+        }
 
+        // We have a complete section in the pc.ts buffer. Analyze it.
         uint8_t version = 0;
         bool is_next = false;
         uint8_t section_number = 0;
@@ -465,7 +408,7 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
             last_section_number = ts_start[7];
             // Check that the section number fits in the range
             if (section_number > last_section_number) {
-                _duck.report().log(_ts_error_level, u"invalid section index: %d/%d, PID 0x%X (%<d), TID 0x%X (%<d), packet index %'d", {section_number, last_section_number, pid, tid, _packet_count});
+                _duck.report().log(_ts_error_level, u"invalid section index: %d/%d, PID %n, TID %n, packet index %'d", section_number, last_section_number, pid, tid, _packet_count);
                 _status.inv_sect_index++;
                 section_ok = false;
             }
@@ -484,7 +427,7 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
         if (section_ok) {
 
             // Get the list of standards which define this table id and add them in context.
-            _duck.addStandards(PSIRepository::Instance()->getTableStandards(etid.tid(), pid));
+            _duck.addStandards(PSIRepository::Instance().getTableStandards(etid.tid(), pid));
 
             // Get reference to the ETID context for this PID.
             // The ETID context is created if did not exist.
@@ -507,22 +450,22 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
                 // Check that the total number of sections in the table
                 // has not changed since last section.
                 if (last_section_number != tc->sect_expected - 1) {
-                    _duck.report().log(_ts_error_level, u"inconsistent last section index: %d, was %d, PID 0x%X (%<d), TID 0x%X (%<d), packet index %'d", {last_section_number, tc->sect_expected - 1, pid, tid, _packet_count});
+                    _duck.report().log(_ts_error_level, u"inconsistent last section index: %d, was %d, PID %n, TID %n, packet index %'d", last_section_number, tc->sect_expected - 1, pid, tid, _packet_count);
                     _status.inv_sect_index++;
                     section_ok = false;
                 }
             }
 
             // Track invalid section version numbers.
-            if (section_ok && _track_invalid_version && long_header && tc != nullptr && !tc->sects[section_number].isNull()) {
+            if (section_ok && _track_invalid_version && long_header && tc != nullptr && tc->sects[section_number] != nullptr) {
                 const Section& old(*tc->sects[section_number]);
                 // At this point, the version is necessarily identical. If this was another version,
                 // ts->init() was called and tc->sects[section_number] is null.
                 assert(old.version() == version);
-                if (section_length != old.size() || ::memcmp(ts_start, old.content(), section_length) != 0) {
-                    _duck.report().log(_ts_error_level, u"section updated without version update, PID 0x%X (%<d), TID 0x%X (%<d), section %d, version %d, packet index %'d", {pid, tid, section_number, version, _packet_count});
+                if (section_length != old.size() || !MemEqual(ts_start, old.content(), section_length)) {
+                    _duck.report().log(_ts_error_level, u"section updated without version update, PID %n, TID %n, section %d, version %d, packet index %'d", pid, tid, section_number, version, _packet_count);
                     // Reset the previous content of the section and make sure the table will be notified again.
-                    tc->sects[section_number].clear();
+                    tc->sects[section_number].reset();
                     assert(tc->sect_received > 0);
                     tc->sect_received--;
                     tc->notified = false;
@@ -534,12 +477,12 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
             // hendler is registered or if this is a new section).
             SectionPtr sect_ptr;
 
-            if (section_ok && (_section_handler != nullptr || (tc != nullptr && tc->sects[section_number].isNull()))) {
-                sect_ptr = new Section(ts_start, section_length, pid, CRC32::CHECK);
+            if (section_ok && (_section_handler != nullptr || (tc != nullptr && tc->sects[section_number] == nullptr))) {
+                sect_ptr = std::make_shared<Section>(ts_start, section_length, pid, CRC32::CHECK);
                 sect_ptr->setFirstTSPacketIndex(pusi_pkt_index);
                 sect_ptr->setLastTSPacketIndex(_packet_count);
                 if (!sect_ptr->isValid()) {
-                    _duck.report().log(_ts_error_level, u"invalid section CRC, PID 0x%X (%<d), TID 0x%X (%<d), section %d, version %d, packet index %'d", {pid, tid, section_number, version, _packet_count});
+                    _duck.report().log(_ts_error_level, u"invalid section CRC, PID %n, TID %n, section %d, version %d, packet index %'d", pid, tid, section_number, version, _packet_count);
                     _status.wrong_crc++;  // only possible error (hum?)
                     section_ok = false;
                 }
@@ -556,7 +499,7 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
                 }
 
                 // Save the section in the TID context if this is a new one.
-                if (section_ok && tc != nullptr && tc->sects[section_number].isNull()) {
+                if (section_ok && tc != nullptr && tc->sects[section_number] == nullptr) {
 
                     // Save the section
                     tc->sects[section_number] = sect_ptr;
@@ -601,9 +544,7 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
         pusi_pkt_index = _packet_count;
     }
 
-    // If an incomplete section remains in the buffer, move it back to
-    // the start of the buffer.
-
+    // If an incomplete section remains in the buffer, move it back to the start of the buffer.
     if (ts_size <= 0) {
         // TS buffer becomes empty
         pc.ts.clear();
@@ -622,9 +563,9 @@ void ts::SectionDemux::processPacket(const TSPacket& pkt)
 void ts::SectionDemux::fixAndFlush(bool pack, bool fill_eit)
 {
     // Loop on all PID's.
-    for (auto it1 = _pids.begin(); it1 != _pids.end(); ++it1) {
-        const PID pid = it1->first;
-        PIDContext& pc(it1->second);
+    for (auto& it1 : _pids) {
+        const PID pid = it1.first;
+        PIDContext& pc(it1.second);
 
         // Mark that we are in the context of a table or section handler.
         // This is used to prevent the destruction of PID contexts during
@@ -632,9 +573,9 @@ void ts::SectionDemux::fixAndFlush(bool pack, bool fill_eit)
         beforeCallingHandler(pid);
         try {
             // Loop on all TID's currently found in the PID.
-            for (auto it2 = pc.tids.begin(); it2 != pc.tids.end(); ++it2) {
+            for (auto& it2 : pc.tids) {
                 // Force a notification of the partial table, if any.
-                it2->second.notify(*this, pack, fill_eit);
+                it2.second.notify(*this, pack, fill_eit);
             }
         }
         catch (...) {

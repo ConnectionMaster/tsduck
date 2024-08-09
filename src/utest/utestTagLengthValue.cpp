@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -43,48 +22,23 @@
 
 class TagLengthValueTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testECMG();
-    void testEMMG();
-    void testECMGError();
-    void testEMMGError();
-
-    TSUNIT_TEST_BEGIN(TagLengthValueTest);
-    TSUNIT_TEST(testECMG);
-    TSUNIT_TEST(testEMMG);
-    TSUNIT_TEST(testECMGError);
-    TSUNIT_TEST(testEMMGError);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(ECMG);
+    TSUNIT_DECLARE_TEST(EMMG);
+    TSUNIT_DECLARE_TEST(ECMGError);
+    TSUNIT_DECLARE_TEST(EMMGError);
 };
 
 TSUNIT_REGISTER(TagLengthValueTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
-//----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void TagLengthValueTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void TagLengthValueTest::afterTest()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void TagLengthValueTest::testECMG()
+TSUNIT_DEFINE_TEST(ECMG)
 {
-    ts::ecmgscs::ChannelStatus refMessage;
+    ts::ecmgscs::Protocol protocol;
+    ts::ecmgscs::ChannelStatus refMessage(protocol);
     refMessage.channel_id = 2;
     refMessage.section_TSpkt_flag = true;
     refMessage.has_AC_delay_start = true;
@@ -150,13 +104,13 @@ void TagLengthValueTest::testECMG()
                  << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
 
     TSUNIT_EQUAL(sizeof(refData), data->size());
-    TSUNIT_EQUAL(0, ::memcmp(refData, data->data(), sizeof(data)));
+    TSUNIT_EQUAL(0, ts::MemCompare(refData, data->data(), sizeof(data)));
 
-    ts::tlv::MessageFactory fac(refData, sizeof(refData), ts::ecmgscs::Protocol::Instance());
+    ts::tlv::MessageFactory fac(refData, sizeof(refData), protocol);
     ts::tlv::MessagePtr msg(fac.factory());
-    TSUNIT_ASSERT(!msg.isNull());
+    TSUNIT_ASSERT(msg != nullptr);
     TSUNIT_EQUAL(ts::ecmgscs::Tags::channel_status, msg->tag());
-    ts::ecmgscs::ChannelStatus* ptr = dynamic_cast<ts::ecmgscs::ChannelStatus*>(msg.pointer());
+    ts::ecmgscs::ChannelStatus* ptr = dynamic_cast<ts::ecmgscs::ChannelStatus*>(msg.get());
     TSUNIT_ASSERT(ptr != nullptr);
     TSUNIT_EQUAL(refMessage.channel_id, ptr->channel_id);
     TSUNIT_EQUAL(refMessage.section_TSpkt_flag, ptr->section_TSpkt_flag);
@@ -182,9 +136,10 @@ void TagLengthValueTest::testECMG()
     TSUNIT_EQUAL(refString, str);
 }
 
-void TagLengthValueTest::testEMMG()
+TSUNIT_DEFINE_TEST(EMMG)
 {
-    ts::emmgmux::StreamBWAllocation refMessage;
+    ts::emmgmux::Protocol protocol;
+    ts::emmgmux::StreamBWAllocation refMessage(protocol);
     refMessage.channel_id = 0x1234;
     refMessage.stream_id = 0x5678;
     refMessage.client_id = 0x98765432;
@@ -214,16 +169,16 @@ void TagLengthValueTest::testEMMG()
     refMessage.serialize(zer);
 
     debug() << "TagLengthValueTest::testEMMG: serialized:" << std::endl
-                 << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
+            << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
 
     TSUNIT_EQUAL(sizeof(refData), data->size());
-    TSUNIT_EQUAL(0, ::memcmp(refData, data->data(), sizeof(data)));
+    TSUNIT_EQUAL(0, ts::MemCompare(refData, data->data(), sizeof(data)));
 
-    ts::tlv::MessageFactory fac(refData, sizeof(refData), ts::emmgmux::Protocol::Instance());
+    ts::tlv::MessageFactory fac(refData, sizeof(refData), protocol);
     ts::tlv::MessagePtr msg(fac.factory());
-    TSUNIT_ASSERT(!msg.isNull());
+    TSUNIT_ASSERT(msg != nullptr);
     TSUNIT_EQUAL(ts::emmgmux::Tags::stream_BW_allocation, msg->tag());
-    ts::emmgmux::StreamBWAllocation* ptr = dynamic_cast<ts::emmgmux::StreamBWAllocation*>(msg.pointer());
+    ts::emmgmux::StreamBWAllocation* ptr = dynamic_cast<ts::emmgmux::StreamBWAllocation*>(msg.get());
     TSUNIT_ASSERT(ptr != nullptr);
     TSUNIT_EQUAL(refMessage.channel_id, ptr->channel_id);
     TSUNIT_EQUAL(refMessage.stream_id, ptr->stream_id);
@@ -236,9 +191,10 @@ void TagLengthValueTest::testEMMG()
     TSUNIT_EQUAL(refString, str);
 }
 
-void TagLengthValueTest::testECMGError()
+TSUNIT_DEFINE_TEST(ECMGError)
 {
-    ts::ecmgscs::StreamError refMessage;
+    ts::ecmgscs::Protocol protocol;
+    ts::ecmgscs::StreamError refMessage(protocol);
     refMessage.channel_id = 2;
     refMessage.stream_id = 3;
     refMessage.error_status = {ts::ecmgscs::Errors::inv_ECM_id, ts::ecmgscs::Errors::out_of_compute};
@@ -272,13 +228,13 @@ void TagLengthValueTest::testECMGError()
                  << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
 
     TSUNIT_EQUAL(sizeof(refData), data->size());
-    TSUNIT_EQUAL(0, ::memcmp(refData, data->data(), sizeof(data)));
+    TSUNIT_EQUAL(0, ts::MemCompare(refData, data->data(), sizeof(data)));
 
-    ts::tlv::MessageFactory fac(refData, sizeof(refData), ts::ecmgscs::Protocol::Instance());
+    ts::tlv::MessageFactory fac(refData, sizeof(refData), protocol);
     ts::tlv::MessagePtr msg(fac.factory());
-    TSUNIT_ASSERT(!msg.isNull());
+    TSUNIT_ASSERT(msg != nullptr);
     TSUNIT_EQUAL(ts::ecmgscs::Tags::stream_error, msg->tag());
-    ts::ecmgscs::StreamError* ptr = dynamic_cast<ts::ecmgscs::StreamError*>(msg.pointer());
+    ts::ecmgscs::StreamError* ptr = dynamic_cast<ts::ecmgscs::StreamError*>(msg.get());
     TSUNIT_ASSERT(ptr != nullptr);
     TSUNIT_EQUAL(refMessage.channel_id, ptr->channel_id);
     TSUNIT_EQUAL(refMessage.stream_id, ptr->stream_id);
@@ -290,9 +246,10 @@ void TagLengthValueTest::testECMGError()
     TSUNIT_EQUAL(refString, str);
 }
 
-void TagLengthValueTest::testEMMGError()
+TSUNIT_DEFINE_TEST(EMMGError)
 {
-    ts::emmgmux::StreamError refMessage;
+    ts::emmgmux::Protocol protocol;
+    ts::emmgmux::StreamError refMessage(protocol);
     refMessage.channel_id = 2;
     refMessage.stream_id = 3;
     refMessage.client_id = 4;
@@ -326,16 +283,16 @@ void TagLengthValueTest::testEMMGError()
     refMessage.serialize(zer);
 
     debug() << "TagLengthValueTest::testEMMGError: serialized:" << std::endl
-                 << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
+            << ts::UString::Dump(*data, ts::UString::HEXA, 2) << std::endl;
 
     TSUNIT_EQUAL(sizeof(refData), data->size());
-    TSUNIT_EQUAL(0, ::memcmp(refData, data->data(), sizeof(data)));
+    TSUNIT_EQUAL(0, ts::MemCompare(refData, data->data(), sizeof(data)));
 
-    ts::tlv::MessageFactory fac(refData, sizeof(refData), ts::emmgmux::Protocol::Instance());
+    ts::tlv::MessageFactory fac(refData, sizeof(refData), protocol);
     ts::tlv::MessagePtr msg(fac.factory());
-    TSUNIT_ASSERT(!msg.isNull());
+    TSUNIT_ASSERT(msg != nullptr);
     TSUNIT_EQUAL(ts::tlv::TAG(ts::emmgmux::Tags::stream_error), msg->tag());
-    ts::emmgmux::StreamError* ptr = dynamic_cast<ts::emmgmux::StreamError*>(msg.pointer());
+    ts::emmgmux::StreamError* ptr = dynamic_cast<ts::emmgmux::StreamError*>(msg.get());
     TSUNIT_ASSERT(ptr != nullptr);
     TSUNIT_EQUAL(refMessage.channel_id, ptr->channel_id);
     TSUNIT_EQUAL(refMessage.stream_id, ptr->stream_id);

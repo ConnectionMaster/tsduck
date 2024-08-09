@@ -1,35 +1,15 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTSScanner.h"
 #include "tsBinaryTable.h"
 #include "tsTime.h"
+#include "tsTSPacket.h"
 #include "tsTVCT.h"
 #include "tsCVCT.h"
 #include "tsLogicalChannelNumbers.h"
@@ -41,17 +21,9 @@
 // Constructor.
 //----------------------------------------------------------------------------
 
-ts::TSScanner::TSScanner(DuckContext& duck, Tuner& tuner, MilliSecond timeout, bool pat_only):
+ts::TSScanner::TSScanner(DuckContext& duck, Tuner& tuner, cn::milliseconds timeout, bool pat_only):
     _duck(duck),
-    _pat_only(pat_only),
-    _completed(false),
-    _demux(_duck, this),
-    _tparams(),
-    _pat(),
-    _sdt(),
-    _nit(),
-    _mgt(),
-    _vct()
+    _pat_only(pat_only)
 {
     // Collect PAT, SDT, NIT, MGT.
     _demux.addPID(PID_PAT);
@@ -67,7 +39,7 @@ ts::TSScanner::TSScanner(DuckContext& duck, Tuner& tuner, MilliSecond timeout, b
     }
 
     // Deadline for table collection
-    const Time deadline(timeout == Infinite ? Time::Apocalypse : Time::CurrentUTC() + timeout);
+    const Time deadline(Time::CurrentUTC() + timeout);
 
     // Allocate packet buffer on heap (risk of stack overflow)
     std::vector<TSPacket> buffer(BUFFER_PACKET_COUNT);
@@ -75,7 +47,7 @@ ts::TSScanner::TSScanner(DuckContext& duck, Tuner& tuner, MilliSecond timeout, b
     // Read packets and analyze tables until completed
     while (!_completed && Time::CurrentUTC() < deadline) {
         const size_t pcount = tuner.receive(buffer.data(), buffer.size(), nullptr);
-        _duck.report().debug(u"got %d packets", {pcount});
+        _duck.report().debug(u"got %d packets", pcount);
         if (pcount == 0) { // error
             break;
         }
@@ -103,27 +75,27 @@ bool ts::TSScanner::getServices(ServiceList& services) const
 {
     services.clear();
 
-    if (_pat.isNull()) {
+    if (_pat == nullptr) {
         _duck.report().warning(u"No PAT found, services are unknown");
         return false;
     }
 
-    if (_sdt.isNull() && _vct.isNull() && !_pat_only) {
+    if (_sdt == nullptr && _vct == nullptr && !_pat_only) {
         _duck.report().warning(u"No SDT or VCT found, services names are unknown");
         // do not return, collect service ids.
     }
 
     // Loop on all services in the PAT
-    for (auto it = _pat->pmts.begin(); it != _pat->pmts.end(); ++it) {
+    for (const auto& srv_it : _pat->pmts) {
 
         // Service id, PMT PID and TS id are extracted from the PAT
         Service srv;
-        srv.setId(it->first);
-        srv.setPMTPID(it->second);
+        srv.setId(srv_it.first);
+        srv.setPMTPID(srv_it.second);
         srv.setTSId(_pat->ts_id);
 
         // Original netw. id, service type, name and provider are extracted from the SDT.
-        if (!_sdt.isNull()) {
+        if (_sdt != nullptr) {
             srv.setONId(_sdt->onetw_id);
             // Search service in the SDT
             const auto sit = _sdt->services.find(srv.getId());
@@ -148,7 +120,7 @@ bool ts::TSScanner::getServices(ServiceList& services) const
         }
 
         // ATSC service descriptions are extracted from the VCT.
-        if (!_vct.isNull()) {
+        if (_vct != nullptr) {
             // Search service in the VCT
             const auto sit = _vct->findService(srv.getId());
             if (sit != _vct->channels.end()) {
@@ -165,6 +137,7 @@ bool ts::TSScanner::getServices(ServiceList& services) const
                 }
                 // Minor channel number 0 is valid (means analog).
                 srv.setMinorIdATSC(sit->second.minor_channel_number);
+                srv.setHidden(sit->second.hidden);
             }
         }
 
@@ -173,10 +146,10 @@ bool ts::TSScanner::getServices(ServiceList& services) const
     }
 
     // Logical channel numbers are extracted from the NIT.
-    if (!_nit.isNull()) {
+    if (_nit != nullptr) {
         LogicalChannelNumbers lcn_store(_duck);
         lcn_store.addFromNIT(*_nit);
-        lcn_store.updateServices(services, true, false);
+        lcn_store.updateServices(services, Replacement::UPDATE);
     }
 
     return true;
@@ -189,42 +162,42 @@ bool ts::TSScanner::getServices(ServiceList& services) const
 
 void ts::TSScanner::handleTable(SectionDemux&, const BinaryTable& table)
 {
-    _duck.report().debug(u"got table id 0x%X on PID 0x%X", {table.tableId(), table.sourcePID()});
+    _duck.report().debug(u"got table id 0x%X on PID 0x%X", table.tableId(), table.sourcePID());
 
     // Store known tables
     switch (table.tableId()) {
 
         case TID_PAT: {
-            SafePtr<PAT> pat(new PAT(_duck, table));
+            std::shared_ptr<PAT> pat(new PAT(_duck, table));
             if (pat->isValid()) {
-                _pat = pat;
+                _pat = std::move(pat);
                 if (_pat->nit_pid != PID_NULL && _pat->nit_pid != PID_NIT) {
                     // Non standard NIT PID
                     _demux.removePID(PID_NIT);
-                    _demux.addPID(pat->nit_pid);
+                    _demux.addPID(_pat->nit_pid);
                 }
             }
             break;
         }
 
         case TID_SDT_ACT: {
-            SafePtr<SDT> sdt(new SDT(_duck, table));
+            std::shared_ptr<SDT> sdt(new SDT(_duck, table));
             if (sdt->isValid()) {
-                _sdt = sdt;
+                _sdt = std::move(sdt);
             }
             break;
         }
 
         case TID_NIT_ACT: {
-            SafePtr<NIT> nit(new NIT(_duck, table));
+            std::shared_ptr<NIT> nit(new NIT(_duck, table));
             if (nit->isValid()) {
-                _nit = nit;
+                _nit = std::move(nit);
             }
             break;
         }
 
         case TID_MGT: {
-            SafePtr<MGT> mgt(new MGT(_duck, table));
+            std::shared_ptr<MGT> mgt(new MGT(_duck, table));
             if (mgt->isValid()) {
                 _mgt = mgt;
                 // Intercept TVCT and CVCT, they contain the service names.
@@ -243,17 +216,17 @@ void ts::TSScanner::handleTable(SectionDemux&, const BinaryTable& table)
         }
 
         case TID_TVCT: {
-            SafePtr<VCT> vct(new TVCT(_duck, table));
+            std::shared_ptr<VCT> vct(new TVCT(_duck, table));
             if (vct->isValid()) {
-                _vct = vct;
+                _vct = std::move(vct);
             }
             break;
         }
 
         case TID_CVCT: {
-            SafePtr<VCT> vct(new CVCT(_duck, table));
+            std::shared_ptr<VCT> vct(new CVCT(_duck, table));
             if (vct->isValid()) {
-                _vct = vct;
+                _vct = std::move(vct);
             }
             break;
         }
@@ -264,5 +237,5 @@ void ts::TSScanner::handleTable(SectionDemux&, const BinaryTable& table)
     }
 
     // When all tables are ready, stop collection
-    _completed = !_pat.isNull() && (_pat_only || (!_sdt.isNull() && !_nit.isNull()) || (!_mgt.isNull() && !_vct.isNull()));
+    _completed = _pat != nullptr && (_pat_only || (_sdt != nullptr && _nit != nullptr) || (_mgt != nullptr && _vct != nullptr));
 }

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
-//  TSDuck - The MPEG Transport Stream Toolkit
-//  Copyright (c) 2005-2022, Thierry Lelegard
-//  All rights reserved.
-//
-//  Redistribution and use in source and binary forms, with or without
-//  modification, are permitted provided that the following conditions are met:
-//
-//  1. Redistributions of source code must retain the above copyright notice,
-//     this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//
-//  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-//  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-//  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-//  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-//  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-//  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-//  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-//  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-//  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-//  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-//  THE POSSIBILITY OF SUCH DAMAGE.
+// TSDuck - The MPEG Transport Stream Toolkit
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -116,8 +95,8 @@ TSDUCKPY bool tspyStartTSProcessor(void* tsp, const tspyTSProcessorArgs* pyargs)
     args.instuff_start = size_t(pyargs->add_start_stuffing);
     args.instuff_stop = size_t(pyargs->add_stop_stuffing);
     args.fixed_bitrate = ts::BitRate(pyargs->bitrate);
-    args.bitrate_adj = ts::MilliSecond(pyargs->bitrate_adjust_interval);
-    args.receive_timeout = ts::MilliSecond(pyargs->receive_timeout);
+    args.bitrate_adj = cn::milliseconds(cn::milliseconds::rep(pyargs->bitrate_adjust_interval));
+    args.receive_timeout = cn::milliseconds(cn::milliseconds::rep(pyargs->receive_timeout));
     args.log_plugin_index = bool(pyargs->log_plugin_index);
 
     // Default input and output plugins.
@@ -152,7 +131,7 @@ TSDUCKPY bool tspyStartTSProcessor(void* tsp, const tspyTSProcessorArgs* pyargs)
             continue;
         }
         if (current == nullptr) {
-            proc->report().error(u"unexpected argument '%s'", {*it});
+            proc->report().error(u"unexpected argument '%s'", *it);
             return false;
         }
         if (current->name.empty()) {
@@ -171,13 +150,13 @@ TSDUCKPY bool tspyStartTSProcessor(void* tsp, const tspyTSProcessorArgs* pyargs)
         ts::UString cmd(args.app_name);
         cmd.append(u" ");
         cmd.append(args.input.toString(ts::PluginType::INPUT));
-        for (auto it2 = args.plugins.begin(); it2 != args.plugins.end(); ++it2) {
+        for (const auto& it2 : args.plugins) {
             cmd.append(u" ");
-            cmd.append(it2->toString(ts::PluginType::PROCESSOR));
+            cmd.append(it2.toString(ts::PluginType::PROCESSOR));
         }
         cmd.append(u" ");
         cmd.append(args.output.toString(ts::PluginType::OUTPUT));
-        proc->report().debug(u"starting: %s", {cmd});
+        proc->report().debug(u"starting: %s", cmd);
     }
 
     // Finally start the TSProcessor.

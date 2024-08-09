@@ -1,36 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsTCPConnection.h"
 #include "tsIPUtils.h"
-#include "tsGuardMutex.h"
+#include "tsSysUtils.h"
 #include "tsMemory.h"
+#include "tsNullReport.h"
+#include "tsException.h"
 
 
 //----------------------------------------------------------------------------
@@ -54,7 +35,7 @@ void ts::TCPConnection::handleDisconnected(Report& report)
 void ts::TCPConnection::declareConnected(Report& report)
 {
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (_is_connected) {
             report.fatal(u"implementation error: TCP socket already connected");
             throw ImplementationError(u"TCP socket already connected");
@@ -72,7 +53,7 @@ void ts::TCPConnection::declareConnected(Report& report)
 void ts::TCPConnection::declareDisconnected(Report& report)
 {
     {
-        GuardMutex lock(_mutex);
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (_is_connected) {
             _is_connected = false;
         }
@@ -105,7 +86,7 @@ bool ts::TCPConnection::getPeer(IPv4SocketAddress& peer, Report& report) const
     SysSocketLengthType len = sizeof(sock_addr);
     TS_ZERO(sock_addr);
     if (::getpeername(getSocket(), &sock_addr, &len) != 0) {
-        report.error(u"error getting socket peer: " + SysSocketErrorCodeMessage());
+        report.error(u"error getting socket peer: %s", SysErrorCodeMessage());
         return false;
     }
     peer = IPv4SocketAddress(sock_addr);
@@ -142,7 +123,7 @@ bool ts::TCPConnection::send(const void* buffer, size_t size, Report& report)
         }
 #endif
         else {
-            report.error(u"error sending data to socket: " + SysSocketErrorCodeMessage());
+            report.error(u"error sending data to socket: %s", SysErrorCodeMessage());
             return false;
         }
     }
@@ -169,29 +150,29 @@ bool ts::TCPConnection::receive(void* data,             // Buffers address
     // Loop on unsollicited interrupts
     for (;;) {
         SysSocketSignedSizeType got = ::recv(getSocket(), SysRecvBufferPointer(data), int(max_size), 0);
-        const SysSocketErrorCode err_code = LastSysSocketErrorCode();
+        const int errcode = LastSysErrorCode();
         if (got > 0) {
             // Received some data
             assert(size_t(got) <= max_size);
             ret_size = size_t(got);
             return true;
         }
-        else if (got == 0 || err_code == SYS_SOCKET_ERR_RESET) {
+        else if (got == 0 || errcode == SYS_SOCKET_ERR_RESET) {
             // End of connection (graceful or aborted). Do not report an error.
             declareDisconnected(report);
             return false;
         }
-#if !defined(TS_WINDOWS)
-        else if (err_code == EINTR) {
+#if defined(TS_UNIX)
+        else if (errcode == EINTR) {
             // Ignore signal, retry
             report.debug(u"recv() interrupted by signal, retrying");
         }
 #endif
         else {
-            GuardMutex lock(_mutex);
+            std::lock_guard<std::recursive_mutex> lock(_mutex);
             if (isOpen()) {
                 // Report the error only if the error does not result from a close in another thread.
-                report.error(u"error receiving data from socket: %s", {SysSocketErrorCodeMessage(err_code)});
+                report.error(u"error receiving data from socket: %s", SysErrorCodeMessage(errcode));
             }
             return false;
         }
@@ -236,7 +217,7 @@ bool ts::TCPConnection::connect(const IPv4SocketAddress& addr, Report& report)
     for (;;) {
         ::sockaddr sock_addr;
         addr.copy(sock_addr);
-        report.debug(u"connecting to %s", {addr});
+        report.debug(u"connecting to %s", addr);
         if (::connect(getSocket(), &sock_addr, sizeof(sock_addr)) == 0) {
             declareConnected(report);
             return true;
@@ -248,7 +229,7 @@ bool ts::TCPConnection::connect(const IPv4SocketAddress& addr, Report& report)
         }
 #endif
         else {
-            report.error(u"error connecting socket: %s", {SysSocketErrorCodeMessage()});
+            report.error(u"error connecting socket: %s", SysErrorCodeMessage());
             return false;
         }
     }
@@ -262,11 +243,11 @@ bool ts::TCPConnection::connect(const IPv4SocketAddress& addr, Report& report)
 bool ts::TCPConnection::shutdownSocket(int how, Report& report)
 {
     if (::shutdown(getSocket(), how) != 0) {
-        const SysSocketErrorCode err_code = LastSysSocketErrorCode();
-        GuardMutex lock(_mutex);
+        const int errcode = LastSysErrorCode();
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         // Do not report "not connected" errors since they are normal when the peer disconnects first.
-        if (isOpen() && err_code != SYS_SOCKET_ERR_NOTCONN) {
-            report.error(u"error shutting down socket: %s", {SysSocketErrorCodeMessage(err_code)});
+        if (isOpen() && errcode != SYS_SOCKET_ERR_NOTCONN) {
+            report.error(u"error shutting down socket: %s", SysErrorCodeMessage(errcode));
             return false;
         }
     }

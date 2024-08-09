@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -127,11 +106,6 @@ void ts::xml::Attribute::setDate(const Time& value)
     setString(DateToString(value));
 }
 
-void ts::xml::Attribute::setTime(Second value)
-{
-    setString(TimeToString(value));
-}
-
 
 //----------------------------------------------------------------------------
 // Static date/time conversions.
@@ -140,18 +114,13 @@ void ts::xml::Attribute::setTime(Second value)
 ts::UString ts::xml::Attribute::DateTimeToString(const Time& value)
 {
     const Time::Fields f(value);
-    return UString::Format(u"%04d-%02d-%02d %02d:%02d:%02d", {f.year, f.month, f.day, f.hour, f.minute, f.second});
+    return UString::Format(u"%04d-%02d-%02d %02d:%02d:%02d", f.year, f.month, f.day, f.hour, f.minute, f.second);
 }
 
 ts::UString ts::xml::Attribute::DateToString(const Time& value)
 {
     const Time::Fields f(value);
-    return UString::Format(u"%04d-%02d-%02d", {f.year, f.month, f.day});
-}
-
-ts::UString ts::xml::Attribute::TimeToString(Second value)
-{
-    return UString::Format(u"%02d:%02d:%02d", {value / 3600, (value / 60) % 60, value % 60});
+    return UString::Format(u"%04d-%02d-%02d", f.year, f.month, f.day);
 }
 
 bool ts::xml::Attribute::DateTimeFromString(Time& value, const UString& str)
@@ -164,22 +133,4 @@ bool ts::xml::Attribute::DateFromString(Time& value, const UString& str)
 {
     // We are tolerant on syntax, decode 3 fields, regardless of separators.
     return value.decode(str, Time::YEAR | Time::MONTH | Time::DAY);
-}
-
-bool ts::xml::Attribute::TimeFromString(Second& value, const UString& str)
-{
-    Second hours = 0;
-    Second minutes = 0;
-    Second seconds = 0;
-
-    const bool ok = str.scan(u"%d:%d:%d", {&hours, &minutes, &seconds}) &&
-        hours   >= 0 && hours   <= 23 &&
-        minutes >= 0 && minutes <= 59 &&
-        seconds >= 0 && seconds <= 59;
-
-    if (ok) {
-        value = (hours * 3600) + (minutes * 60) + seconds;
-    }
-
-    return ok;
 }

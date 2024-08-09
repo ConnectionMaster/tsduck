@@ -1,38 +1,17 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
 #include "tsDescriptorList.h"
 #include "tsAbstractDescriptor.h"
 #include "tsAbstractTable.h"
-#include "tsPrivateDataSpecifierDescriptor.h"
 #include "tsDuckContext.h"
 #include "tsxmlElement.h"
+#include "tsFatal.h"
 
 
 //----------------------------------------------------------------------------
@@ -40,8 +19,7 @@
 //----------------------------------------------------------------------------
 
 ts::DescriptorList::DescriptorList(const AbstractTable* table) :
-    _table(table),
-    _list()
+    _table(table)
 {
 }
 
@@ -98,7 +76,7 @@ bool ts::DescriptorList::operator==(const DescriptorList& other) const
     for (size_t i = 0; i < _list.size(); ++i) {
         const DescriptorPtr& desc1(_list[i].desc);
         const DescriptorPtr& desc2(other._list[i].desc);
-        if (desc1.isNull() || desc2.isNull() || *desc1 != *desc2) {
+        if (desc1 == nullptr || desc2 == nullptr || *desc1 != *desc2) {
             return false;
         }
     }
@@ -114,7 +92,7 @@ bool ts::DescriptorList::add(const DescriptorPtr& desc)
 {
     PDS pds = 0;
 
-    if (desc.isNull() || !desc->isValid()) {
+    if (desc == nullptr || !desc->isValid()) {
         return false;
     }
 
@@ -146,7 +124,7 @@ bool ts::DescriptorList::add(const DescriptorPtr& desc)
 bool ts::DescriptorList::add(DuckContext& duck, const AbstractDescriptor& desc)
 {
     DescriptorPtr pd(new Descriptor);
-    CheckNonNull(pd.pointer());
+    CheckNonNull(pd.get());
     return desc.serialize(duck, *pd) && add(pd);
 }
 
@@ -162,7 +140,7 @@ bool ts::DescriptorList::add(const void* data, size_t size)
     bool success = true;
 
     while (size >= 2 && (length = size_t(desc[1]) + 2) <= size) {
-        success = add(DescriptorPtr(new Descriptor(desc, length))) && success;
+        success = add(std::make_shared<Descriptor>(desc, length)) && success;
         desc += length;
         size -= length;
     }
@@ -179,7 +157,7 @@ void ts::DescriptorList::merge(DuckContext& duck, const AbstractDescriptor& desc
 {
     // Serialize the new descriptor. In case of error, there is nothing we can add.
     DescriptorPtr bindesc(new Descriptor);
-    CheckNonNull(bindesc.pointer());
+    CheckNonNull(bindesc.get());
     desc.serialize(duck, *bindesc);
     if (!bindesc->isValid()) {
         return;
@@ -207,13 +185,13 @@ void ts::DescriptorList::merge(DuckContext& duck, const AbstractDescriptor& desc
                     // New descriptor shall be merged into old one.
                     // We need to deserialize the previous descriptor first.
                     const AbstractDescriptorPtr dp(_list[index].desc->deserialize(duck, pds, _table));
-                    if (!dp.isNull() && dp->merge(desc)) {
+                    if (dp != nullptr && dp->merge(desc)) {
                         // Descriptor successfully merged. Reserialize it and replace it.
                         DescriptorPtr newdesc(new Descriptor);
-                        CheckNonNull(newdesc.pointer());
+                        CheckNonNull(newdesc.get());
                         dp->serialize(duck, *newdesc);
                         if (newdesc->isValid()) {
-                            _list[index].desc = newdesc;
+                            _list[index].desc = std::move(newdesc);
                             return;
                         }
                     }
@@ -254,7 +232,7 @@ void ts::DescriptorList::merge(DuckContext& duck, const DescriptorList& other)
         for (size_t index = 0; index < other._list.size(); ++index) {
             // The descriptor from the other list must be deserialized to be merged.
             const AbstractDescriptorPtr dp(other._list[index].desc->deserialize(duck, other._list[index].pds, other._table));
-            if (dp.isNull() || dp->duplicationMode() == DescriptorDuplication::ADD_ALWAYS) {
+            if (dp == nullptr || dp->duplicationMode() == DescriptorDuplication::ADD_ALWAYS) {
                 // Cannot be deserialized or simply add the descriptor.
                 addPrivateDataSpecifier(other._list[index].pds);
                 add(other._list[index].desc);
@@ -286,7 +264,7 @@ const ts::DescriptorPtr& ts::DescriptorList::operator[](size_t index) const
 ts::EDID ts::DescriptorList::edid(size_t index) const
 {
     // Eliminate invalid descriptor, index out of range.
-    if (index >= _list.size() || _list[index].desc.isNull() || !_list[index].desc->isValid()) {
+    if (index >= _list.size() || _list[index].desc == nullptr || !_list[index].desc->isValid()) {
         return EDID(); // invalid value
     }
     else {
@@ -354,7 +332,7 @@ void ts::DescriptorList::addPrivateDataSpecifier(PDS pds)
         data[0] = DID_PRIV_DATA_SPECIF;
         data[1] = 4;
         PutUInt32(data + 2, pds);
-        add(DescriptorPtr(new Descriptor(data, sizeof(data))));
+        add(std::make_shared<Descriptor>(data, sizeof(data)));
     }
 }
 
@@ -370,7 +348,7 @@ size_t ts::DescriptorList::removeInvalidPrivateDescriptors()
     size_t count = 0;
 
     for (size_t n = 0; n < _list.size(); ) {
-        if (_list[n].pds == 0 && !_list[n].desc.isNull() && _list[n].desc->isValid() && _list[n].desc->tag() >= 0x80) {
+        if (_list[n].pds == 0 && _list[n].desc != nullptr && _list[n].desc->isValid() && _list[n].desc->tag() >= 0x80) {
             _list.erase(_list.begin() + n);
             count++;
         }
@@ -456,7 +434,7 @@ size_t ts::DescriptorList::serialize(uint8_t*& addr, size_t& size, size_t start)
     size_t i;
 
     for (i = start; i < _list.size() && _list[i].desc->size() <= size; ++i) {
-        ::memcpy(addr, _list[i].desc->content(), _list[i].desc->size());
+        MemCopy(addr, _list[i].desc->content(), _list[i].desc->size());
         addr += _list[i].desc->size();
         size -= _list[i].desc->size();
     }
@@ -581,7 +559,7 @@ size_t ts::DescriptorList::searchLanguage(const DuckContext& duck, const UString
     // Seach all known types of descriptors containing languages.
     for (size_t index = start_index; index < _list.size(); index++) {
         const DescriptorPtr& desc(_list[index].desc);
-        if (!desc.isNull() && desc->isValid()) {
+        if (desc != nullptr && desc->isValid()) {
 
             const DID tag = desc->tag();
             const PDS pds = _list[index].pds;
@@ -746,7 +724,7 @@ bool ts::DescriptorList::toXML(DuckContext& duck, xml::Element* parent) const
 {
     bool success = true;
     for (size_t index = 0; index < _list.size(); ++index) {
-        if (_list[index].desc.isNull() || _list[index].desc->toXML(duck, parent, duck.actualPDS(_list[index].pds), tableId() , false) == nullptr) {
+        if (_list[index].desc == nullptr || _list[index].desc->toXML(duck, parent, duck.actualPDS(_list[index].pds), tableId() , false) == nullptr) {
             success = false;
         }
     }
@@ -780,8 +758,7 @@ bool ts::DescriptorList::fromXML(DuckContext& duck, xml::ElementVector& others, 
     // Analyze all children nodes.
     for (const xml::Element* node = parent == nullptr ? nullptr : parent->firstChildElement(); node != nullptr; node = node->nextSiblingElement()) {
 
-        DescriptorPtr bin = new Descriptor;
-        CheckNonNull(bin.pointer());
+        DescriptorPtr bin = std::make_shared<Descriptor>();
 
         // Try to analyze the XML element.
         if (bin->fromXML(duck, node, tableId())) {
@@ -791,7 +768,7 @@ bool ts::DescriptorList::fromXML(DuckContext& duck, xml::ElementVector& others, 
             }
             else {
                 // The XML name is correct but the XML structure failed to produce a valid descriptor.
-                parent->report().error(u"Error in descriptor <%s> at line %d", {node->name(), node->lineNumber()});
+                parent->report().error(u"Error in descriptor <%s> at line %d", node->name(), node->lineNumber());
                 success = false;
             }
         }
@@ -804,7 +781,7 @@ bool ts::DescriptorList::fromXML(DuckContext& duck, xml::ElementVector& others, 
                 // Always ignore <metadata> nodes.
             }
             else {
-                parent->report().error(u"Illegal <%s> at line %d", {node->name(), node->lineNumber()});
+                parent->report().error(u"Illegal <%s> at line %d", node->name(), node->lineNumber());
                 success = false;
             }
         }

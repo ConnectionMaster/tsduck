@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //
@@ -41,19 +20,9 @@
 
 class GridTest: public tsunit::Test
 {
-public:
-    virtual void beforeTest() override;
-    virtual void afterTest() override;
-
-    void testNarrow();
-    void testDefault();
-    void testLayout();
-
-    TSUNIT_TEST_BEGIN(GridTest);
-    TSUNIT_TEST(testNarrow);
-    TSUNIT_TEST(testDefault);
-    TSUNIT_TEST(testLayout);
-    TSUNIT_TEST_END();
+    TSUNIT_DECLARE_TEST(Narrow);
+    TSUNIT_DECLARE_TEST(Default);
+    TSUNIT_DECLARE_TEST(Layout);
 
 private:
     static void cleanupEndLines(std::string& text);
@@ -63,18 +32,8 @@ TSUNIT_REGISTER(GridTest);
 
 
 //----------------------------------------------------------------------------
-// Initialization.
+// Cleanup end of lines.
 //----------------------------------------------------------------------------
-
-// Test suite initialization method.
-void GridTest::beforeTest()
-{
-}
-
-// Test suite cleanup method.
-void GridTest::afterTest()
-{
-}
 
 // Cleanup end of lines.
 void GridTest::cleanupEndLines(std::string& text)
@@ -92,7 +51,7 @@ void GridTest::cleanupEndLines(std::string& text)
 // Unitary tests.
 //----------------------------------------------------------------------------
 
-void GridTest::testNarrow()
+TSUNIT_DEFINE_TEST(Narrow)
 {
     std::ostringstream out;
     ts::Grid gr(out);
@@ -141,7 +100,7 @@ void GridTest::testNarrow()
     TSUNIT_EQUAL(reference, buffer);
 }
 
-void GridTest::testDefault()
+TSUNIT_DEFINE_TEST(Default)
 {
     std::ostringstream out;
     ts::Grid gr(out);
@@ -173,7 +132,7 @@ void GridTest::testDefault()
     TSUNIT_EQUAL(reference, buffer);
 }
 
-void GridTest::testLayout()
+TSUNIT_DEFINE_TEST(Layout)
 {
     std::ostringstream out;
     ts::Grid gr(out);

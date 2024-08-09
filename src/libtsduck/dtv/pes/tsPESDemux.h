@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -39,6 +18,7 @@
 #include "tsMPEG2AudioAttributes.h"
 #include "tsMPEG2VideoAttributes.h"
 #include "tsAVCAttributes.h"
+#include "tsHEVCAttributes.h"
 #include "tsAC3Attributes.h"
 #include "tsSectionDemux.h"
 
@@ -54,7 +34,7 @@ namespace ts {
         //!
         //! Explicit reference to superclass.
         //!
-        typedef TimeTrackerDemux SuperClass;
+        using SuperClass = TimeTrackerDemux;
 
         //!
         //! Constructor.
@@ -71,6 +51,23 @@ namespace ts {
 
         // Inherited methods
         virtual void feedPacket(const TSPacket& pkt) override;
+
+        //!
+        //! Flush any unterminated unbounded PES packet on the specified PID.
+        //! Unbounded PES packets have no predetermined size. They implicitely end when the next PES
+        //! packet starts on the same PID. However, at end of stream, there is no next PES packet and
+        //! the previous buffered data are not considered as a full unbounded packet. These data are lost.
+        //! This method shall be called at end of stream when the caller is certain that the buffered data
+        //! from the PID form a complete PES packet. This PES packet is then processed.
+        //! @param [in] pid PID containing an unbounded PES packet to complete.
+        //!
+        void flushUnboundedPES(PID pid);
+
+        //!
+        //! Flush any unterminated unbounded PES packet on all PID's.
+        //! @see flushUnboundedPES(PID)
+        //!
+        void flushUnboundedPES();
 
         //!
         //! Replace the PES packet handler.
@@ -176,47 +173,50 @@ namespace ts {
         // This internal structure contains the analysis context for one PID.
         struct PIDContext
         {
-            PacketCounter        pes_count;   // Number of detected valid PES packets on this PID
-            uint8_t              continuity;  // Last continuity counter
-            bool                 sync;        // We are synchronous in this PID
-            PacketCounter        first_pkt;   // Index of first TS packet for current PES packet
-            PacketCounter        last_pkt;    // Index of last TS packet for current PES packet
-            uint64_t             pcr;         // First PCR for current PES packet
-            ByteBlockPtr         ts;          // TS payload buffer
-            MPEG2AudioAttributes audio;       // Current audio attributes
-            MPEG2VideoAttributes video;       // Current video attributes (MPEG-1, MPEG-2)
-            AVCAttributes        avc;         // Current AVC attributes
-            HEVCAttributes       hevc;        // Current HEVC attributes
-            AC3Attributes        ac3;         // Current AC-3 attributes
-            PacketCounter        ac3_count;   // Number of PES packets with contents which looks like AC-3
+            PacketCounter        pes_count = 0;   // Number of detected valid PES packets on this PID
+            uint8_t              continuity = 0;  // Last continuity counter
+            bool                 sync = false;        // We are synchronous in this PID
+            PacketCounter        first_pkt = 0;   // Index of first TS packet for current PES packet
+            PacketCounter        last_pkt = 0;    // Index of last TS packet for current PES packet
+            uint64_t             pcr {INVALID_PCR};         // First PCR for current PES packet
+            ByteBlockPtr         ts {};          // TS payload buffer
+            MPEG2AudioAttributes audio {};       // Current audio attributes
+            MPEG2VideoAttributes video {};       // Current video attributes (MPEG-1, MPEG-2)
+            AVCAttributes        avc {};         // Current AVC attributes
+            HEVCAttributes       hevc {};        // Current HEVC attributes
+            AC3Attributes        ac3 {};         // Current AC-3 attributes
+            PacketCounter        ac3_count = 0;   // Number of PES packets with contents which looks like AC-3
 
             // Default constructor:
-            PIDContext();
+            PIDContext() : ts(new ByteBlock()) {}
 
-            // Called when packet synchronization is lost on the pid
-            void syncLost() {sync = false; ts->clear();}
+            // Called when packet synchronization is lost on the PID.
+            void syncLost() { sync = false; ts->clear(); }
         };
 
         // Map of PID contexts, indexed by PID.
         // One context is created per demuxed PES PID.
-        typedef std::map<PID,PIDContext> PIDContextMap;
+        using PIDContextMap = std::map<PID,PIDContext>;
 
         // This internal structure describes the content of one PID.
         struct PIDType
         {
-            uint8_t   stream_type;    // Stream type from PMT.
-            CodecType default_codec;  // Default codec if not otherwise sepcified.
+            uint8_t   stream_type {ST_NULL};                 // Stream type from PMT.
+            CodecType default_codec {CodecType::UNDEFINED};  // Default codec if not otherwise sepcified.
 
             // Default constructor:
-            PIDType();
+            PIDType() = default;
         };
 
         // Map of PID types, indexed by PID.
         // All known PID's are referenced here, not only demuxed PES PID's.
-        typedef std::map<PID,PIDType> PIDTypeMap;
+        using PIDTypeMap = std::map<PID,PIDType>;
 
         // Feed the demux with a TS packet (PID already filtered).
         void processPacket(const TSPacket&);
+
+        // If a PID context contains a complete PES packet with specified length, process it.
+        void processPESPacketIfComplete(PID, PIDContext&);
 
         // Process a complete PES packet
         void processPESPacket(PID, PIDContext&);
@@ -228,10 +228,10 @@ namespace ts {
         virtual void handleTable(SectionDemux& demux, const BinaryTable& table) override;
 
         // Private members:
-        PESHandlerInterface* _pes_handler;
-        CodecType            _default_codec;
-        PIDContextMap        _pids;
-        PIDTypeMap           _pid_types;
+        PESHandlerInterface* _pes_handler = nullptr;
+        CodecType            _default_codec {CodecType::UNDEFINED};
+        PIDContextMap        _pids {};
+        PIDTypeMap           _pid_types {};
         SectionDemux         _section_demux;
     };
 }

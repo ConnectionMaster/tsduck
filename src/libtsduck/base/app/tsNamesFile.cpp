@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 
@@ -31,9 +10,7 @@
 #include "tsFileUtils.h"
 #include "tsCerrReport.h"
 #include "tsFatal.h"
-#include "tsMutex.h"
-#include "tsGuardMutex.h"
-#include "tsSingletonManager.h"
+#include "tsSingleton.h"
 
 
 //----------------------------------------------------------------------------
@@ -42,12 +19,14 @@
 
 namespace {
     struct Predef {
+        // The instance is also registered in AllInstances, as any NamesFile.
+        // This is just a faster lookup table.
         const ts::NamesFile* volatile instance;
         const ts::UChar* name;
         bool merge;
     };
     Predef PredefData[] = {
-        {nullptr, u"tsduck.names", true},          // DTV
+        {nullptr, u"tsduck.dtv.names", true},      // DTV
         {nullptr, u"tsduck.ip.names", false},      // IP
         {nullptr, u"tsduck.oui.names", false},     // OUI
         {nullptr, u"tsduck.dektec.names", false},  // DEKTEC
@@ -73,19 +52,16 @@ namespace {
         void removeExtensionFile(const ts::UString& fileName);
         void getExtensionFiles(ts::UStringList& fileNames);
     private:
-        ts::Mutex                                    _mutex;     // Protected access to other fiekds.
-        std::map <ts::UString, const ts::NamesFile*> _files;     // Loaded instances by name.
-        ts::UStringList                              _extFiles;  // Additional names files.
+        std::recursive_mutex                        _mutex {};     // Protected access to other fields.
+        std::map<ts::UString, const ts::NamesFile*> _files {};     // Loaded instances by name.
+        ts::UStringList                             _extFiles {};  // Additional names files.
     };
 }
 
 TS_DEFINE_SINGLETON(AllInstances);
 
 // Constructor
-AllInstances::AllInstances() :
-    _mutex(),
-    _files(),
-    _extFiles()
+AllInstances::AllInstances()
 {
 }
 
@@ -97,9 +73,9 @@ AllInstances::~AllInstances()
         PredefData[i].instance = nullptr;
     }
     // Deallocate all loaded files.
-    for (auto it = _files.begin(); it != _files.end(); ++it) {
-        delete it->second;
-        it->second = nullptr;
+    for (auto& it : _files) {
+        delete it.second;
+        it.second = nullptr;
     }
     _files.clear();
 }
@@ -107,7 +83,7 @@ AllInstances::~AllInstances()
 // Lookup / load a names file.
 const ts::NamesFile* AllInstances::getFile(const ts::UString& fileName, bool mergeExtensions)
 {
-    ts::GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     auto it = _files.find(fileName);
     if (it != _files.end() && it->second != nullptr) {
         return it->second;
@@ -121,29 +97,33 @@ const ts::NamesFile* AllInstances::getFile(const ts::UString& fileName, bool mer
 void AllInstances::deleteInstance(const ts::NamesFile* instance)
 {
     if (instance != nullptr) {
+        // If this is a predefined data file, forget its instance.
         for (size_t i = 0; i < PredefDataCount; ++i) {
             if (instance == PredefData[i].instance) {
                 PredefData[i].instance = nullptr;
                 break;
             }
         }
-        // Deallocate all loaded files.
-        for (auto it = _files.begin(); it != _files.end(); ++it) {
+        // Unregister the instance.
+        for (auto it = _files.begin(); it != _files.end(); ) {
             if (instance == it->second) {
-                delete it->second;
-                _files.erase(it);
-                break;
+                it = _files.erase(it);
+            }
+            else {
+                ++it;
             }
         }
+        // Deallocate the instance.
+        delete instance;
     }
 }
 
 // Add an extension file name (check that there is no duplicate).
 void AllInstances::addExtensionFile(const ts::UString& fileName)
 {
-    ts::GuardMutex lock(_mutex);
-    for (auto it = _extFiles.begin(); it != _extFiles.end(); ++it) {
-        if (*it == fileName) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    for (const auto& it : _extFiles) {
+        if (it == fileName) {
             return;
         }
     }
@@ -153,11 +133,13 @@ void AllInstances::addExtensionFile(const ts::UString& fileName)
 // Remove an extension file name.
 void AllInstances::removeExtensionFile(const ts::UString& fileName)
 {
-    ts::GuardMutex lock(_mutex);
-    for (auto it = _extFiles.begin(); it != _extFiles.end(); ++it) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    for (auto it = _extFiles.begin(); it != _extFiles.end(); ) {
         if (*it == fileName) {
-            _extFiles.erase(it);
-            return;
+            it = _extFiles.erase(it);
+        }
+        else {
+            ++it;
         }
     }
 }
@@ -165,7 +147,7 @@ void AllInstances::removeExtensionFile(const ts::UString& fileName)
 // Get the list of all extension files.
 void AllInstances::getExtensionFiles(ts::UStringList& fileNames)
 {
-    ts::GuardMutex lock(_mutex);
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
     fileNames = _extFiles;
 }
 
@@ -176,7 +158,7 @@ void AllInstances::getExtensionFiles(ts::UStringList& fileNames)
 
 const ts::NamesFile* ts::NamesFile::Instance(const UString& fileName, bool mergeExtensions)
 {
-    return AllInstances::Instance()->getFile(fileName, mergeExtensions);
+    return AllInstances::Instance().getFile(fileName, mergeExtensions);
 }
 
 
@@ -191,7 +173,7 @@ const ts::NamesFile* ts::NamesFile::Instance(Predefined index)
     }
     Predef* pr = PredefData + size_t(index);
     if (pr->instance == nullptr) {
-        pr->instance = AllInstances::Instance()->getFile(pr->name, pr->merge);
+        pr->instance = AllInstances::Instance().getFile(pr->name, pr->merge);
     }
     return pr->instance;
 }
@@ -199,7 +181,7 @@ const ts::NamesFile* ts::NamesFile::Instance(Predefined index)
 void ts::NamesFile::DeleteInstance(Predefined index)
 {
     if (size_t(index) < PredefDataCount) {
-        AllInstances::Instance()->deleteInstance(PredefData[size_t(index)].instance);
+        AllInstances::Instance().deleteInstance(PredefData[size_t(index)].instance);
     }
 }
 
@@ -210,14 +192,14 @@ void ts::NamesFile::DeleteInstance(Predefined index)
 
 ts::NamesFile::RegisterExtensionFile::RegisterExtensionFile(const UString& filename)
 {
-    CERR.debug(u"registering names file %s", {filename});
-    AllInstances::Instance()->addExtensionFile(filename);
+    CERR.debug(u"registering names file %s", filename);
+    AllInstances::Instance().addExtensionFile(filename);
 }
 
 void ts::NamesFile::UnregisterExtensionFile(const UString& filename)
 {
-    CERR.debug(u"unregistering names file %s", {filename});
-    AllInstances::Instance()->removeExtensionFile(filename);
+    CERR.debug(u"unregistering names file %s", filename);
+    AllInstances::Instance().removeExtensionFile(filename);
 }
 
 
@@ -227,14 +209,12 @@ void ts::NamesFile::UnregisterExtensionFile(const UString& filename)
 
 ts::NamesFile::NamesFile(const UString& fileName, bool mergeExtensions) :
     _log(CERR),
-    _configFile(SearchConfigurationFile(fileName)),
-    _configErrors(0),
-    _sections()
+    _configFile(SearchConfigurationFile(fileName))
 {
     // Locate the configuration file.
     if (_configFile.empty()) {
         // Cannot load configuration, names will not be available.
-        _log.error(u"configuration file '%s' not found", {fileName});
+        _log.error(u"configuration file '%s' not found", fileName);
     }
     else {
         loadFile(_configFile);
@@ -244,11 +224,11 @@ ts::NamesFile::NamesFile(const UString& fileName, bool mergeExtensions) :
     if (mergeExtensions) {
         // Get list of extension names.
         UStringList files;
-        AllInstances::Instance()->getExtensionFiles(files);
-        for (auto name = files.begin(); name != files.end(); ++name) {
-            const UString path(SearchConfigurationFile(*name));
+        AllInstances::Instance().getExtensionFiles(files);
+        for (const auto& name : files) {
+            const UString path(SearchConfigurationFile(name));
             if (path.empty()) {
-                _log.error(u"extension file '%s' not found", {*name});
+                _log.error(u"extension file '%s' not found", name);
             }
             else {
                 loadFile(path);
@@ -264,13 +244,13 @@ ts::NamesFile::NamesFile(const UString& fileName, bool mergeExtensions) :
 
 void ts::NamesFile::loadFile(const UString& fileName)
 {
-    _log.debug(u"loading names file %s", {fileName});
+    _log.debug(u"loading names file %s", fileName);
 
     // Open configuration file.
     std::ifstream strm(fileName.toUTF8().c_str());
     if (!strm) {
         _configErrors++;
-        _log.error(u"error opening file %s", {fileName});
+        _log.error(u"error opening file %s", fileName);
         return;
     }
 
@@ -306,10 +286,10 @@ void ts::NamesFile::loadFile(const UString& fileName)
         }
         else if (!decodeDefinition(line, section)) {
             // Invalid line.
-            _log.error(u"%s: invalid line %d: %s", {fileName, lineNumber, line});
+            _log.error(u"%s: invalid line %d: %s", fileName, lineNumber, line);
             if (++_configErrors >= 20) {
                 // Give up after that number of errors
-                _log.error(u"%s: too many errors, giving up", {fileName});
+                _log.error(u"%s: too many errors, giving up", fileName);
                 break;
             }
         }
@@ -340,9 +320,15 @@ bool ts::NamesFile::decodeDefinition(const UString& line, ConfigSection* section
     // Allowed "thousands separators" (ignored characters)
     const UString ignore(u".,_");
 
-    // Special case: specification of size in bits of values in this section.
+    // Special cases (not values):
     if (range.similar(u"bits")) {
+        // Specification of size in bits of values in this section.
         return value.toInteger(section->bits, ignore, 0, UString());
+    }
+    else if (range.similar(u"inherit")) {
+        // Name of a section where to search unknown values here.
+        section->inherit = value;
+        return true;
     }
 
     // Decode "first[-last]"
@@ -365,7 +351,7 @@ bool ts::NamesFile::decodeDefinition(const UString& line, ConfigSection* section
             section->addEntry(first, last, value);
         }
         else {
-            _log.error(u"%s: range 0x%X-0x%X overlaps with an existing range", {_configFile, first, last});
+            _log.error(u"%s: range 0x%X-0x%X overlaps with an existing range", _configFile, first, last);
             valid = false;
         }
     }
@@ -380,21 +366,10 @@ bool ts::NamesFile::decodeDefinition(const UString& line, ConfigSection* section
 ts::NamesFile::~NamesFile()
 {
     // Deallocate all configuration sections.
-    for (auto it = _sections.begin(); it != _sections.end(); ++it) {
-        delete it->second;
+    for (const auto& it : _sections) {
+        delete it.second;
     }
     _sections.clear();
-}
-
-
-//----------------------------------------------------------------------------
-// Configuration entry.
-//----------------------------------------------------------------------------
-
-ts::NamesFile::ConfigEntry::ConfigEntry(Value l, const UString& n) :
-    last(l),
-    name(n)
-{
 }
 
 
@@ -402,17 +377,11 @@ ts::NamesFile::ConfigEntry::ConfigEntry(Value l, const UString& n) :
 // Configuration section.
 //----------------------------------------------------------------------------
 
-ts::NamesFile::ConfigSection::ConfigSection() :
-    bits(0),
-    entries()
-{
-}
-
 ts::NamesFile::ConfigSection::~ConfigSection()
 {
     // Deallocate all configuration entries.
-    for (auto it = entries.begin(); it != entries.end(); ++it) {
-        delete it->second;
+    for (const auto& it : entries) {
+        delete it.second;
     }
     entries.clear();
 }
@@ -539,11 +508,11 @@ ts::UString ts::NamesFile::Formatted(Value value, const UString& name, NamesFlag
         }
         else if (bool(flags & NamesFlags::DECIMAL)) {
             // Display decimal value only.
-            return UString::Format(u"%d", {value});
+            return UString::Format(u"%d", value);
         }
         else {
             // Display hexadecimal value only.
-            return UString::Format(u"0x%0*X", {HexaDigits(bits), value});
+            return UString::Format(u"0x%0*X", HexaDigits(bits), value);
         }
     }
 
@@ -558,17 +527,17 @@ ts::UString ts::NamesFile::Formatted(Value value, const UString& name, NamesFlag
 
     switch (flags & (NamesFlags::FIRST | NamesFlags::DECIMAL | NamesFlags::HEXA)) {
         case NamesFlags::DECIMAL:
-            return UString::Format(u"%s (%d)", {*displayName, value});
+            return UString::Format(u"%s (%d)", *displayName, value);
         case NamesFlags::HEXA:
-            return UString::Format(u"%s (0x%0*X)", {*displayName, HexaDigits(bits), value});
+            return UString::Format(u"%s (0x%0*X)", *displayName, HexaDigits(bits), value);
         case NamesFlags::HEXA | NamesFlags::DECIMAL:
-            return UString::Format(u"%s (0x%0*X, %d)", {*displayName, HexaDigits(bits), value, value});
+            return UString::Format(u"%s (0x%0*X, %d)", *displayName, HexaDigits(bits), value, value);
         case NamesFlags::DECIMAL | NamesFlags::FIRST:
-            return UString::Format(u"%d (%s)", {value, *displayName});
+            return UString::Format(u"%d (%s)", value, *displayName);
         case NamesFlags::HEXA | NamesFlags::FIRST:
-            return UString::Format(u"0x%0*X (%s)", {HexaDigits(bits), value, *displayName});
+            return UString::Format(u"0x%0*X (%s)", HexaDigits(bits), value, *displayName);
         case NamesFlags::HEXA | NamesFlags::DECIMAL | NamesFlags::FIRST:
-            return UString::Format(u"0x%0*X (%d, %s)", {HexaDigits(bits), value, value, *displayName});
+            return UString::Format(u"0x%0*X (%d, %s)", HexaDigits(bits), value, value, *displayName);
         default:
             assert(false);
             return UString();
@@ -579,14 +548,53 @@ ts::UString ts::NamesFile::Formatted(Value value, const UString& name, NamesFlag
 
 
 //----------------------------------------------------------------------------
+// Get the section and name from a value, empty if not found.
+//----------------------------------------------------------------------------
+
+void ts::NamesFile::getName(const UString& sectionName, Value value, ConfigSection*& section, UString& name) const
+{
+    // Normalized section name.
+    UString sname(NormalizedSectionName(sectionName));
+
+    // Limit the number of inheritance levels to avoid infinite loop.
+    int levels = 16;
+
+    // Loop on inherited sections, until a name is found.
+    for (;;) {
+        // Get the section.
+        const auto it = _sections.find(sname);
+        if (it == _sections.end()) {
+            // Section not found, no name.
+            section = nullptr;
+            name.clear();
+            return;
+        }
+
+        // Get the name of the value in the section.
+        section = it->second;
+        name = section->getName(value);
+
+        // Return when name found or no "superclass" or too many levels of inheritance.
+        if (!name.empty() || section->inherit.empty() || levels-- <= 0) {
+            return;
+        }
+
+        // Loop on "superclass".
+        sname = NormalizedSectionName(section->inherit);
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // Check if a name exists in a specified section.
 //----------------------------------------------------------------------------
 
 bool ts::NamesFile::nameExists(const UString& sectionName, Value value) const
 {
-    // Get the section, normalize the section name.
-    const auto it = _sections.find(sectionName.toTrimmed().toLower());
-    return it != _sections.end() && !it->second->getName(value).empty();
+    ConfigSection* section = nullptr;
+    UString name;
+    getName(sectionName, value, section, name);
+    return !name.empty();
 }
 
 
@@ -596,16 +604,16 @@ bool ts::NamesFile::nameExists(const UString& sectionName, Value value) const
 
 ts::UString ts::NamesFile::nameFromSection(const UString& sectionName, Value value, NamesFlags flags, size_t bits, Value alternateValue) const
 {
-    // Get the section, normalize the section name.
-    const auto it = _sections.find(sectionName.toTrimmed().toLower());
-    const ConfigSection* section = it == _sections.end() ? nullptr : it->second;
+    ConfigSection* section = nullptr;
+    UString name;
+    getName(sectionName, value, section, name);
 
     if (section == nullptr) {
         // Non-existent section, no name.
         return Formatted(value, UString(), flags, bits, alternateValue);
     }
     else {
-        return Formatted(value, section->getName(value), flags, bits != 0 ? bits : section->bits, alternateValue);
+        return Formatted(value, name, flags, bits != 0 ? bits : section->bits, alternateValue);
     }
 }
 
@@ -616,23 +624,30 @@ ts::UString ts::NamesFile::nameFromSection(const UString& sectionName, Value val
 
 ts::UString ts::NamesFile::nameFromSectionWithFallback(const UString& sectionName, Value value1, Value value2, NamesFlags flags, size_t bits, Value alternateValue) const
 {
-    // Get the section, normalize the section name.
-    const auto it = _sections.find(sectionName.toTrimmed().toLower());
-    const ConfigSection* section = it == _sections.end() ? nullptr : it->second;
+    ConfigSection* section = nullptr;
+    UString name;
+    getName(sectionName, value1, section, name);
 
     if (section == nullptr) {
         // Non-existent section, no name.
         return Formatted(value1, UString(), flags, bits, alternateValue);
     }
-    else {
-        const UString name(section->getName(value1));
-        if (!name.empty()) {
-            // value1 has a name
-            return Formatted(value1, name, flags, bits != 0 ? bits : section->bits, alternateValue);
-        }
-        else {
-            // value1 has no name, use value2.
-            return Formatted(value2, section->getName(value2), flags, bits != 0 ? bits : section->bits, alternateValue);
-        }
+    else if (!name.empty()) {
+        // value1 has a name
+        return Formatted(value1, name, flags, bits != 0 ? bits : section->bits, alternateValue);
     }
+    else {
+        // value1 has no name, use value2, restart from the beginning in case of inheritance.
+        return nameFromSection(sectionName, value2, flags, bits, alternateValue);
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Get the name of an OUI (IEEE-assigned Organizationally Unique Identifier).
+//----------------------------------------------------------------------------
+
+ts::UString ts::NameFromOUI(uint32_t oui, NamesFlags flags)
+{
+    return NamesFile::Instance(NamesFile::Predefined::OUI)->nameFromSection(u"OUI", NamesFile::Value(oui), flags, 24);
 }

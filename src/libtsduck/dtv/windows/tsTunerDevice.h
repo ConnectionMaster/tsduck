@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -38,7 +17,6 @@
 #include "tsTunerBase.h"
 #include "tsModulationArgs.h"
 #include "tsAbortInterface.h"
-#include "tsSafePtr.h"
 #include "tsReport.h"
 #include "tsTunerGraph.h"
 
@@ -61,7 +39,7 @@ namespace ts {
         //!
         //! Destructor.
         //!
-        ~TunerDevice();
+        virtual ~TunerDevice() override;
 
         // Implementation of TunerBase.
         virtual bool open(const UString& device_name, bool info_only) override;
@@ -79,27 +57,27 @@ namespace ts {
         virtual void abort(bool silent = false) override;
         virtual size_t receive(TSPacket* buffer, size_t max_packets, const AbortInterface* abort = nullptr) override;
         virtual bool getCurrentTuning(ModulationArgs& params, bool reset_unknown) override;
-        virtual void setSignalTimeout(MilliSecond t) override;
+        virtual void setSignalTimeout(cn::milliseconds t) override;
         virtual void setSignalTimeoutSilent(bool silent) override;
-        virtual bool setReceiveTimeout(MilliSecond t) override;
-        virtual MilliSecond receiveTimeout() const override;
+        virtual bool setReceiveTimeout(cn::milliseconds t) override;
+        virtual cn::milliseconds receiveTimeout() const override;
         virtual void setSinkQueueSize(size_t s) override;
         virtual void setReceiverFilterName(const UString& name) override;
         virtual std::ostream& displayStatus(std::ostream& strm, const UString& margin = UString(), bool extended = false) override;
 
     private:
-        bool              _is_open;
-        bool              _info_only;
-        UString           _device_name;      // Used to open the tuner
-        UString           _device_info;      // Device-specific, can be empty
-        UString           _device_path;      // System-specific device path.
-        MilliSecond       _signal_timeout;
-        bool              _signal_timeout_silent;
-        MilliSecond       _receive_timeout;
-        DeliverySystemSet _delivery_systems;
-        volatile bool     _aborted;          // Reception was aborted
-        size_t            _sink_queue_size;  // Media sample queue size
-        TunerGraph        _graph;            // The filter graph
+        bool              _is_open = false;
+        bool              _info_only = false;
+        UString           _device_name {};    // Used to open the tuner
+        UString           _device_info {};    // Device-specific, can be empty
+        UString           _device_path {};    // System-specific device path.
+        cn::milliseconds  _signal_timeout = DEFAULT_SIGNAL_TIMEOUT;
+        bool              _signal_timeout_silent = false;
+        cn::milliseconds  _receive_timeout {};
+        DeliverySystemSet _delivery_systems {};
+        volatile bool     _aborted = false;   // Reception was aborted
+        size_t            _sink_queue_size = DEFAULT_SINK_QUEUE_SIZE; // Media sample queue size
+        TunerGraph        _graph {};          // The filter graph
 
         // Find one or more tuners. Exactly one of Tuner* or TunerPtrVector* must be non-zero.
         // If Tuner* is non-zero, find the first tuner (matching _device_name if not empty).

@@ -1,29 +1,8 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2022, Thierry Lelegard
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// 1. Redistributions of source code must retain the above copyright notice,
-//    this list of conditions and the following disclaimer.
-// 2. Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
-// THE POSSIBILITY OF SUCH DAMAGE.
+// Copyright (c) 2005-2024, Thierry Lelegard
+// BSD-2-Clause license, see LICENSE.txt file or https://tsduck.io/license
 //
 //----------------------------------------------------------------------------
 //!
@@ -51,7 +30,7 @@ namespace ts {
         //! Use isOpen() to check if the file was correctly created.
         //! @param [in,out] report Where to report errors.
         //!
-        explicit SubRipGenerator(const UString& fileName = UString(), Report& report = NULLREP);
+        explicit SubRipGenerator(const fs::path& fileName = UString(), Report& report = NULLREP);
 
         //!
         //! Constructor.
@@ -71,7 +50,7 @@ namespace ts {
         //! @param [in,out] report Where to report errors.
         //! @return True if the file was correctly created and open, false otherwise.
         //!
-        bool open(const UString& fileName, Report& report = NULLREP);
+        bool open(const fs::path& fileName, Report& report = NULLREP);
 
         //!
         //! Open or re-open the generator to a new text stream.
@@ -94,19 +73,24 @@ namespace ts {
 
         //!
         //! Add a multi-lines subtitle frame.
-        //! @param [in] showTimestamp Show frame at this timestamp (in ms from start of stream)
-        //! @param [in] hideTimestamp Hide frame at this timestamp (in ms from start of stream)
+        //! @param [in] showTimestamp Show frame at this timestamp (from start of stream)
+        //! @param [in] hideTimestamp Hide frame at this timestamp (from start of stream)
         //! @param [in] lines Text lines.
         //!
-        void addFrame(MilliSecond showTimestamp, MilliSecond hideTimestamp, const UStringList& lines);
+        template <class Rep1, class Period1, class Rep2, class Period2>
+        void addFrame(const cn::duration<Rep1,Period1>& showTimestamp, const cn::duration<Rep2,Period2>& hideTimestamp, const UStringList& lines);
 
         //!
         //! Add a one-line subtitle frame.
-        //! @param [in] showTimestamp Show frame at this timestamp (in ms from start of stream)
-        //! @param [in] hideTimestamp Hide frame at this timestamp (in ms from start of stream)
+        //! @param [in] showTimestamp Show frame at this timestamp (from start of stream)
+        //! @param [in] hideTimestamp Hide frame at this timestamp (from start of stream)
         //! @param [in] line Text line.
         //!
-        void addFrame(MilliSecond showTimestamp, MilliSecond hideTimestamp, const UString& line);
+        template <class Rep1, class Period1, class Rep2, class Period2>
+        void addFrame(const cn::duration<Rep1,Period1>& showTimestamp, const cn::duration<Rep2,Period2>& hideTimestamp, const UString& line)
+        {
+            addFrame(showTimestamp, hideTimestamp, UStringList {line});
+        }
 
         //!
         //! Get the number of generated frames fo far.
@@ -119,7 +103,8 @@ namespace ts {
         //! @param [in] timestamp Timestamp in milliseconds.
         //! @return SRT formatted time.
         //!
-        static UString FormatTime(MilliSecond timestamp);
+        template <class Rep, class Period>
+        static UString FormatTime(const cn::duration<Rep,Period>& timestamp);
 
         //!
         //! Format a duration as SRT header.
@@ -127,11 +112,69 @@ namespace ts {
         //! @param [in] hideTimestamp Hide frame at this timestamp (in ms from start of stream)
         //! @return SRT formatted duration.
         //!
-        static UString FormatDuration(MilliSecond showTimestamp, MilliSecond hideTimestamp);
+        template <class Rep1, class Period1, class Rep2, class Period2>
+        static UString FormatDuration(const cn::duration<Rep1,Period1>& showTimestamp, const cn::duration<Rep2,Period2>& hideTimestamp)
+        {
+            return FormatTime(showTimestamp) + u" --> " + FormatTime(hideTimestamp);
+        }
 
     private:
-        std::ofstream _outputStream;  //!< Text stream for output file.
-        std::ostream* _stream;        //!< Output text stream.
-        int           _frameCount;    //!< Number of output frames.
+        std::ofstream _outputStream {};   // Text stream for output file.
+        std::ostream* _stream = nullptr;  // Output text stream.
+        int           _frameCount = 0;    // Number of output frames.
     };
 }
+
+
+//----------------------------------------------------------------------------
+// Template definitions.
+//----------------------------------------------------------------------------
+
+#if !defined(DOXYGEN)
+
+// Format a duration as SRT header.
+template <class Rep, class Period>
+ts::UString ts::SubRipGenerator::FormatTime(const cn::duration<Rep,Period>& timestamp)
+{
+    // Time stamp is in milliseconds.
+    const cn::milliseconds::rep ms = cn::duration_cast<cn::milliseconds>(timestamp).count();
+    const int h = int(ms / 3600000);
+    const int m = int(ms / 60000 - 60 * h);
+    const int s = int(ms / 1000 - 3600 * h - 60 * m);
+    const int u = int(ms - 3600000 * h - 60000 * m - 1000 * s);
+    return UString::Format(u"%02d:%02d:%02d,%03d", h, m, s, u);
+}
+
+// Add a multi-lines subtitle frame.
+template <class Rep1, class Period1, class Rep2, class Period2>
+void ts::SubRipGenerator::addFrame(const cn::duration<Rep1,Period1>& showTimestamp, const cn::duration<Rep2,Period2>& hideTimestamp, const UStringList& lines)
+{
+    // Empty lines are illegal in SRT. Make sure we have at least one non-empty line.
+    bool notEmpty = false;
+    for (const auto& it : lines) {
+        if (!it.empty()) {
+            notEmpty = true;
+            break;
+        }
+    }
+
+    // Generate the frame only when it is possible to do so.
+    if (notEmpty && _stream != nullptr) {
+        // First line: Frame count, starting at 1.
+        // Second line: Start and end timestamps.
+        *_stream << ++_frameCount << std::endl
+                 << FormatDuration(showTimestamp, hideTimestamp) << std::endl;
+
+        // Subsequent lines: Subtitle text.
+        for (const auto& it : lines) {
+            // Empty lines are illegal in SRT, skip them.
+            if (!it.empty()) {
+                *_stream << it << std::endl;
+            }
+        }
+        // Trailing empty line to mark the end of frame.
+        *_stream << std::endl;
+    }
+}
+
+#endif // DOXYGEN
